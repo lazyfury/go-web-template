@@ -14,6 +14,13 @@ export default defineConfig({
     }),
   ],
   transformers: [transformerDirectives()],
+  content: {
+    pipeline: {
+      // 默认 include 只覆盖 .vue/.jsx/.tsx 等，纯 .ts/.js（如 config/menu.ts 的图标类）不在扫描范围。
+      // 显式补上 [jt]sx?，确保所有源码文件中的原子类/图标类都被提取。
+      include: [/\.(vue|svelte|[jt]sx?|vine\.ts|mdx?|astro|elm|php|phtml|marko|html)($|\?)/],
+    },
+  },
   theme: {
     colors: {
       brand: {
