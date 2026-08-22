@@ -22,8 +22,8 @@ defineProps<{
         </div>
         <div v-if="trend" class="mt-2 flex items-center gap-1">
           <span
-            class="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-11px font-medium"
-            :class="positive ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'"
+            class="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-11px font-medium text-white"
+            :class="positive ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'"
           >
             <span :class="positive ? 'i-ep-caret-top' : 'i-ep-caret-bottom'" class="text-xs" />
             {{ trend }}
