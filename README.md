@@ -166,9 +166,7 @@ make test
 | skill | 用途 |
 |---|---|
 | `add-domain` | 新增领域模块（model→迁移→repo→service→handler→路由→测试→Swagger 八步） |
-| `run-checks` | 提交前质量检查（fmt/vet/lint/test/race/coverage） |
-| `debug-e2e` | 本地端到端调试与排查 |
-| `docker-deploy` | 镜像/compose/CI 构建部署 |
+| `docker-ops` | 容器编排与本地端到端调试（postgres→迁移→后台跑服务→curl 验证；镜像/compose/CI） |
 | `database-migrations` | 迁移生命周期管理 |
 
 ## License

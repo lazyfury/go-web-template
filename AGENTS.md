@@ -71,7 +71,5 @@ make docker-up / docker-down / docker-build / docker-logs
 | skill | 用途 |
 |---|---|
 | `add-domain` | 新增领域模块（model→迁移→repo→service→handler→路由→测试 八步配方） |
-| `run-checks` | 提交前全量质量检查（fmt/vet/lint/test/race/coverage） |
-| `debug-e2e` | 本地端到端调试与排查（起 postgres→迁移→服务→curl 验证） |
-| `docker-deploy` | 镜像构建 / compose 编排 / CI |
-| `database-migrations` | 迁移生命周期管理（新建/执行/回滚，含软删除与唯一索引注意点） |
+| `docker-ops` | 容器编排与本地端到端调试（postgres→迁移→后台跑服务→curl 验证；镜像构建 / compose / CI） |
+| `database-migrations` | 迁移生命周期管理（新建/执行/回滚，GORM model 同步 checklist） |

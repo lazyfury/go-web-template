@@ -151,4 +151,5 @@ swagger:  {enabled}
 - 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）。
 - `Timeout` 中间件基于 goroutine 包裹，超时后处理协程仍会跑完（无法写回客户端）——这是设计取舍。
 - 常见报错速查：`connection refused` → postgres 未起或网络模式不对（见 AGENTS.md 坑位）；`ILIKE` 语法错误 → 测试库是 SQLite；`metrics 404` → 用了 DefaultServeMux（应 promhttp.Handler）；curl 超时 → 忘加 `--noproxy '*'`。
+- golangci-lint 常见报错修复：`exported: ... should have comment` → 导出标识符补注释（含 const 块内每一项）；`hugeParam` → 大结构体参数改传指针；`unnecessaryBlock` → 去掉多余 `{ }`；`unnamedResult` → 返回值命名；`prealloc` → `var x []T` 改 `x := make([]T, 0, n)`；`ifElseChain` → 改 switch；`ineffectual assignment` → 未用变量改 `_`。
 - 前端：`TS5103 Invalid value for '--ignoreDeprecations'` → tsconfig 该值与 TS major 不匹配（见 ADR 9）；`[sass] Expected newline` → `<style lang="sass">` 声明了缩进式语法但写了 SCSS 花括号，改 `lang="scss"`；`[unocss] failed to load icon "-"` → 无害噪音，来自 JSDoc 注释 `* - xxx` 的独立 `-` token，可忽略。

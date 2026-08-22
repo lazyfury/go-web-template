@@ -1,6 +1,6 @@
 ---
 name: database-migrations
-description: go-web-template 的数据库迁移生命周期管理：golang-migrate 新建/执行/回滚迁移、验证 schema、软删除与唯一索引的注意点、GORM model 与 SQL 迁移的同步要求。
+description: go-web-template 的数据库迁移生命周期操作：golang-migrate 新建/执行/回滚/查看迁移、迁移与 GORM model 的同步 checklist、以及执行后的验证步骤。（表结构设计约定如软删/部分唯一索引见 context.md §5）
 whenToUse: 用户要求改表结构、加新表、回滚迁移、检查迁移状态，或新建迁移文件时。
 ---
 
@@ -31,25 +31,16 @@ docker compose -f deploy/docker-compose.yml run --rm migrate \
 - 重复执行 up 输出 `no change` = 正常。
 - 回滚是危险的：确认没有下游依赖再 down；CI/生产流程一般只 up。
 
-## 3. 软删除与唯一索引（本模板约定）
+## 3. 与 GORM model 同步（双事实来源，checklist）
 
-- 表带 `deleted_at TIMESTAMPTZ`；删除 = 置 deleted_at，行保留审计。
-- **唯一约束必须用部分唯一索引**：`CREATE UNIQUE INDEX ... ON users (email) WHERE deleted_at IS NULL;`——否则软删后无法复用邮箱。
-- 普通查询（GORM 默认 scope）自动过滤已删行；`Unscoped()` 可查含已删行（慎用）。
+改表时四步：① 改 `migrations/00000X_*.sql`（生产 schema）→ ② 同步 `internal/model/<domain>.go` 的 GORM tag → ③ 新增表时把 `&model.X{}` 加进 `internal/testutil/db.go` 的 `Models`（测试建表）→ ④ 查询保持可移植（`LOWER(col) LIKE ?`，SQLite 测试不支持 ILIKE）。
 
-## 4. 与 GORM model 同步（双事实来源）
+表结构设计约定（软删、部分唯一索引等）见 context.md §5 与 ADR 4，不在此重复。
 
-改表时 checklist：
-
-1. 改 `migrations/00000X_*.sql`（生产 schema）。
-2. 同步 `internal/model/<domain>.go` 的 GORM tag（列名/类型/索引/软删字段）。
-3. 新增表时把 `&model.X{}` 加进 `internal/testutil/db.go` 的 `Models`（测试建表）。
-4. 查询保持可移植：`LOWER(col) LIKE ?`（SQLite 测试不支持 ILIKE）。
-
-## 5. 验证
+## 4. 验证
 
 ```bash
-# 本地全链路验证（见 /debug-e2e）：
+# 本地全链路验证（见 /docker-ops）：
 docker compose -f deploy/docker-compose.yml up -d postgres
 docker compose -f deploy/docker-compose.yml run --rm migrate   # 执行新迁移
 # 进库抽查：
