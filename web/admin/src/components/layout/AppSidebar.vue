@@ -29,23 +29,23 @@ const hasChildren = (item: MenuItem) => Boolean(item.children?.length)
       </span>
     </div>
 
-    <!-- 导航菜单 -->
+    <!-- 导航菜单：图标必须用 el-icon 包裹，折叠态才会保留（Element Plus 官方契约） -->
     <nav class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-2">
       <el-menu :default-active="activeMenu" :collapse="isCollapse" router>
         <template v-for="item in menuConfig" :key="item.path">
           <el-sub-menu v-if="hasChildren(item)" :index="item.path">
             <template #title>
-              <span v-if="item.icon" :class="item.icon" class="text-base" />
+              <el-icon v-if="item.icon" :size="16"><component :is="item.icon" /></el-icon>
               <span>{{ item.title }}</span>
             </template>
             <el-menu-item v-for="child in item.children" :key="child.path" :index="child.path">
-              <span v-if="child.icon" :class="child.icon" class="text-base" />
+              <el-icon v-if="child.icon" :size="16"><component :is="child.icon" /></el-icon>
               <span>{{ child.title }}</span>
             </el-menu-item>
           </el-sub-menu>
 
           <el-menu-item v-else :index="item.path">
-            <span v-if="item.icon" :class="item.icon" class="text-base" />
+            <el-icon v-if="item.icon" :size="16"><component :is="item.icon" /></el-icon>
             <span>{{ item.title }}</span>
           </el-menu-item>
         </template>
