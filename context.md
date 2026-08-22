@@ -132,6 +132,7 @@ swagger:  {enabled}
 6. **手工 DI**：规模小，wire/fx 引入的复杂度不值当；未来可演进。
 7. **promhttp 直挂**：`/metrics` 用 `promhttp.Handler()`，不依赖 DefaultServeMux 自动注册。
 8. **迁移与 model 双源**：SQL 迁移管生产 schema，AutoMigrate 只服务测试，避免启动时隐式改库。
+9. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
 
 ## 10. 扩展指南
 
@@ -150,3 +151,4 @@ swagger:  {enabled}
 - 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）。
 - `Timeout` 中间件基于 goroutine 包裹，超时后处理协程仍会跑完（无法写回客户端）——这是设计取舍。
 - 常见报错速查：`connection refused` → postgres 未起或网络模式不对（见 AGENTS.md 坑位）；`ILIKE` 语法错误 → 测试库是 SQLite；`metrics 404` → 用了 DefaultServeMux（应 promhttp.Handler）；curl 超时 → 忘加 `--noproxy '*'`。
+- 前端：`TS5103 Invalid value for '--ignoreDeprecations'` → tsconfig 该值与 TS major 不匹配（见 ADR 9）；`[sass] Expected newline` → `<style lang="sass">` 声明了缩进式语法但写了 SCSS 花括号，改 `lang="scss"`；`[unocss] failed to load icon "-"` → 无害噪音，来自 JSDoc 注释 `* - xxx` 的独立 `-` token，可忽略。
