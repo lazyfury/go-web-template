@@ -1,4 +1,5 @@
 allowBuilds:
+  '@parcel/watcher': true
   esbuild: true
 # pnpm 11：依赖构建许可（迁移自 package.json 的 pnpm 字段）
 onlyBuiltDependencies:

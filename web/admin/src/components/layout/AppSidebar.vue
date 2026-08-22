@@ -59,3 +59,12 @@ const hasChildren = (item: MenuItem) => Boolean(item.children?.length)
     </div>
   </div>
 </template>
+
+<style lang="scss" scoped>
+  .el-menu-item, .el-sub-menu__title {
+    margin: 0!important;
+    .el-icon {
+      margin-right: 8px;
+    }
+  }
+</style>
