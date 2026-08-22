@@ -1,0 +1,19 @@
+# 开发环境热重载配置（air）
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/server ./cmd/server"
+  bin = "./tmp/server"
+  include_ext = ["go", "yaml", "yml"]
+  exclude_dir = ["docs", "tmp", "bin", ".git", ".github"]
+  delay = 1000
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = 500
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

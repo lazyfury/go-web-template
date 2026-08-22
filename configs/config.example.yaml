@@ -1,0 +1,59 @@
+# go-web-template 配置模板：复制为 config.yaml 或通过环境变量覆盖
+# 所有键均可用环境变量覆盖，前缀 APP_，例如：
+#   APP_DATABASE_PASSWORD=secret APP_LOG_LEVEL=debug go run ./cmd/server
+app:
+  name: go-web-template
+  env: development
+  debug: true
+  port: 8080
+  graceful_timeout: 10s
+
+http:
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+
+database:
+  driver: postgres
+  host: 127.0.0.1
+  port: 5432
+  user: postgres
+  password: CHANGE_ME
+  dbname: go_web_template
+  sslmode: disable
+  max_open_conns: 20
+  max_idle_conns: 10
+  conn_max_lifetime: 1h
+  log_level: warn
+
+log:
+  level: info
+  format: json
+
+cors:
+  allowed_origins:
+    - "*"
+  allowed_methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allowed_headers:
+    - Content-Type
+    - Authorization
+    - X-Request-ID
+  exposed_headers:
+    - X-Request-ID
+  allow_credentials: false
+  max_age: 12h
+
+ratelimit:
+  enabled: true
+  rps: 100
+  burst: 200
+
+swagger:
+  enabled: true
