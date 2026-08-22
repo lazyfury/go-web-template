@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppHeader from '@/components/layout/AppHeader.vue'
@@ -17,7 +17,10 @@ const route = useRoute()
 const tabsStore = useTabsStore()
 
 const isCollapse = ref(localStorage.getItem(COLLAPSE_KEY) === '1')
-const asideWidth = isCollapse.value ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'
+// 必须用 computed：随 isCollapse 响应式变化，否则收起/展开时侧栏宽度不更新
+const asideWidth = computed(() =>
+  isCollapse.value ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
+)
 const activeTabPath = route.path
 
 const toggleCollapse = () => {
