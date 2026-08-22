@@ -1,0 +1,105 @@
+/**
+ * Element Plus 组件级风格微调。
+ * 原则：只在这里统一收敛组件样式（卡片/表格/对话框/菜单），组件内不再散落 :deep() 覆盖。
+ */
+@import 'tokens.css';
+
+/* ── 卡片 ────────────────────────────────────────────── */
+.el-card {
+  --el-card-border-color: var(--line);
+  --el-card-border-radius: var(--radius-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card);
+}
+.el-card__header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ── 表格 ────────────────────────────────────────────── */
+.el-table {
+  --el-table-header-bg-color: var(--bg-subtle);
+  --el-table-header-text-color: var(--text-secondary);
+  --el-table-row-hover-bg-color: var(--brand-50);
+  --el-table-border-color: var(--line);
+  --el-table-text-color: var(--text-primary);
+  font-size: 13px;
+}
+.el-table th.el-table__cell {
+  font-weight: 600;
+  height: 42px;
+}
+.el-table td.el-table__cell {
+  height: 44px;
+}
+
+/* ── 按钮 ────────────────────────────────────────────── */
+.el-button {
+  font-weight: 500;
+}
+.el-button.is-link {
+  font-weight: 500;
+}
+
+/* ── 输入框 / 选择器 ─────────────────────────────────── */
+.el-input__wrapper,
+.el-select__wrapper {
+  border-radius: var(--radius-sm);
+}
+
+/* ── 对话框 ──────────────────────────────────────────── */
+.el-dialog {
+  --el-dialog-border-radius: var(--radius-lg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+.el-dialog__title {
+  font-weight: 600;
+}
+
+/* ── 表单标签 ────────────────────────────────────────── */
+.el-form-item__label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ── 菜单（侧栏） ────────────────────────────────────── */
+.el-menu {
+  border-right: none;
+  background: transparent;
+}
+.el-menu-item,
+.el-sub-menu__title {
+  height: 44px;
+  line-height: 44px;
+  margin: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.el-menu-item:hover,
+.el-sub-menu__title:hover {
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+}
+/* 收起时去掉外边距避免溢出 */
+.el-menu--collapse .el-menu-item,
+.el-menu--collapse .el-sub-menu__title {
+  margin: 2px 6px;
+}
+
+/* ── 分页 ────────────────────────────────────────────── */
+.el-pagination {
+  --el-pagination-font-size: 13px;
+}
+
+/* ── 消息/通知圆角 ───────────────────────────────────── */
+.el-message {
+  border-radius: var(--radius-md);
+}
+.el-message-box {
+  border-radius: var(--radius-lg);
+}

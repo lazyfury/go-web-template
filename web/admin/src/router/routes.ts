@@ -1,0 +1,62 @@
+import type { RouteRecordRaw } from 'vue-router'
+import AdminLayout from '@/layouts/AdminLayout.vue'
+import LoginView from '@/views/LoginView.vue'
+import DashboardView from '@/views/DashboardView.vue'
+import UsersView from '@/views/UsersView.vue'
+import NotFoundView from '@/views/NotFoundView.vue'
+
+/**
+ * 路由表 —— 静态声明，与菜单配置（config/menu.ts）解耦。
+ *
+ * 范式说明（相对参考项目的修正）：
+ * - 不做「菜单驱动动态注册路由」：菜单只是导航配置，路由是确定的静态表，
+ *   避免运行时 addRoute 带来的类型丢失与守卫复杂度；
+ * - 未匹配路径落到 catch-all 404，绝不 return to.fullPath 造成重定向死循环；
+ * - 登录页走 meta.layout = 'blank'，与后台布局路由天然分离（由 App.vue 分流渲染）。
+ */
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** 是否需要登录（默认 true）。 */
+    requiresAuth?: boolean
+    /** 页面标题（用于 document.title 与标签页）。 */
+    title?: string
+    /** 布局：'admin'（后台布局，默认）| 'blank'（裸渲染，如登录页）。 */
+    layout?: 'admin' | 'blank'
+  }
+}
+
+export const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'login',
+    component: LoginView,
+    meta: { requiresAuth: false, title: '登录', layout: 'blank' },
+  },
+  {
+    path: '/',
+    component: AdminLayout,
+    children: [
+      { path: '', redirect: '/dashboard' },
+      {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: DashboardView,
+        meta: { title: '仪表盘' },
+      },
+      {
+        path: 'users',
+        name: 'users',
+        component: UsersView,
+        meta: { title: '用户管理' },
+      },
+      // catch-all：未匹配路由渲染 404（保持在后台布局内）
+      {
+        path: ':pathMatch(.*)*',
+        name: 'not-found',
+        component: NotFoundView,
+        meta: { title: '页面不存在' },
+      },
+    ],
+  },
+]

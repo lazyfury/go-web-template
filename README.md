@@ -14,6 +14,7 @@
 - **健壮性**：panic 恢复、请求超时中间件、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **文档**：Swagger 注解自动生成 OpenAPI 文档，`/swagger/index.html` 在线预览
+- **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、GitHub Actions CI、golangci-lint、单元测试全绿
 
 ## 快速开始
@@ -85,6 +86,7 @@ go-web-template/
 ├── deploy/                # docker-compose.yml
 ├── docs/                  # 由 swag 生成的 OpenAPI 文档
 ├── scripts/               # dev.sh（一键开发）、rename-module.sh（改模块路径）
+├── web/admin/             # Admin 前端模板（Vue 3 + TS + Vite + Element Plus + UnoCSS）
 ├── .github/workflows/     # CI：lint + vet + test -race + build + docker
 ├── Dockerfile             # 多阶段构建（~10MB 运行时镜像）
 ├── Makefile               # build/run/dev/test/lint/swagger/migrate/docker 等
