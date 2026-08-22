@@ -8,6 +8,7 @@
 - 行业标准 Go Web **单体应用**模板（HTTP JSON API 服务），非微服务。
 - 技术栈：Go 1.26 / Gin / GORM / PostgreSQL / uber-go/zap / viper / golang-migrate / Prometheus / Swagger。
 - 模块路径：`github.com/example/go-web-template`（真实项目用 `scripts/rename-module.sh` 替换）。
+- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），登录（mock 可切换真实接口）/ 仪表盘 / users CRUD；开发时 vite 将 `/api` 代理到 `:8080`。详见 `web/admin/README.md`。
 
 ## 2. 架构总览
 
