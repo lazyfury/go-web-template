@@ -153,6 +153,23 @@ make test
 2. 按需新增领域：在 `model/` 加实体 → `migrations/` 加迁移 → `repository/` 写仓储 → `service/` 写业务 → `handler/` 写接口 → `router/` 注册路由（含 Swagger 注解）。
 3. 常用扩展方向：JWT 认证中间件、Redis 缓存、消息队列（Kafka/RabbitMQ）、gRPC 网关、多租户。
 
+## AI 协作文件
+
+本仓库为 AI 代理（及人类协作者）准备了上下文与可复用配方，确保后续改动可靠、风格一致：
+
+- **[agent.md](agent.md)** — 操作手册：硬性规则（分层依赖方向、错误处理、测试要求）、常用命令、**本机环境已知坑**（curl 代理、后台进程、compose 路径等）、标准变更流程。
+- **[context.md](context.md)** — 项目上下文：架构总览、包职责、配置模型、数据模型、API 契约、设计决策（ADR）、扩展指南。
+- **[AGENTS.md](AGENTS.md)** — 桥接文件，指向上述两份文档（支持自动加载的工具会优先读取）。
+- **[skills/](skills/)** — 可复用操作配方（同时以符号链接暴露于 `.agents/skills/` 供自动发现）：
+
+| skill | 用途 |
+|---|---|
+| `add-domain` | 新增领域模块（model→迁移→repo→service→handler→路由→测试→Swagger 八步） |
+| `run-checks` | 提交前质量检查（fmt/vet/lint/test/race/coverage） |
+| `debug-e2e` | 本地端到端调试与排查 |
+| `docker-deploy` | 镜像/compose/CI 构建部署 |
+| `database-migrations` | 迁移生命周期管理 |
+
 ## License
 
 MIT
