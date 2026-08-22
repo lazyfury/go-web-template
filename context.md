@@ -126,7 +126,7 @@ swagger:  {enabled}
 
 1. **Gin + GORM + zap + viper**：生态最大、招聘/维护成本最低，模板面向大多数团队。
 2. **接口驱动分层**：service 依赖 repo 接口、handler 依赖 service 接口 → 单测不碰真实 DB，实现可替换。
-3. **统一信封 + 业务码**：前端/网关可稳定判断错误；`Error.Is` 按 Code 匹配（见 agent.md）。
+3. **统一信封 + 业务码**：前端/网关可稳定判断错误；`Error.Is` 按 Code 匹配（见 AGENTS.md）。
 4. **软删除**：默认保留数据，唯一索引按 `deleted_at IS NULL` 部分索引保证邮箱可复用。
 5. **SQLite 仅测试**：生产只用 PostgreSQL；测试用 `file::memory:?cache=shared` 内存库。
 6. **手工 DI**：规模小，wire/fx 引入的复杂度不值当；未来可演进。
@@ -149,4 +149,4 @@ swagger:  {enabled}
 
 - 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）。
 - `Timeout` 中间件基于 goroutine 包裹，超时后处理协程仍会跑完（无法写回客户端）——这是设计取舍。
-- 常见报错速查：`connection refused` → postgres 未起或网络模式不对（见 agent.md 坑位）；`ILIKE` 语法错误 → 测试库是 SQLite；`metrics 404` → 用了 DefaultServeMux（应 promhttp.Handler）；curl 超时 → 忘加 `--noproxy '*'`。
+- 常见报错速查：`connection refused` → postgres 未起或网络模式不对（见 AGENTS.md 坑位）；`ILIKE` 语法错误 → 测试库是 SQLite；`metrics 404` → 用了 DefaultServeMux（应 promhttp.Handler）；curl 超时 → 忘加 `--noproxy '*'`。
