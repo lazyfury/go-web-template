@@ -86,7 +86,7 @@ go-web-template/
 ├── scripts/               # dev.sh（一键开发）、rename-module.sh（改模块路径）
 ├── web/admin/             # Admin 前端模板（Vue 3 + TS + Vite + Element Plus + UnoCSS）
 ├── .github/workflows/     # CI：lint + vet + test -race + build + docker
-├── Dockerfile             # 多阶段构建（~10MB 运行时镜像）
+├── Dockerfile             # 多阶段构建（alpine + 静态二进制，镜像约 70MB）
 ├── Makefile               # build/run/dev/test/lint/swagger/migrate/docker 等
 └── .golangci.yml          # golangci-lint 配置
 ```

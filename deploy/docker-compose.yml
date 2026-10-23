@@ -33,13 +33,19 @@ services:
       - "-path=/migrations"
       - "-database=postgres://postgres:postgres@postgres:5432/go_web_template?sslmode=disable"
       - "up"
-    profiles: ["migrate"]
+    restart: "no"
 
   app:
-    build: .
+    build:
+      # compose 的相对路径以本文件目录为基准，构建上下文必须是仓库根。
+      context: ..
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
+      # 迁移成功后才启动应用，保证新卷上不会出现"库没表"。
+      migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENV: production
       APP_DEBUG: "false"
