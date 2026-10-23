@@ -28,6 +28,8 @@ const (
 	CodeNotFound Code = 40400
 	// CodeConflict signals a state conflict (e.g. duplicate email).
 	CodeConflict Code = 40900
+	// CodePayloadTooLarge signals a request body above the configured limit.
+	CodePayloadTooLarge Code = 41300
 	// CodeTooManyRequests signals rate limiting.
 	CodeTooManyRequests Code = 42900
 	// CodeInternal signals an unexpected server error.
@@ -84,8 +86,31 @@ func From(err error) *Error {
 	return &Error{Code: CodeInternal, Message: "internal server error", Cause: err}
 }
 
-// HTTPStatus maps a business code to the closest HTTP status code.
+// HTTPStatus maps a business code to the HTTP status code. Known codes are
+// matched exactly; unknown codes fall back to the numeric layout
+// [HTTP status][category][sequence] so custom codes still map sensibly.
 func (c Code) HTTPStatus() int {
+	switch c {
+	case CodeOK:
+		return http.StatusOK
+	case CodeInvalidArgument:
+		return http.StatusBadRequest
+	case CodeUnauthorized:
+		return http.StatusUnauthorized
+	case CodeForbidden:
+		return http.StatusForbidden
+	case CodeNotFound:
+		return http.StatusNotFound
+	case CodeConflict:
+		return http.StatusConflict
+	case CodePayloadTooLarge:
+		return http.StatusRequestEntityTooLarge
+	case CodeTooManyRequests:
+		return http.StatusTooManyRequests
+	case CodeInternal, CodeDatabase:
+		return http.StatusInternalServerError
+	}
+
 	switch {
 	case c >= 50000:
 		return http.StatusInternalServerError

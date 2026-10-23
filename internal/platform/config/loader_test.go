@@ -15,8 +15,11 @@ func TestDefaults(t *testing.T) {
 	if cfg.Database.Driver != "postgres" {
 		t.Errorf("default driver = %q, want postgres", cfg.Database.Driver)
 	}
-	if cfg.App.GracefulTimeout != 10*time.Second {
-		t.Errorf("default graceful timeout = %v, want 10s", cfg.App.GracefulTimeout)
+	if cfg.HTTPServer.RequestTimeout != 15*time.Second {
+		t.Errorf("default request timeout = %v, want 15s", cfg.HTTPServer.RequestTimeout)
+	}
+	if cfg.HTTPServer.MaxBodyBytes != 1<<20 {
+		t.Errorf("default max body bytes = %d, want 1MiB", cfg.HTTPServer.MaxBodyBytes)
 	}
 }
 

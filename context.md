@@ -54,8 +54,8 @@
 优先级：**内置默认值 < `configs/config.yaml` < 环境变量（`APP_` 前缀，`.`→`_`）**；`.env` 由 godotenv 预载（可选）。
 
 ```yaml
-app:      {name, env, debug, port: 8080, graceful_timeout}
-http:     {read_timeout, write_timeout, idle_timeout, shutdown_timeout, request_timeout}
+app:      {name, env, debug, port: 8080}
+http:     {read_timeout, write_timeout, idle_timeout, shutdown_timeout, request_timeout, max_body_bytes}
 database: {driver: postgres, host, port, user, password, dbname, sslmode, max_open_conns, max_idle_conns, conn_max_lifetime, log_level}
 log:      {level: info|debug|warn|error, format: json|console}
 cors:     {allowed_origins, allowed_methods, allowed_headers, exposed_headers, allow_credentials, max_age}
@@ -63,7 +63,7 @@ ratelimit:{enabled, rps, burst}
 swagger:  {enabled}
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
 - 显式 `-config` 缺失 → 启动失败；默认路径缺失 → 用默认值 + env。
 - 生产建议：密钥走环境变量/密钥管理；`APP_DEBUG=false`、CORS 收紧、`APP_LOG_FORMAT=json`。
@@ -89,7 +89,9 @@ swagger:  {enabled}
 
 统一信封：`{"code": <int>, "message": <string>, "data": <any|omitempty>}`；`code=0` 成功。
 
-业务错误码（`internal/platform/apperr`）：`0` 成功；`40000` 参数错误；`40100` 未认证；`40300` 无权限；`40400` 不存在；`40900` 冲突；`42900` 限流；`50000` 内部错误；`50001` 数据库错误。HTTP 状态 = 码/100 就近映射。
+业务错误码（`internal/platform/apperr`）：`0` 成功；`40000` 参数错误；`40100` 未认证；`40300` 无权限；`40400` 不存在；`40900` 冲突；`41300` 请求体过大；`42900` 限流；`50000` 内部错误；`50001` 数据库错误。已知码精确映射到 HTTP 状态，未知码按 `[HTTP][类别][序号]` 布局回退。
+
+错误响应额外带 `request_id`（与 `X-Request-ID` 一致，便于客户端关联日志）。
 
 | 端点 | 方法 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|
@@ -97,7 +99,7 @@ swagger:  {enabled}
 | `/readyz` | GET | 就绪探针（ping DB） | 200 | 503 |
 | `/metrics` | GET | Prometheus 指标 | 200 | — |
 | `/swagger/*any` | GET | Swagger UI（`swagger.enabled` 控制） | 200 | — |
-| `/api/v1/users` | POST | 建用户 `{name(2-64), email}` | 201 | 400/409 |
+| `/api/v1/users` | POST | 建用户 `{name(2-64), email}` | 201 | 400/409/413 |
 | `/api/v1/users` | GET | 列表 `?page&page_size&keyword` | 200 `{items,total,page,page_size}` | — |
 | `/api/v1/users/:id` | GET | 详情 | 200 | 400/404 |
 | `/api/v1/users/:id` | PATCH | 局部更新（指针字段区分未传） | 200 | 400/404/409 |
@@ -107,9 +109,9 @@ swagger:  {enabled}
 
 ## 7. 中间件与可观测性
 
-- 链路：`Recovery → RequestID → Logger → CORS → Metrics → (v1: RateLimit → Timeout)`。
-- `X-Request-ID`：入站复用或生成 UUID；响应头回写；日志/错误响应均携带。
-- 指标：`http_requests_total{method,path,status}`、`http_request_duration_seconds{method,path}`、`http_requests_in_flight`；path 用路由模式（`/api/v1/users/:id`）控基数。
+- 链路：`Recovery → RequestID → Logger → CORS → Metrics → BodyLimit → (v1: RateLimit → Timeout)`。`BodyLimit` 按 `http.max_body_bytes`（默认 1 MiB）拒绝过大请求体。
+- `X-Request-ID`：入站复用或生成 UUID；响应头回写；访问日志与错误响应体（`request_id` 字段）均携带；错误响应统一经 `httpx.Fail`/`httpx.Error` 生成。
+- 指标：`http_requests_total{method,path,status}`、`http_request_duration_seconds{method,path}`、`http_requests_in_flight`；path 用路由模式（`/api/v1/users/:id`），未匹配路由固定记为 `unmatched`（避免扫描器打爆基数）。
 - 限流：每 IP token bucket（`x/time/rate`），X-Forwarded-For 取第一跳；超限 429 + `Retry-After`。
 - 超时：`Timeout` 只注入 context deadline，不另起 goroutine、不伪造响应（`gin.Context` 非并发安全，goroutine 版会 data race）。需要硬拒绝时在 handler 内检查 `ctx.Err()` 并返回业务错误。
 - 优雅停机：SIGINT/SIGTERM → `signal.NotifyContext` → `http.Server.Shutdown`（`http.shutdown_timeout` 上限）。

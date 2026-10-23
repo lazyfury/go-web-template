@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/example/go-web-template/internal/platform/apperr"
 	"github.com/example/go-web-template/internal/platform/config"
+	"github.com/example/go-web-template/internal/platform/httpx"
 )
 
 func TestMain(m *testing.M) {
@@ -41,7 +43,7 @@ func TestRequestID(t *testing.T) {
 	r := gin.New()
 	r.Use(RequestID())
 	r.GET("/", func(c *gin.Context) {
-		seen = RequestIDFromContext(c.Request.Context())
+		seen = httpx.RequestIDFromContext(c.Request.Context())
 		c.Status(http.StatusOK)
 	})
 
@@ -68,7 +70,7 @@ func TestRequestID(t *testing.T) {
 		}
 	})
 
-	if got := RequestIDFromContext(context.Background()); got != "" {
+	if got := httpx.RequestIDFromContext(context.Background()); got != "" {
 		t.Errorf("RequestIDFromContext(empty) = %q, want empty", got)
 	}
 }
@@ -270,6 +272,74 @@ func TestMetricsUsesRoutePattern(t *testing.T) {
 	}); raw != 0 {
 		t.Errorf("raw path label recorded (%v); cardinality would explode", raw)
 	}
+
+	// Unknown routes must collapse into one fixed label instead of the raw path.
+	serve(t, r, newRequest(t, http.MethodGet, "/scanner/probe/123"))
+	if got := counterValue(t, "http_requests_total", map[string]string{
+		"method": http.MethodGet,
+		"path":   unmatchedPath,
+		"status": "404",
+	}); got < 1 {
+		t.Errorf("unmatched requests not counted under %q (got %v)", unmatchedPath, got)
+	}
+	if raw := counterValue(t, "http_requests_total", map[string]string{
+		"method": http.MethodGet,
+		"path":   "/scanner/probe/123",
+	}); raw != 0 {
+		t.Errorf("raw unmatched path recorded (%v); cardinality would explode", raw)
+	}
+}
+
+func TestBodyLimit(t *testing.T) {
+	t.Parallel()
+
+	newRouter := func(maxBytes int64) *gin.Engine {
+		r := gin.New()
+		r.Use(BodyLimit(maxBytes))
+		r.POST("/", func(c *gin.Context) {
+			_, _ = c.Request.Body.Read(make([]byte, 1))
+			c.Status(http.StatusOK)
+		})
+		return r
+	}
+
+	t.Run("rejects declared oversize with 413", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/",
+			strings.NewReader(`{"name":"this body is definitely larger than 16 bytes"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := serve(t, newRouter(16), req)
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", w.Code)
+		}
+		var body struct {
+			Code apperr.Code `json:"code"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body.Code != apperr.CodePayloadTooLarge {
+			t.Errorf("code = %d, want %d", body.Code, apperr.CodePayloadTooLarge)
+		}
+	})
+
+	t.Run("allows bodies under the limit", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/",
+			strings.NewReader(`{"a":1}`))
+		if w := serve(t, newRouter(1024), req); w.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", w.Code)
+		}
+	})
+
+	t.Run("zero disables the limit", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/",
+			strings.NewReader(`{"a":"`+strings.Repeat("x", 2048)+`"}`))
+		if w := serve(t, newRouter(0), req); w.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", w.Code)
+		}
+	})
 }
 
 func counterValue(t *testing.T, name string, labels map[string]string) float64 {

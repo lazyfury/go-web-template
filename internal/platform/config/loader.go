@@ -17,13 +17,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.env", "development")
 	v.SetDefault("app.debug", true)
 	v.SetDefault("app.port", 8080)
-	v.SetDefault("app.graceful_timeout", "10s")
 
 	v.SetDefault("http.read_timeout", "10s")
 	v.SetDefault("http.write_timeout", "10s")
 	v.SetDefault("http.idle_timeout", "60s")
 	v.SetDefault("http.shutdown_timeout", "10s")
 	v.SetDefault("http.request_timeout", "15s")
+	v.SetDefault("http.max_body_bytes", 1<<20)
 
 	v.SetDefault("database.driver", "postgres")
 	v.SetDefault("database.host", "127.0.0.1")
@@ -115,7 +115,7 @@ func Load(configFile, envPrefix string) (*Config, error) {
 // derive from the "app.port" key. Other sections keep the natural
 // APP_<SECTION>_<KEY> form (APP_DATABASE_HOST, APP_LOG_LEVEL, ...).
 func bindAppEnv(v *viper.Viper, prefix string) error {
-	keys := []string{"name", "env", "debug", "port", "graceful_timeout"}
+	keys := []string{"name", "env", "debug", "port"}
 	for _, key := range keys {
 		envName := prefix + "_" + strings.ToUpper(key)
 		if err := v.BindEnv("app."+key, envName); err != nil {
@@ -151,6 +151,9 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPServer.RequestTimeout <= 0 {
 		return fmt.Errorf("http.request_timeout must be positive")
+	}
+	if c.HTTPServer.MaxBodyBytes <= 0 {
+		return fmt.Errorf("http.max_body_bytes must be positive")
 	}
 	return nil
 }

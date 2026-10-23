@@ -21,15 +21,12 @@ func Recovery(logger *zap.Logger) gin.HandlerFunc {
 				logger.Error("panic recovered",
 					zap.Any("error", err),
 					zap.ByteString("stack", debug.Stack()),
-					zap.String("request_id", RequestIDFromContext(c.Request.Context())),
+					zap.String("request_id", httpx.RequestIDFromContext(c.Request.Context())),
 				)
 				// Avoid a duplicate header/status write if the handler already
 				// started writing.
 				if !c.Writer.Written() {
-					c.AbortWithStatusJSON(http.StatusInternalServerError, httpx.Body{
-						Code:    apperr.CodeInternal,
-						Message: "internal server error",
-					})
+					httpx.Error(c, http.StatusInternalServerError, apperr.CodeInternal, "internal server error")
 				} else {
 					c.Abort()
 				}

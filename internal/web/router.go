@@ -9,7 +9,9 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 
+	"github.com/example/go-web-template/internal/platform/apperr"
 	"github.com/example/go-web-template/internal/platform/config"
+	"github.com/example/go-web-template/internal/platform/httpx"
 
 	// Registers the generated OpenAPI spec (docs/swagger.json) with gin-swagger.
 	_ "github.com/example/go-web-template/docs"
@@ -36,6 +38,7 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health) (*gin.Engine, *
 		Logger(logger),
 		CORS(&cfg.CORS),
 		Metrics(),
+		BodyLimit(cfg.HTTPServer.MaxBodyBytes),
 	)
 
 	// Ops endpoints: liveness, readiness and Prometheus metrics. These are
@@ -56,7 +59,7 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health) (*gin.Engine, *
 	)
 
 	r.NoRoute(func(c *gin.Context) {
-		c.JSON(http.StatusNotFound, gin.H{"code": 40400, "message": "route not found"})
+		httpx.Error(c, http.StatusNotFound, apperr.CodeNotFound, "route not found")
 	})
 	return r, v1
 }

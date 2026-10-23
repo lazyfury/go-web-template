@@ -79,10 +79,7 @@ func RateLimit(enabled bool, rps float64, burst int) gin.HandlerFunc {
 		ip := clientIP(c)
 		if !limiter.allow(ip) {
 			c.Header("Retry-After", strconv.Itoa(1))
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, httpx.Body{
-				Code:    apperr.CodeTooManyRequests,
-				Message: "too many requests, please slow down",
-			})
+			httpx.Error(c, http.StatusTooManyRequests, apperr.CodeTooManyRequests, "too many requests, please slow down")
 			return
 		}
 		c.Next()

@@ -5,6 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+
+	"github.com/example/go-web-template/internal/platform/httpx"
 )
 
 // Logger returns a zap-based access-log middleware. Place it after RequestID
@@ -27,7 +29,7 @@ func Logger(logger *zap.Logger) gin.HandlerFunc {
 			zap.String("ip", c.ClientIP()),
 			zap.String("user_agent", c.Request.UserAgent()),
 			zap.Duration("latency", time.Since(start)),
-			zap.String("request_id", RequestIDFromContext(c.Request.Context())),
+			zap.String("request_id", httpx.RequestIDFromContext(c.Request.Context())),
 		}
 		if len(c.Errors) > 0 {
 			fields = append(fields, zap.String("error", c.Errors.String()))

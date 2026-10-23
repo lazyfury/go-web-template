@@ -11,7 +11,7 @@
 - **配置管理**：默认值 < `configs/config.yaml` < 环境变量（`APP_*` 前缀），支持 `.env`
 - **结构化日志**：zap JSON 日志，访问日志携带 request-id、耗时、状态码
 - **可观测性**：`/healthz` 存活探针、`/readyz` 就绪探针（含 DB 检查）、`/metrics` Prometheus 指标
-- **健壮性**：panic 恢复、请求超时（ctx deadline）、每 IP 限流（token bucket）、CORS、优雅停机
+- **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **文档**：Swagger 注解自动生成 OpenAPI 文档，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用
@@ -106,6 +106,8 @@ go-web-template/
 | `APP_LOG_LEVEL` | debug / info / warn / error | `info` |
 | `APP_LOG_FORMAT` | json / console | `json` |
 | `APP_RATELIMIT_RPS` / `APP_RATELIMIT_BURST` | 每 IP 限流速率 / 突发 | `100` / `200` |
+| `APP_HTTP_REQUEST_TIMEOUT` | 单请求 ctx deadline（`/api/v1`） | `15s` |
+| `APP_HTTP_MAX_BODY_BYTES` | 请求体大小上限 | `1048576`（1 MiB） |
 | `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔） | `*` |
 | `APP_SWAGGER_ENABLED` | 是否暴露 Swagger UI | `true` |
 

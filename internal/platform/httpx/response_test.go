@@ -72,6 +72,38 @@ func TestSuccessHelpers(t *testing.T) {
 	})
 }
 
+func TestErrorIncludesRequestID(t *testing.T) {
+	t.Parallel()
+
+	c, w := newTestContext(t)
+	c.Request = c.Request.WithContext(WithRequestID(c.Request.Context(), "req-abc"))
+	Error(c, http.StatusTooManyRequests, apperr.CodeTooManyRequests, "slow down")
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", w.Code)
+	}
+	body := decodeBody(t, w)
+	if body.RequestID != "req-abc" {
+		t.Errorf("request_id = %q, want req-abc", body.RequestID)
+	}
+	if body.Code != apperr.CodeTooManyRequests {
+		t.Errorf("code = %d, want %d", body.Code, apperr.CodeTooManyRequests)
+	}
+}
+
+func TestFailIncludesRequestID(t *testing.T) {
+	t.Parallel()
+
+	c, w := newTestContext(t)
+	c.Request = c.Request.WithContext(WithRequestID(c.Request.Context(), "req-xyz"))
+	Fail(c, apperr.Wrap(apperr.CodeConflict, "duplicate", nil))
+
+	body := decodeBody(t, w)
+	if body.RequestID != "req-xyz" {
+		t.Errorf("request_id = %q, want req-xyz", body.RequestID)
+	}
+}
+
 func TestFail(t *testing.T) {
 	t.Parallel()
 
@@ -122,6 +154,9 @@ func TestFail(t *testing.T) {
 			}
 			if body.Data != nil {
 				t.Errorf("data = %v, want omitted on error", body.Data)
+			}
+			if body.RequestID != "" {
+				t.Errorf("request_id = %q, want omitted when the context has none", body.RequestID)
 			}
 		})
 	}

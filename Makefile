@@ -122,11 +122,11 @@ swagger: ## 重新生成 Swagger 文档（改了注解后必须跑）
 	@./scripts/check-tools.sh swag
 	swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
 
-swagger-diff: ## 校验 docs/ 与注解同步（未重新生成则失败）
+swagger-diff: ## 校验生成的 docs 与注解同步（只比生成产物，docs/ 下手工文档不参与）
 	@$(MAKE) --no-print-directory swagger >/dev/null
-	@if ! git diff --quiet -- docs/; then \
-		echo "docs/ 与 Swagger 注解不同步：请运行 make swagger 并提交 docs/"; \
-		git diff --stat -- docs/; exit 1; \
+	@if [ -n "$$(git status --porcelain -- docs/docs.go docs/swagger.json docs/swagger.yaml)" ]; then \
+		echo "docs/ 与 Swagger 注解不同步：请运行 make swagger 并提交 docs/{docs.go,swagger.json,swagger.yaml}"; \
+		git status --porcelain -- docs/docs.go docs/swagger.json docs/swagger.yaml; exit 1; \
 	fi
 	@echo "swagger-diff: ok"
 

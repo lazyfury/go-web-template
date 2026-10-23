@@ -6,7 +6,6 @@ app:
   env: development
   debug: true
   port: 8080
-  graceful_timeout: 10s
 
 http:
   read_timeout: 10s
@@ -14,6 +13,7 @@ http:
   idle_timeout: 60s
   shutdown_timeout: 10s
   request_timeout: 15s
+  max_body_bytes: 1048576  # 1 MiB
 
 database:
   driver: postgres

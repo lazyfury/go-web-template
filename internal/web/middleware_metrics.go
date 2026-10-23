@@ -37,6 +37,9 @@ func init() {
 	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration, httpRequestsInFlight)
 }
 
+// unmatchedPath is the path label for requests that matched no route.
+const unmatchedPath = "unmatched"
+
 // Metrics records Prometheus metrics for every request. The "path" label uses
 // the route pattern (e.g. /api/v1/users/:id) instead of raw paths so the
 // label cardinality stays bounded.
@@ -48,9 +51,11 @@ func Metrics() gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 
+		// Unknown routes have no pattern; a fixed label keeps cardinality
+		// bounded (raw paths from scanners would explode the metric).
 		path := c.FullPath()
 		if path == "" {
-			path = c.Request.URL.Path // e.g. 404 on unknown routes
+			path = unmatchedPath
 		}
 		status := strconv.Itoa(c.Writer.Status())
 		httpRequestsTotal.WithLabelValues(c.Request.Method, path, status).Inc()

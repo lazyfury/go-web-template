@@ -236,6 +236,7 @@ const docTemplate = `{
                 40300,
                 40400,
                 40900,
+                41300,
                 42900,
                 50000,
                 50001
@@ -247,6 +248,7 @@ const docTemplate = `{
                 "CodeForbidden",
                 "CodeNotFound",
                 "CodeConflict",
+                "CodePayloadTooLarge",
                 "CodeTooManyRequests",
                 "CodeInternal",
                 "CodeDatabase"
@@ -260,6 +262,9 @@ const docTemplate = `{
                 },
                 "data": {},
                 "message": {
+                    "type": "string"
+                },
+                "request_id": {
                     "type": "string"
                 }
             }

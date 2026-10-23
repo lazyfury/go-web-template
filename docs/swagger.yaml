@@ -8,6 +8,7 @@ definitions:
     - 40300
     - 40400
     - 40900
+    - 41300
     - 42900
     - 50000
     - 50001
@@ -19,6 +20,7 @@ definitions:
     - CodeForbidden
     - CodeNotFound
     - CodeConflict
+    - CodePayloadTooLarge
     - CodeTooManyRequests
     - CodeInternal
     - CodeDatabase
@@ -28,6 +30,8 @@ definitions:
         $ref: '#/definitions/github_com_example_go-web-template_internal_platform_apperr.Code'
       data: {}
       message:
+        type: string
+      request_id:
         type: string
     type: object
   internal_user.CreateRequest:

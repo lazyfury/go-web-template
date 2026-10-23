@@ -87,12 +87,54 @@ jobs:
         run: pnpm build
 
   docker:
-    name: Docker build
+    name: Docker E2E (compose)
     runs-on: ubuntu-latest
     needs: [gate, web]
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build image
-        run: docker build -t go-web-template:ci .
+      # Covers image build + compose wiring (postgres → migrate → app) and
+      # proves migrations actually run on a fresh volume.
+      - name: Compose up
+        run: docker compose -f deploy/docker-compose.yml up -d --build
+
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/readyz || true)
+            if [ "$code" = "200" ]; then echo "ready after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          echo "app did not become ready in 60s"
+          exit 1
+
+      - name: CRUD smoke
+        run: |
+          set -euo pipefail
+          created=$(curl -fsS -X POST http://127.0.0.1:8080/api/v1/users \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"CI User","email":"ci@example.com"}')
+          echo "$created" | grep -q '"code":0'
+          id=$(printf '%s' "$created" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+          test -n "$id"
+
+          curl -fsS "http://127.0.0.1:8080/api/v1/users/$id" | grep -q 'CI User'
+          curl -fsS "http://127.0.0.1:8080/api/v1/users?keyword=ci@example.com" | grep -q '"total":1'
+          curl -fsS -X DELETE -o /dev/null "http://127.0.0.1:8080/api/v1/users/$id"
+
+          # Validation and body-limit contracts.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/api/v1/users \
+            -H 'Content-Type: application/json' -d '{"name":"","email":"nope"}')" = "400"
+          big=$(head -c 2000000 /dev/zero | tr '\0' 'a')
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/api/v1/users \
+            -H 'Content-Type: application/json' -d "{\"name\":\"$big\",\"email\":\"ci@example.com\"}")" = "413"
+
+      - name: App logs
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-log-prefix
+
+      - name: Compose down
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v

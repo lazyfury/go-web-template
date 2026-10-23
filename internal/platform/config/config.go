@@ -21,11 +21,10 @@ type Config struct {
 
 // App holds generic application metadata.
 type App struct {
-	Name            string        `mapstructure:"name"`
-	Env             string        `mapstructure:"env"` // development | staging | production
-	Debug           bool          `mapstructure:"debug"`
-	Port            int           `mapstructure:"port"`
-	GracefulTimeout time.Duration `mapstructure:"graceful_timeout"`
+	Name  string `mapstructure:"name"`
+	Env   string `mapstructure:"env"` // development | staging | production
+	Debug bool   `mapstructure:"debug"`
+	Port  int    `mapstructure:"port"`
 }
 
 // HTTPServer holds net/http server timeouts.
@@ -37,6 +36,8 @@ type HTTPServer struct {
 	// RequestTimeout bounds handler execution via the request context (the
 	// /api/v1 chain). Handlers/repositories must honor ctx.
 	RequestTimeout time.Duration `mapstructure:"request_timeout"`
+	// MaxBodyBytes caps the request body size; 0 disables the check.
+	MaxBodyBytes int64 `mapstructure:"max_body_bytes"`
 }
 
 // Database holds the PostgreSQL connection settings.

@@ -234,6 +234,7 @@
                 40300,
                 40400,
                 40900,
+                41300,
                 42900,
                 50000,
                 50001
@@ -245,6 +246,7 @@
                 "CodeForbidden",
                 "CodeNotFound",
                 "CodeConflict",
+                "CodePayloadTooLarge",
                 "CodeTooManyRequests",
                 "CodeInternal",
                 "CodeDatabase"
@@ -258,6 +260,9 @@
                 },
                 "data": {},
                 "message": {
+                    "type": "string"
+                },
+                "request_id": {
                     "type": "string"
                 }
             }

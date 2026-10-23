@@ -21,6 +21,7 @@ func TestCodeHTTPStatus(t *testing.T) {
 		{"forbidden", CodeForbidden, http.StatusForbidden},
 		{"not found", CodeNotFound, http.StatusNotFound},
 		{"conflict", CodeConflict, http.StatusConflict},
+		{"payload too large", CodePayloadTooLarge, http.StatusRequestEntityTooLarge},
 		{"rate limited", CodeTooManyRequests, http.StatusTooManyRequests},
 		{"internal", CodeInternal, http.StatusInternalServerError},
 		{"database", CodeDatabase, http.StatusInternalServerError},
