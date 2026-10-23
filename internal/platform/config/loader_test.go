@@ -122,3 +122,27 @@ func TestValidateRejectsBadPort(t *testing.T) {
 		t.Error("expected validation error for port 0")
 	}
 }
+
+func TestLoadEnvOverridesAppSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("app:\n  port: 8080\n  debug: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// README documents APP_PORT (not APP_APP_PORT): the "app" section must not
+	// double the prefix.
+	t.Setenv("APP_PORT", "9999")
+	t.Setenv("APP_DEBUG", "false")
+
+	cfg, err := Load(path, "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.App.Port != 9999 {
+		t.Errorf("port = %d, want env override 9999", cfg.App.Port)
+	}
+	if cfg.App.Debug {
+		t.Error("debug = true, want env override false")
+	}
+}

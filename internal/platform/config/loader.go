@@ -81,6 +81,9 @@ func Load(configFile, envPrefix string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 	setDefaults(v)
+	if err := bindAppEnv(v, envPrefix); err != nil {
+		return nil, err
+	}
 
 	v.SetConfigType("yaml")
 	if configFile != "" {
@@ -105,6 +108,21 @@ func Load(configFile, envPrefix string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// bindAppEnv maps the top-level "app" section to APP_<KEY> (APP_PORT,
+// APP_ENV, ...) instead of the doubled APP_APP_<KEY> that AutomaticEnv would
+// derive from the "app.port" key. Other sections keep the natural
+// APP_<SECTION>_<KEY> form (APP_DATABASE_HOST, APP_LOG_LEVEL, ...).
+func bindAppEnv(v *viper.Viper, prefix string) error {
+	keys := []string{"name", "env", "debug", "port", "graceful_timeout"}
+	for _, key := range keys {
+		envName := prefix + "_" + strings.ToUpper(key)
+		if err := v.BindEnv("app."+key, envName); err != nil {
+			return fmt.Errorf("bind env %s: %w", envName, err)
+		}
+	}
+	return nil
 }
 
 // Validate performs semantic checks that cannot be expressed in the schema.
