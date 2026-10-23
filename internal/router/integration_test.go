@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -46,7 +47,7 @@ func doJSON(t *testing.T, h http.Handler, method, path string, body any) *httpte
 			t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(method, path, &buf)
+	req := httptest.NewRequestWithContext(context.Background(), method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -186,7 +187,7 @@ func TestHealthEndpoints(t *testing.T) {
 func TestRequestIDHeaderEchoed(t *testing.T) {
 	h := newTestEngine(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/healthz", http.NoBody)
 	req.Header.Set("X-Request-ID", "test-request-123")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

@@ -1,5 +1,5 @@
 # go-web-template 常用开发命令
-# 用法: make <target>   例如: make dev / make test / make migrate-up
+# 用法: make <target>   例如: make dev / make check / make migrate-up
 
 APP_NAME   := go-web-template
 BIN        := bin/$(APP_NAME)
@@ -9,12 +9,43 @@ LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 GO         ?= go
 MIGRATE_URL ?= postgres://postgres:postgres@127.0.0.1:5432/go_web_template?sslmode=disable
 
-.PHONY: help build run dev test test-race coverage vet lint fmt tidy \
-        swagger migrate-up migrate-down migrate-create \
+# 工具版本：CI 与本文件是唯一来源，升级时两处同步（CI 用同一 pin 版本）
+GOLANGCI_LINT_VERSION ?= v2.15.0
+SWAG_VERSION          ?= v1.16.6
+AIR_VERSION           ?= v1.67.4
+GOVULNCHECK_VERSION   ?= v1.9.0
+MIGRATE_VERSION       ?= v4.20.1
+
+.PHONY: help tools golangci-lint-tool swag-tool air-tool govulncheck-tool migrate-tool \
+        build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
+        check gate swagger swagger-diff tidy-check vuln smoke db-up \
+        migrate-up migrate-down migrate-create \
         docker-build docker-up docker-down docker-logs clean
 
 help: ## 显示所有命令
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+
+## ---- 工具链（版本 pin，缺失时先 make tools） --------------------------------
+
+tools: golangci-lint-tool swag-tool air-tool govulncheck-tool migrate-tool ## 安装/升级全部 pin 版本工具
+	@echo "工具安装目录: $$($(GO) env GOPATH)/bin"
+
+golangci-lint-tool: ## 安装 golangci-lint（v2 配置）
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+swag-tool: ## 安装 swag
+	$(GO) install github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION)
+
+air-tool: ## 安装 air（热重载）
+	$(GO) install github.com/air-verse/air@$(AIR_VERSION)
+
+govulncheck-tool: ## 安装 govulncheck
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+migrate-tool: ## 安装 golang-migrate（含 postgres 驱动，供无 docker 环境使用）
+	$(GO) install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
+
+## ---- 构建 / 运行 -----------------------------------------------------------
 
 build: ## 编译二进制到 bin/
 	$(GO) build -trimpath -ldflags "-s -w $(LDFLAGS)" -o $(BIN) ./cmd/server
@@ -22,46 +53,131 @@ build: ## 编译二进制到 bin/
 run: ## 直接运行（需先启动 postgres）
 	$(GO) run ./cmd/server
 
-dev: ## 开发模式：air 热重载（需先安装 air: go install github.com/air-verse/air@latest）
+dev: ## 开发模式：air 热重载
+	@./scripts/check-tools.sh air
 	air -c .air.toml
 
-test: ## 运行全部测试
-	$(GO) test ./... -count=1
+smoke: ## 本地冒烟：自起自停服务，验证探针 + CRUD（DB 不可用时只验 liveness）
+	@./scripts/smoke.sh
 
-test-race: ## 带竞态检测运行测试
-	$(GO) test -race ./... -count=1
+db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postgres）
+	@if command -v docker >/dev/null 2>&1; then \
+		docker compose -f deploy/docker-compose.yml up -d postgres; \
+		echo "等待 postgres healthy..."; \
+		for _ in $$(seq 60); do \
+			docker compose -f deploy/docker-compose.yml exec -T postgres pg_isready -U postgres -d go_web_template >/dev/null 2>&1 && break; \
+			sleep 1; \
+		done; \
+		echo "postgres ready"; \
+	elif command -v pg_isready >/dev/null 2>&1; then \
+		pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1 \
+			&& echo "本机 postgres 已就绪" \
+			|| { echo "本机有 postgres 但未运行：brew services start postgresql@16"; exit 1; }; \
+	else \
+		echo "既无 docker 也无本机 postgres：装 Docker Desktop 或 brew install postgresql@16"; exit 1; \
+	fi
 
-coverage: ## 生成覆盖率报告并打开
-	$(GO) test ./... -coverprofile=coverage.out
-	$(GO) tool cover -html=coverage.out
+## ---- 质量门（提交前唯一入口） ----------------------------------------------
+
+check: lint gate ## 提交前唯一门槛 = lint + gate（CI 同款）
+
+gate: fmt-check vet test-race build swagger-diff tidy-check ## CI 校验链（不含 golangci-lint）
+
+fmt-check: ## 校验 gofmt（docs/ 为生成代码，豁免）
+	@unformatted=$$(gofmt -l . | grep -v '^docs/' || true); \
+	if [ -n "$$unformatted" ]; then \
+		echo "以下文件未格式化（运行 make fmt）:"; echo "$$unformatted"; exit 1; \
+	fi
+	@echo "fmt-check: ok"
 
 vet: ## 静态检查
 	$(GO) vet ./...
 
-lint: ## golangci-lint（需先安装: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest）
+lint: ## golangci-lint（配置见 .golangci.yml，v2 格式）
+	@./scripts/check-tools.sh golangci-lint
 	golangci-lint run
 
-fmt: ## 格式化代码
-	gofmt -w .
-	goimports -w .
+fmt: ## 格式化代码（gofmt + goimports，走 golangci-lint 的 formatters）
+	@./scripts/check-tools.sh golangci-lint
+	golangci-lint fmt
 
 tidy: ## 整理依赖
 	$(GO) mod tidy
 
-swagger: ## 重新生成 Swagger 文档（需先安装: go install github.com/swaggo/swag/cmd/swag@latest）
+test: ## 运行全部测试
+	$(GO) test ./... -count=1
+
+test-race: ## 带竞态检测运行测试（CI 同款）
+	$(GO) test -race ./... -count=1
+
+coverage: ## 生成 HTML 覆盖率报告（会打开浏览器）
+	$(GO) test ./... -coverprofile=coverage.out
+	$(GO) tool cover -html=coverage.out
+
+coverage-func: ## 覆盖率文本摘要（agent/CI 友好，不开浏览器）
+	$(GO) test ./... -coverprofile=coverage.out >/dev/null
+	$(GO) tool cover -func=coverage.out
+
+swagger: ## 重新生成 Swagger 文档（改了注解后必须跑）
+	@./scripts/check-tools.sh swag
 	swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
 
-migrate-up: ## 执行全部迁移（需本地起 postgres，或用 docker compose run --rm migrate）
-	docker run --rm -v $(PWD)/migrations:/migrations --network host migrate/migrate \
-		-path=/migrations -database '$(MIGRATE_URL)' up
+swagger-diff: ## 校验 docs/ 与注解同步（未重新生成则失败）
+	@$(MAKE) --no-print-directory swagger >/dev/null
+	@if ! git diff --quiet -- docs/; then \
+		echo "docs/ 与 Swagger 注解不同步：请运行 make swagger 并提交 docs/"; \
+		git diff --stat -- docs/; exit 1; \
+	fi
+	@echo "swagger-diff: ok"
 
-migrate-down: ## 回滚一个迁移
-	docker run --rm -v $(PWD)/migrations:/migrations --network host migrate/migrate \
-		-path=/migrations -database '$(MIGRATE_URL)' down 1
+tidy-check: ## 校验 go.mod/go.sum 已 tidy（未 tidy 时自动整理并提示提交）
+	@tmp=$$(mktemp -d) && cp go.mod go.sum "$$tmp"/ && \
+	$(GO) mod tidy >/dev/null && \
+	if cmp -s go.mod "$$tmp/go.mod" && cmp -s go.sum "$$tmp/go.sum"; then \
+		rm -rf "$$tmp"; echo "tidy-check: ok"; \
+	else \
+		rm -rf "$$tmp"; echo "go.mod/go.sum 未 tidy：已自动整理，请提交 go.mod/go.sum"; \
+		git diff --stat -- go.mod go.sum; exit 1; \
+	fi
+
+vuln: ## 依赖漏洞扫描
+	@./scripts/check-tools.sh govulncheck
+	govulncheck ./...
+
+## ---- 数据库迁移（优先 docker；无 docker 用本地 migrate 二进制） ------------
+
+migrate-up: ## 应用全部迁移
+	@if command -v docker >/dev/null 2>&1; then \
+		docker run --rm -v $(PWD)/migrations:/migrations --network host migrate/migrate \
+			-path=/migrations -database '$(MIGRATE_URL)' up; \
+	elif command -v migrate >/dev/null 2>&1; then \
+		migrate -path migrations -database '$(MIGRATE_URL)' up; \
+	else \
+		echo "需要 docker 或本地 migrate 二进制；无 docker 时运行 make migrate-tool"; exit 1; \
+	fi
+
+migrate-down: ## 回滚最近 1 个迁移（破坏性，先确认）
+	@if command -v docker >/dev/null 2>&1; then \
+		docker run --rm -v $(PWD)/migrations:/migrations --network host migrate/migrate \
+			-path=/migrations -database '$(MIGRATE_URL)' down 1; \
+	elif command -v migrate >/dev/null 2>&1; then \
+		migrate -path migrations -database '$(MIGRATE_URL)' down 1; \
+	else \
+		echo "需要 docker 或本地 migrate 二进制；无 docker 时运行 make migrate-tool"; exit 1; \
+	fi
 
 migrate-create: ## 新建迁移: make migrate-create NAME=add_posts_table
-	docker run --rm -v $(PWD)/migrations:/migrations migrate/migrate create \
-		-dir /migrations -ext sql -seq $(NAME)
+	@test -n "$(NAME)" || { echo "用法: make migrate-create NAME=add_posts_table"; exit 1; }
+	@if command -v docker >/dev/null 2>&1; then \
+		docker run --rm -v $(PWD)/migrations:/migrations migrate/migrate create \
+			-dir /migrations -ext sql -seq $(NAME); \
+	elif command -v migrate >/dev/null 2>&1; then \
+		migrate create -dir migrations -ext sql -seq $(NAME); \
+	else \
+		echo "需要 docker 或本地 migrate 二进制；无 docker 时运行 make migrate-tool"; exit 1; \
+	fi
+
+## ---- 容器 ----------------------------------------------------------------
 
 docker-build: ## 构建镜像
 	docker build -t $(APP_NAME):$(VERSION) .

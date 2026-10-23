@@ -1,52 +1,58 @@
-# golangci-lint 配置
-# 版本要求: golangci-lint >= 1.60
-
+# golangci-lint v2 配置（v1 的 linters-settings / exclude-use-default 已废弃）
+# 版本要求: golangci-lint v2.15.0 — CI 与 `make tools` 用同一版本，避免 latest 漂移导致红灯
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
+  timeout: 5m
 linters:
   enable:
-    - govet
-    - errcheck
-    - staticcheck
-    - unused
-    - ineffassign
-    - gosimple
-    - gofmt
-    - goimports
-    - misspell
-    - gocritic
-    - revive
     - bodyclose
+    - gocritic
+    - misspell
     - noctx
-    - unconvert
     - prealloc
+    - revive
+    - staticcheck
+    - unconvert
     - whitespace
-    - stylecheck
   disable:
+    - funlen
     - gochecknoglobals
     - gochecknoinits
-    - funlen
-
-linters-settings:
-  goimports:
-    local-prefixes: github.com/example/go-web-template
-  revive:
-    rules:
-      - name: exported
-        severity: warning
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-  misspell:
-    locale: US
-
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+    misspell:
+      locale: US
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+  exclusions:
+    generated: lax
+    paths:
+      - docs
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-dirs:
-    - docs
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/example/go-web-template
+  exclusions:
+    generated: lax
+    paths:
+      - docs
+      - third_party$
+      - builtin$
+      - examples$

@@ -17,8 +17,8 @@ type UserHandler struct {
 }
 
 // NewUserHandler creates a UserHandler.
-func NewUserHandler(service service.UserService) *UserHandler {
-	return &UserHandler{service: service}
+func NewUserHandler(svc service.UserService) *UserHandler {
+	return &UserHandler{service: svc}
 }
 
 // CreateUserRequest is the payload for POST /users.

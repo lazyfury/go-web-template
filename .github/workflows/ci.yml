@@ -8,9 +8,14 @@ on:
 permissions:
   contents: read
 
+# 工具版本必须与 Makefile 顶部一致；升级时两处同步（CI 用 pin 版本，不用 latest）
+env:
+  GOLANGCI_LINT_VERSION: v2.15.0
+  SWAG_VERSION: v1.16.6
+
 jobs:
-  test:
-    name: Lint & Test
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,25 +27,69 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v6
+      - name: golangci-lint (v2 config)
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
 
-      - name: Vet
-        run: go vet ./...
+  gate:
+    name: Format / Vet / Test / Build / Swagger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Test (with race detector)
-        run: go test -race ./... -count=1
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install pinned tooling (swag)
+        run: |
+          go install github.com/swaggo/swag/cmd/swag@${SWAG_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # 与本地 `make check` 同款：gofmt 校验 + vet + race 测试 + build + docs 同步
+      - name: make gate
+        run: make gate
+
+  web:
+    name: Web (typecheck & build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm (version from web/admin packageManager)
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/admin/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/admin/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Build
-        run: go build ./...
+        run: pnpm build
 
   docker:
     name: Docker build
     runs-on: ubuntu-latest
-    needs: test
+    needs: [gate, web]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
