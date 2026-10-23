@@ -12,6 +12,7 @@
 | `make lint` / `make swagger` 报 command not found | 工具未安装：`make tools`；确认 `$(go env GOPATH)/bin` 在 `PATH` |
 | `make migrate-*` 报 docker 不存在 | 无 docker 环境：`make migrate-tool` 后用本地二进制（Makefile 已自动二选一） |
 | `make smoke` 报"进程启动即退出" | 多半是 postgres 不可达：`make db-up`（有 docker 走 compose，否则检查本机 postgres） |
+| 改了代码、镜像也重建了，但 `curl :8080` 行为还是旧的 | 早先 `nohup` 起的调试二进制成了孤儿进程占着端口，Docker Desktop 的端口映射被遮住（容器日志里看不到你的请求）。`lsof -nP -iTCP:8080 -sTCP:LISTEN` 确认后 `pkill -f '<binary>'`，再 `docker compose up -d --force-recreate app` |
 
 ## 2. 配置
 
