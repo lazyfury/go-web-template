@@ -1,75 +1,81 @@
-# AGENTS.md — 本仓库的 AI 协作约定与操作手册
+# AGENTS.md — AI 协作约定与操作手册
 
-> 给任何在本仓库工作的 AI agent（或人类协作者）的协作规范。改动代码前先读本文件与 `context.md`；
-> 需要可复用操作配方时，加载 `skills/`（或 `.agents/skills/`，符号链接）下的对应 skill。
+> 适用于任何在本仓库工作的 agent（也适用于人类协作者）。
+> **从仓库根启动会话**：项目技能通过 `.agents/skills/` 暴露，会话目录不在仓库根时不会被发现。
 
-## 文档导航
+## 事实来源分工（避免同一规则写三遍）
 
-| 文件 | 内容 |
+| 文件 | 只放什么 |
 |---|---|
-| `context.md` | **项目上下文**：架构、数据流、配置、API 契约、设计决策（ADR）、扩展指南 |
-| `skills/` | **可复用操作配方**（`.agents/skills/` 为符号链接，见下表） |
+| `AGENTS.md`（本文件） | **规则、流程、完成定义**；不抄命令、不抄操作细节 |
+| `context.md` | **架构、数据模型、API 契约、配置、ADR**（append-only，不写排错） |
+| `skills/` | **可执行配方**（命令 + 断言），按任务加载 |
+| `docs/troubleshooting.md` | **踩坑 → 处理**（报错速查、环境陷阱） |
+| `Makefile` | **命令的唯一权威**（看 `make help`；README/AGENTS 不复写） |
+| `.agents/local.md` | 本机环境差异（gitignored；存在则先读） |
 
 ## 项目一句话
 
-Go Web 单体应用模板：**Gin + GORM + PostgreSQL + uber-go/zap**，分层架构 `handler → service → repository`，统一响应信封 + 业务错误码，开箱即用的 Docker / CI / Swagger / Prometheus。
+Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，内置 Docker / CI / Swagger / Prometheus。
 
-## 常用命令（等价 Makefile 目标）
+## 开工顺序
 
-```bash
-make build          # 编译到 bin/
-make run            # 直接运行（需 postgres）
-make dev            # air 热重载
-make test           # 全部单测（go test ./...）
-make test-race      # 竞态检测
-make coverage       # 覆盖率
-make vet            # go vet
-make lint           # golangci-lint
-make fmt            # gofmt + goimports
-make swagger        # 重新生成 docs/（改了注解后必须跑）
-make migrate-up / migrate-down / migrate-create NAME=xxx
-make docker-up / docker-down / docker-build / docker-logs
-```
+1. 读 `context.md` 的相关章节（§2 架构、§3 包职责、§5 数据模型、§6 API 契约）。
+2. 任务匹配技能就加载对应 `skills/<name>/SKILL.md`（索引见文末）。
+3. `make help` 查命令；工具缺失先 `make tools`。
 
 ## 硬性规则（违反 = 打回）
 
-1. **分层依赖方向唯一**：`handler → service → repository`。禁止反向 import；`internal/` 任何包不得被 `internal/` 外的非 main 包 import；service 层禁止 import gin。
-2. **错误处理**：业务错误一律用 `internal/errors`（`apperrors.Wrap/New` + 稳定 Code）；handler 层用 `response.Fail(c, err)` 输出统一信封 `{code, message, data}`。不要返回裸 error 或自造 JSON。
-3. **校验**：请求 DTO 用 gin binding tag（`binding:"required,email"`），handler 内 `ShouldBindJSON` 失败 → `apperrors.CodeInvalidArgument`。
-4. **日志**：只用 zap（通过 `app.NewLogger` 构建）；访问日志由中间件产出，业务代码不要 print。
-5. **上下文**：所有 service/repository 方法首参必须是 `context.Context`，透传 `c.Request.Context()`；DB 查询一律 `WithContext(ctx)`。
-6. **测试**：新增领域必须带测试——service 层手写 mock repo 单测 + router 包集成测试（`internal/router/integration_test.go`，内存 SQLite 走全链路）。测试禁止依赖真实 PostgreSQL。
-7. **质量门槛**：每次改动后 `make vet && make lint && make test` 必须全绿，`gofmt -l .` 为空。改了 Swagger 注解必须 `make swagger` 并把 `docs/` 一起提交。
-8. **依赖**：新增依赖后 `go mod tidy`；sqlite 驱动只允许出现在测试路径（`internal/testutil`），不得进入生产二进制。
+1. **分层方向唯一**：`handler → service → repository`。禁止反向 import；service 不得 import gin；`internal/` 不得被外部非 main 包 import。
+2. **错误处理**：业务错误一律 `internal/errors`（`apperrors.Wrap/New` + 稳定 Code）；handler 用 `response.Fail(c, err)` 输出 `{code,message,data}`，不返回裸 error、不自造 JSON。
+3. **校验**：请求 DTO 用 gin binding tag；`ShouldBindJSON` 失败 → `apperrors.CodeInvalidArgument`。
+4. **日志**：只用 zap（`app.NewLogger` 构建）；访问日志由中间件产出，业务代码不 print。
+5. **上下文**：service/repository 方法首参必须是 `context.Context`，透传 `c.Request.Context()`；DB 查询 `WithContext(ctx)`。
+6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/router` 全链路集成测试；测试不得依赖真实 PostgreSQL。
+7. **依赖**：新增依赖后 `go mod tidy`；sqlite 只允许出现在测试路径（`internal/testutil`）。
+8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
 
-## 本机环境已知坑（实测，务必遵守）
+## 质量门（唯一入口）
 
-- **curl 被系统代理劫持**：本机 shell 有 `all_proxy=http://127.0.0.1:7890`，访问本地服务必须加 `--noproxy '*'`，否则 curl 挂起超时。
-- **长驻进程**：在 bash 工具里 `&` 起服务器会被等待并超时 SIGTERM 杀掉；服务器类长驻进程要用**受管后台任务**（`run_in_background: true`）运行，验证完再 kill。
-- **macOS 下 migrate 容器访问 postgres**：compose 网络内用服务名 `postgres`；裸 `docker run` 用 `host.docker.internal`（或 `--network host` + `127.0.0.1`）。
-- **compose 相对路径**：`deploy/docker-compose.yml` 的相对路径（如 `../migrations`）相对 **compose 文件所在目录**解析，不是项目根。
-- **配置失败语义**：显式 `-config path` 指向不存在的文件 = fail-fast；不传 `-config` 且默认 `configs/config.yaml` 不存在 = 回退默认值 + 环境变量。
-- **YAML 时长必须是字符串**：`"10s"`、`"1h"`；写成裸数字会被当纳秒。env 变量 `APP_*` 同理（viper 自动转 duration）。
-- **GORM 查询可移植性**：SQL 里不要用 PostgreSQL 专属 `ILIKE`（SQLite 测试会挂），用 `LOWER(col) LIKE ?`。
-- **import 循环**：handler 包测试不要 import router（router import handler）；集成测试放在 router 包内用 `package router_test`。
-- **业务错误码的 errors.Is**：`apperrors.Error.Is` 按 Code 匹配，所以 `errors.Is(err, apperrors.ErrNotFound)` 对 Wrap 出来的错误同样成立——测试里放心用。
-- **metrics**：`/metrics` 用 `promhttp.Handler()` 直挂；新版 client_golang 不再自动注册到 DefaultServeMux。
-- **改模块路径**：用 `./scripts/rename-module.sh github.com/你的组织/项目`（会同步 go.mod、import、golangci local-prefixes）。
+```bash
+make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + docs/依赖 同步
+```
 
-## 标准改动流程（checklist）
+- CI 跑同一套（`make gate` + golangci-lint job + web typecheck/build + docker build）。
+- 工具缺失 → `make tools`（版本 pin 在 `Makefile` 顶部，**不要 `@latest`**）。
+- 改了 Swagger 注解 → `make swagger` 并提交 `docs/`（`make check` 会检出漂移）。
+- 只改 Go 代码时，最快闭环是 `make test`：测试用内存 SQLite，**不需要 postgres/docker**。
+- **禁止未运行就声称通过**：结论要有真实输出支撑。
 
-1. 读 `context.md` 对应章节 + 加载相关 skill（新增领域 → `/add-domain`）。
-2. 写代码：遵循分层与命名规范（见 context.md「编码约定」）。
-3. 写/更新测试；跑 `make vet && make lint && make test`。
-4. 涉及 API 变更 → 补 Swagger 注解 → `make swagger` → 提交 `docs/`。
-5. 涉及表结构 → `make migrate-create NAME=xxx` 写 up/down SQL，并同步 GORM model（若同时改了 model 的 AutoMigrate 场景注意测试库）。
-6. 同步更新 `context.md`（架构/API/配置变化）与 `README.md`（用户可见变化）。
-7. `git add -A && git commit`（语义化 message，中文描述也可）。
+## 标准改动流程
 
-## 可复用操作配方（skills）
+1. 定位：读 `context.md` 相关章节 + 加载相关 skill。
+2. 改代码：遵循分层与命名（`context.md` §3/§10）；新增领域走 `add-domain` skill。
+3. 补/改测试。
+4. `make check` 全绿。
+5. 同步文档：架构/契约/配置变化 → `context.md`；新踩的坑 → `docs/troubleshooting.md`；用户可见 → `README.md`。
+6. 提交：先 `git status --short` 复核，再**按文件路径** `git add <paths>`（**不要 `git add -A`**），语义化 message。
+
+## 必须先问人（破坏性 / 不可逆）
+
+- `git push --force`、改写已推送历史、删除或重写**已应用**的迁移文件。
+- `make migrate-down` 作用在共享/预发/生产库。
+- `docker compose down -v`、删除数据卷、`rm -rf` 非构建产物。
+- 提交密钥/`.env`、修改 CI 触发条件或仓库权限。
+- 改动超出任务范围的重构（先确认再动）。
+
+## 完成定义（DoD）
+
+最终回复必须包含：
+
+1. **变更文件清单**（按层：model / repository / service / handler / router / docs）。
+2. **`make check` 的真实输出摘要**（贴最后几行，不要只写"已通过"）。
+3. **未验证项与风险**（例如"本机无 docker，未跑 compose e2e；已用 `./scripts/smoke.sh` 验证 liveness 路径"）。
+
+## 技能索引
 
 | skill | 用途 |
 |---|---|
-| `add-domain` | 新增领域模块（model→迁移→repo→service→handler→路由→测试 八步配方） |
-| `docker-ops` | 容器编排与本地端到端调试（postgres→迁移→后台跑服务→curl 验证；镜像构建 / compose / CI） |
-| `database-migrations` | 迁移生命周期管理（新建/执行/回滚，GORM model 同步 checklist） |
+| `add-domain` | 新增领域模块（model→迁移→repo→service→handler→路由→测试→Swagger） |
+| `docker-ops` | 容器编排 + 本地端到端调试（也可用 `make smoke` 一条命令覆盖） |
+| `database-migrations` | 迁移新建/执行/回滚 + GORM model 同步 checklist |

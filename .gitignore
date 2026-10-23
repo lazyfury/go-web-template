@@ -19,3 +19,6 @@ coverage.out
 
 # 日志
 *.log
+
+# 本机环境差异（不入库）
+.agents/local.md

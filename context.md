@@ -119,8 +119,8 @@ swagger:  {enabled}
 - 单元：`internal/config`（优先级/校验）、`internal/service`（手写 mock repo，验证业务规则）。
 - 集成：`internal/router/integration_test.go`（`package router_test`）内存 SQLite 走 路由→handler→service→repo 全链路 CRUD。
 - 仓储：`internal/repository` 直接对 SQLite 测（验证软删、唯一冲突、分页）。
-- 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见。
-- 跑法：`make test` / `make test-race` / `make coverage`。
+- 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见；每个测试用独立命名内存库，可并行。
+- 跑法：`make check`（提交前唯一门槛）；纯 Go 改动最快闭环 `make test`；端到端 `make smoke`（需 postgres）。
 
 ## 9. 关键设计决策（ADR 精简版）
 
@@ -146,10 +146,10 @@ swagger:  {enabled}
 
 **加认证**：建议在 `RateLimit` 前挂 JWT 中间件，错误码用 `40100/40300`。
 
-## 11. 已知限制与排查
+## 11. 已知限制
 
 - 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）。
-- `Timeout` 中间件基于 goroutine 包裹，超时后处理协程仍会跑完（无法写回客户端）——这是设计取舍。
-- 常见报错速查：`connection refused` → postgres 未起或网络模式不对（见 AGENTS.md 坑位）；`ILIKE` 语法错误 → 测试库是 SQLite；`metrics 404` → 用了 DefaultServeMux（应 promhttp.Handler）；curl 超时 → 忘加 `--noproxy '*'`。
-- golangci-lint 常见报错修复：`exported: ... should have comment` → 导出标识符补注释（含 const 块内每一项）；`hugeParam` → 大结构体参数改传指针；`unnecessaryBlock` → 去掉多余 `{ }`；`unnamedResult` → 返回值命名；`prealloc` → `var x []T` 改 `x := make([]T, 0, n)`；`ifElseChain` → 改 switch；`ineffectual assignment` → 未用变量改 `_`。
-- 前端：`TS5103 Invalid value for '--ignoreDeprecations'` → tsconfig 该值与 TS major 不匹配（见 ADR 9）；`[sass] Expected newline` → `<style lang="sass">` 声明了缩进式语法但写了 SCSS 花括号，改 `lang="scss"`；`[unocss] failed to load icon "-"` → 无害噪音，来自 JSDoc 注释 `* - xxx` 的独立 `-` token，可忽略。
+- `Timeout` 中间件基于 goroutine 包裹，超时后处理协程仍会跑完（无法写回客户端）——设计取舍。
+- 测试库为每测试独立的命名内存 SQLite（`internal/testutil`），可并行；但仍需避免依赖真实 PostgreSQL 特性。
+
+> 报错速查、环境陷阱、linter/前端/容器排错：见 **[docs/troubleshooting.md](docs/troubleshooting.md)**（易变内容不写在本文件）。

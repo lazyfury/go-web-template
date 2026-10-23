@@ -116,15 +116,18 @@ go-web-template/
 ## 常用命令
 
 ```bash
+make tools          # 安装 pin 版本工具（golangci-lint / swag / air / govulncheck / migrate）
 make build          # 编译到 bin/
 make run            # 直接运行
 make dev            # air 热重载
-make test           # 单元测试
+make test           # 单元测试（内存 SQLite，无需 postgres）
 make test-race      # 竞态检测
-make coverage       # 覆盖率报告
-make lint           # golangci-lint
+make coverage-func  # 覆盖率文本摘要
+make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + docs/依赖 同步
+make smoke          # 本地冒烟：自起自停服务，验证探针 + CRUD
+make db-up          # 起本地 postgres（docker compose 优先）
 make swagger        # 重新生成 OpenAPI 文档
-make migrate-up     # 执行迁移
+make migrate-up     # 执行迁移（有 docker 用镜像，否则用本地 migrate）
 make migrate-create NAME=add_posts_table   # 新建迁移
 make docker-up      # 一键：postgres + migrate + app
 make docker-down    # 停止
@@ -144,7 +147,14 @@ make test
 
 ## CI / CD
 
-`.github/workflows/ci.yml`：push / PR 触发 → `golangci-lint` → `go vet` → `go test -race` → `go build` → Docker 镜像构建。
+`.github/workflows/ci.yml`（工具版本 pin 在 workflow env，与 `Makefile` 一致）：
+
+| job | 内容 |
+|---|---|
+| `lint` | golangci-lint（v2 配置） |
+| `gate` | `make gate` = gofmt 校验 + `go vet` + `go test -race` + `go build` + `docs/` 同步检查 |
+| `web` | `web/admin`：pnpm install + typecheck + build |
+| `docker` | 镜像可构建性验证 |
 
 ## 从模板开始你的项目
 
@@ -159,9 +169,10 @@ make test
 
 本仓库为 AI 代理（及人类协作者）准备了上下文与可复用配方，确保后续改动可靠、风格一致：
 
-- **[AGENTS.md](AGENTS.md)** — 操作手册（AI 代理与人类协作者通用）：硬性规则（分层依赖方向、错误处理、测试要求）、常用命令、**本机环境已知坑**（curl 代理、后台进程、compose 路径等）、标准变更流程、skill 索引。
+- **[AGENTS.md](AGENTS.md)** — 协作规则：硬性规则（分层、错误处理、测试）、质量门（`make check`）、标准流程、破坏性操作边界、完成定义（DoD）。
 - **[context.md](context.md)** — 项目上下文：架构总览、包职责、配置模型、数据模型、API 契约、设计决策（ADR）、扩展指南。
-- **[skills/](skills/)** — 可复用操作配方（同时以符号链接暴露于 `.agents/skills/` 供自动发现）：
+- **[docs/troubleshooting.md](docs/troubleshooting.md)** — 排错速查：环境/配置/迁移/代码结构/linter/前端/容器。
+- **[skills/](skills/)** — 可复用操作配方（同时以符号链接暴露于 `.agents/skills/` 供自动发现；**会话需从仓库根启动**）：
 
 | skill | 用途 |
 |---|---|
