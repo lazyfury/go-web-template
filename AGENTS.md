@@ -26,12 +26,12 @@ Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler 
 
 ## 硬性规则（违反 = 打回）
 
-1. **分层方向唯一**：`handler → service → repository`。禁止反向 import；service 不得 import gin；`internal/` 不得被外部非 main 包 import。
-2. **错误处理**：业务错误一律 `internal/errors`（`apperrors.Wrap/New` + 稳定 Code）；handler 用 `response.Fail(c, err)` 输出 `{code,message,data}`，不返回裸 error、不自造 JSON。
-3. **校验**：请求 DTO 用 gin binding tag；`ShouldBindJSON` 失败 → `apperrors.CodeInvalidArgument`。
-4. **日志**：只用 zap（`app.NewLogger` 构建）；访问日志由中间件产出，业务代码不 print。
+1. **分层与依赖方向**：业务包内 `handler → service → repository`（同一包内按文件分层）；包级方向 `cmd → app → {web, user, platform/*}`，`platform/*` 是叶子包。禁止反向 import；service 不得 import gin；`web` 不得 import 业务域（域用 `RegisterRoutes` 自己挂载）；`internal/` 不得被外部非 main 包 import。
+2. **错误处理**：业务错误一律 `internal/platform/apperr`（`apperr.Wrap/New` + 稳定 Code）；handler 用 `httpx.Fail(c, err)` 输出 `{code,message,data}`，不返回裸 error、不自造 JSON。
+3. **校验**：请求 DTO 用 gin binding tag；`ShouldBindJSON` 失败 → `apperr.CodeInvalidArgument`。
+4. **日志**：只用 zap（`logx.New` 构建）；访问日志由中间件产出，业务代码不 print。
 5. **上下文**：service/repository 方法首参必须是 `context.Context`，透传 `c.Request.Context()`；DB 查询 `WithContext(ctx)`。
-6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/router` 全链路集成测试；测试不得依赖真实 PostgreSQL。
+6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。
 7. **依赖**：新增依赖后 `go mod tidy`；sqlite 只允许出现在测试路径（`internal/testutil`）。
 8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
 

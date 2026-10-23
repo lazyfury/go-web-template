@@ -12,6 +12,7 @@ http:
   write_timeout: 10s
   idle_timeout: 60s
   shutdown_timeout: 10s
+  request_timeout: 15s
 
 database:
   driver: postgres

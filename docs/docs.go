@@ -57,7 +57,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -80,7 +80,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.CreateUserRequest"
+                            "$ref": "#/definitions/internal_user.CreateRequest"
                         }
                     }
                 ],
@@ -88,19 +88,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -128,13 +128,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -163,7 +163,7 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -193,7 +193,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.UpdateUserRequest"
+                            "$ref": "#/definitions/internal_user.UpdateRequest"
                         }
                     }
                 ],
@@ -201,25 +201,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -227,7 +227,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_example_go-web-template_internal_errors.Code": {
+        "github_com_example_go-web-template_internal_platform_apperr.Code": {
             "type": "integer",
             "enum": [
                 0,
@@ -252,11 +252,11 @@ const docTemplate = `{
                 "CodeDatabase"
             ]
         },
-        "github_com_example_go-web-template_internal_response.Body": {
+        "github_com_example_go-web-template_internal_platform_httpx.Body": {
             "type": "object",
             "properties": {
                 "code": {
-                    "$ref": "#/definitions/github_com_example_go-web-template_internal_errors.Code"
+                    "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_apperr.Code"
                 },
                 "data": {},
                 "message": {
@@ -264,7 +264,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_handler.CreateUserRequest": {
+        "internal_user.CreateRequest": {
             "type": "object",
             "required": [
                 "email",
@@ -282,7 +282,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_handler.UpdateUserRequest": {
+        "internal_user.UpdateRequest": {
             "type": "object",
             "properties": {
                 "email": {

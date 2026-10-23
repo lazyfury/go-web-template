@@ -11,7 +11,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/example/go-web-template/internal/app"
-	"github.com/example/go-web-template/internal/config"
+	"github.com/example/go-web-template/internal/platform/config"
+	"github.com/example/go-web-template/internal/platform/logx"
 )
 
 //	@title			Go Web Template API
@@ -47,7 +48,7 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	logger, err := app.NewLogger(cfg.Log)
+	logger, err := logx.New(cfg.Log.Level, cfg.Log.Format)
 	if err != nil {
 		log.Fatalf("init logger: %v", err)
 	}
@@ -63,7 +64,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := app.Run(ctx, cfg, logger); err != nil {
+	application, err := app.New(cfg, logger)
+	if err != nil {
+		logger.Fatal("init application", zap.Error(err))
+	}
+	defer func() {
+		if err := application.Close(); err != nil {
+			logger.Warn("close application", zap.Error(err))
+		}
+	}()
+
+	if err := application.Run(ctx); err != nil {
 		logger.Fatal("application exited with error", zap.Error(err))
 	}
 	logger.Info("application stopped")

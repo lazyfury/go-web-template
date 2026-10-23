@@ -39,8 +39,8 @@ docker compose -f deploy/docker-compose.yml run --rm migrate \
 ## 3. 与 GORM model 同步（双事实来源 checklist）
 
 1. 改 `migrations/00000X_*.sql`（生产 schema）。
-2. 同步 `internal/model/<domain>.go` 的 GORM tag（类型、索引、软删）。
-3. 新增表把 `&model.X{}` 加进 `internal/testutil/db.go` 的 `Models`（测试建表）。
+2. 同步 `internal/<domain>/entity.go` 的 GORM tag（类型、索引、软删）。
+3. 测试建表：调用处显式传 model，例如 `testutil.NewSQLiteDB(t, &user.User{}, &post.Post{})`（`testutil` 不再维护全局 `Models` 列表，避免 import cycle）。
 4. 查询保持可移植：`LOWER(col) LIKE ?`（SQLite 测试不支持 `ILIKE`）。
 
 表结构设计约定（软删、部分唯一索引等）见 `context.md` §5 与 ADR 4。

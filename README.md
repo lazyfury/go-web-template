@@ -6,12 +6,12 @@
 
 ## 特性
 
-- **分层架构**：`handler → service → repository`，接口驱动、可独立测试
-- **统一响应格式**：`{ code, message, data }` + 稳定的业务错误码（`internal/errors`）
+- **模块化单体**：`internal/platform/*` 叶子包 + `internal/web` 传输层 + 每个业务域一个包（`internal/user`），包内按 handler → service → repository 分文件
+- **统一响应格式**：`{ code, message, data }` + 稳定的业务错误码（`internal/platform/apperr`）
 - **配置管理**：默认值 < `configs/config.yaml` < 环境变量（`APP_*` 前缀），支持 `.env`
 - **结构化日志**：zap JSON 日志，访问日志携带 request-id、耗时、状态码
 - **可观测性**：`/healthz` 存活探针、`/readyz` 就绪探针（含 DB 检查）、`/metrics` Prometheus 指标
-- **健壮性**：panic 恢复、请求超时中间件、每 IP 限流（token bucket）、CORS、优雅停机
+- **健壮性**：panic 恢复、请求超时（ctx deadline）、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **文档**：Swagger 注解自动生成 OpenAPI 文档，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用
@@ -69,18 +69,16 @@ curl -X DELETE http://localhost:8080/api/v1/users/1
 go-web-template/
 ├── cmd/server/            # 进程入口（main），只做装配
 ├── internal/
-│   ├── app/               # 组件装配与生命周期（Run、logger 构建）
-│   ├── config/            # 配置模型 + viper 加载（文件/环境变量）
-│   ├── model/             # GORM 领域模型
-│   ├── repository/        # 数据访问层（GORM，接口 + 实现）
-│   ├── service/           # 业务逻辑层（依赖 repository 接口）
-│   ├── handler/           # HTTP 层（参数校验、响应渲染）
-│   ├── middleware/        # 中间件：RequestID/Logger/Recovery/CORS/限流/超时/Metrics
-│   ├── response/          # 统一响应信封
-│   ├── errors/            # 业务错误码与类型化错误
-│   ├── router/            # 路由表 + 中间件链装配（含集成测试）
-│   ├── server/            # http.Server 与优雅停机
-│   └── testutil/          # 测试共享工具（内存 SQLite）
+│   ├── app/               # 组合根：装配、生命周期、全链路集成测试
+│   ├── platform/          # 叶子包（无业务，可独立单测）
+│   │   ├── apperr/        # 业务错误码与类型化错误
+│   │   ├── httpx/         # 统一响应信封 OK/Created/NoContent/Fail
+│   │   ├── config/        # 配置模型 + viper 加载（文件/环境变量）
+│   │   ├── logx/          # zap logger 构建
+│   │   └── dbx/           # GORM PostgreSQL 连接池
+│   ├── web/               # 紧凑 HTTP 层：engine/中间件/探针/优雅停机（无业务）
+│   ├── user/              # 业务一块：entity → repository → service → handler → routes
+│   └── testutil/          # 测试共享工具（内存 SQLite，显式传 models）
 ├── migrations/            # golang-migrate SQL 迁移
 ├── configs/               # YAML 配置（config.yaml / config.example.yaml）
 ├── deploy/                # docker-compose.yml
@@ -141,8 +139,9 @@ make test
 
 测试策略：
 
-- **单元测试**：config（文件/环境变量优先级）、service（手写 mock repository）
-- **集成测试**：`internal/router/integration_test.go` 用内存 SQLite 走通 路由 → handler → service → repository 全链路 CRUD
+- **独立包单测**：`platform/{apperr,httpx,logx,config}` + `web` 中间件（`httptest`）
+- **业务单测**：`internal/user` 的 service（手写 fake repository）与 repository（SQLite）
+- **集成测试**：`internal/app/integration_test.go` 用 `app.NewWithDB` + 内存 SQLite 走通生产同款装配的路由 → handler → service → repository 全链路 CRUD
 - 测试运行无需 PostgreSQL（SQLite 仅用于测试，不进生产镜像）
 
 ## CI / CD

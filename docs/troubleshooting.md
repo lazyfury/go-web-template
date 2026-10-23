@@ -25,13 +25,15 @@
 - **migrate 容器连不上库**：compose 网络内用服务名 `postgres`；裸 `docker run` 用 `host.docker.internal`（或 `--network host` + `127.0.0.1`）。
 - **`first .: file does not exist`**：compose 卷路径相对 **compose 文件所在目录**解析，应为 `../migrations:/migrations`。
 - **重复执行 up 输出 `no change`** = 正常（幂等）。
-- **表结构改了但测试不生效**：测试用 `AutoMigrate`，需同步 `internal/testutil/db.go` 的 `Models` 切片（生产 schema 仍以迁移 SQL 为准）。
+- **表结构改了但测试不生效**：测试用 `AutoMigrate`，需在调用处传入新 model（`testutil.NewSQLiteDB(t, &user.User{}, &post.Post{})`）；生产 schema 仍以迁移 SQL 为准。
 
 ## 4. 代码结构
 
 | 症状 | 原因与处理 |
 |---|---|
-| `import cycle not allowed`（handler ↔ router） | handler 包测试不要 import router；集成测试放 `internal/router` 且用 `package router_test` |
+| `import cycle not allowed`（web ↔ 业务域） | `internal/web` 不得 import 业务域；域用 `RegisterRoutes(rg, h)` 挂载。集成测试放 `internal/app`（`package app_test`），通过 `app.NewWithDB` 复用生产装配 |
+| `internal/testutil` 与业务包循环 import | `NewSQLiteDB(t, models ...any)` 显式传 model，`testutil` 不 import 任何域包 |
+| 超时中间件"没生效" | `Timeout` 只向 `c.Request.Context()` 注入 deadline；handler 不检查 `ctx.Err()` 就不会中断。DB 查询因 `WithContext(ctx)` 会受影响。硬超时由 http server read/write timeout 兜底 |
 | `/metrics` 404 | 不能用 DefaultServeMux 自动注册，直挂 `promhttp.Handler()` |
 | `errors.Is(err, apperrors.ErrNotFound)` 不成立 | `apperrors.Error.Is` 按 Code 匹配；确认是 `apperrors.Wrap/New` 产出的错误，且调用了 `Unwrap` 链（`fmt.Errorf("%w")` 也可） |
 

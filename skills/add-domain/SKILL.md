@@ -1,13 +1,20 @@
 ---
 name: add-domain
-description: 在本 Go 单体模板中新增一个领域模块（如 posts/orders），按 model → 迁移 → repository → service → handler → router → 测试 → Swagger 落地，保证分层、错误码、统一响应与测试策略和现有代码一致。用于"新增业务领域/资源/CRUD 接口"或"像 users 那样加一个 X"。
+description: 在本 Go 单体模板中新增一个领域模块（如 posts/orders）：迁移 → internal/<domain> 一个包内 entity/repository/service/handler/routes → app 装配 → 单测 + 集成测试 → Swagger。用于"新增业务领域/资源/CRUD 接口"或"像 users 那样加一个 X"。
 ---
 
 # 新增领域模块（以 posts 为例）
 
-严格按顺序执行，每步对照现有 `users` 实现保持风格一致。开工前读 `context.md` §3（包职责）、§5（数据模型）、§6（API 契约）。
+一个域 = **一个包** `internal/post`，包内按文件分层（entity → repository → service → handler → routes）。
+不要新建 `internal/model`、`internal/repository` 之类横向包。开工前读 `context.md` §2（依赖方向）、§3（包职责）、§5（数据模型）、§6（API 契约）。
 
-## 1. model（`internal/model/post.go`）
+## 1. 迁移（先做 schema）
+
+按 `.agents/skills/database-migrations/SKILL.md` 执行：`make migrate-create NAME=create_posts_table` → 写 up/down SQL → 跑 `make migrate-up`（无 DB 时至少保证 SQL 语法与逆操作正确）。
+
+要点：外键 `user_id BIGINT NOT NULL REFERENCES users(id)`、时间列 `TIMESTAMPTZ NOT NULL DEFAULT now()`、软删/外键建索引。
+
+## 2. entity（`internal/post/entity.go`）
 
 ```go
 type Post struct {
@@ -23,64 +30,97 @@ func (Post) TableName() string { return "posts" }
 ```
 
 - 软删用 `*time.Time` + GORM 默认 scope。
-- 状态枚举参考 `model.UserStatus`（int8 + 常量，每个导出常量都要注释，否则 `revive:exported` 会报）。
+- 状态枚举参考 `user.Status`（int8 + 常量；每个导出常量都要注释，否则 `revive:exported` 报错）。
+- **不要**拆成"纯 domain struct + 独立 persistence model"两套：模板阶段是一个 GORM 实体，注释写清列含义即可。
 
-## 2. 迁移
-
-**不要在本 skill 里复制迁移细节**：直接按 `skills/database-migrations/SKILL.md` 执行（新建 → up/down SQL → 同步 model → 加入 `testutil.Models`）。
-
-要点：`user_id BIGINT NOT NULL REFERENCES users(id)`、时间列 `TIMESTAMPTZ NOT NULL DEFAULT now()`、外键与软删列建索引、up/down 互为逆操作。
-
-## 3. repository（`internal/repository/post_repo.go`）
-
-- 先定义接口（`Create/FindByID/List/Update/Delete`，首参 `context.Context`）+ `postRepository` 实现 + `NewPostRepository(db)`。
-- 错误：DB 失败 → `apperrors.Wrap(apperrors.CodeDatabase, "...", err)`；记录不存在 → `apperrors.ErrNotFound`；唯一冲突 → `CodeConflict`。
-- 查询保持可移植（`LOWER(col) LIKE ?`，不要 `ILIKE`）。
-- 在 `internal/testutil/db.go` 的 `Models` 切片追加 `&model.Post{}`（测试建表用）。
-
-## 4. service（`internal/service/post_service.go`）
-
-- 输入 DTO（`PostInput`/`PostPatch`，patch 用指针字段区分"未传"）+ 接口 `PostService`。
-- 业务规则放这里：依赖校验（如 user 必须存在）、防重复、软删语义。
-- **禁止 import gin**；只依赖 `repository.PostRepository` 接口。
-
-## 5. handler（`internal/handler/post.go`）
-
-- 请求 DTO 用 binding tag：`binding:"required,min=2,max=128"`；失败 → `apperrors.Wrap(apperrors.CodeInvalidArgument, validationMessage(err), err)`。
-- 每个方法补 Swagger 注解（照 `user.go`：@Summary/@Tags/@Param/@Success/@Failure/@Router）。
-- 响应一律 `response.OK/Created/NoContent/Fail`；ID 解析复用包内 `parseID`。
-- 构造函数参数名不要与 import 包同名（`svc service.PostService`，否则 `gocritic:importShadow`）。
-
-## 6. router + 装配（`internal/router/router.go`、`internal/app/app.go`）
+## 3. repository（`internal/post/repository.go`）
 
 ```go
-posts := v1.Group("/posts")
-posts.POST("", h.Post.Create)
-posts.GET("", h.Post.List)
-posts.GET("/:id", h.Post.Get)
-posts.PATCH("/:id", h.Post.Update)
-posts.DELETE("/:id", h.Post.Delete)
+// Repository 是持久化契约（消费方 service 依赖它，测试用 fake 替换）。
+type Repository interface {
+    Create(ctx context.Context, p *Post) error
+    FindByID(ctx context.Context, id uint64) (*Post, error)
+    List(ctx context.Context, offset, limit int) ([]Post, int64, error)
+    Update(ctx context.Context, p *Post) error
+    Delete(ctx context.Context, id uint64) error
+}
+
+type gormRepository struct{ db *gorm.DB }
+
+func NewRepository(db *gorm.DB) Repository { return &gormRepository{db: db} }
 ```
 
-同时把 `Post *handler.PostHandler` 加进 `router.Handlers`，并在 `app.go` 完成 repo→service→handler 装配。
+- 首参 `context.Context`，查询一律 `r.db.WithContext(ctx)`。
+- 错误：DB 失败 → `apperr.Wrap(apperr.CodeDatabase, "...", err)`；记录不存在 → `apperr.ErrNotFound`；唯一冲突 → `CodeConflict`。
+- 查询保持可移植（`LOWER(col) LIKE ?`，不要 `ILIKE`）。
 
-## 7. 测试
+## 4. service（`internal/post/service.go`）
 
-- service 单测：`internal/service/post_service_test.go`，手写 mock repo（参考 `user_service_test.go` 的 `mockUserRepo`），覆盖业务规则分支。
-- 集成测试：在 `internal/router/integration_test.go` 追加 CRUD 用例，复用 `newTestEngine`、`doJSON`、`decodeEnvelope`、`createUser`。
-- 每个测试通过 `testutil.NewSQLiteDB` 拿到独立内存库；不要依赖全局共享状态，也不要 `httptest.NewRequest`（用 `NewRequestWithContext`）。
+```go
+type Service struct{ repo Repository }
 
-## 8. 收尾
+// 返回具体类型（Go 惯例：return structs, accept interfaces）。
+func NewService(repo Repository) *Service { return &Service{repo: repo} }
+```
+
+- 输入 DTO：`Input` / `Patch`（patch 用指针字段区分"未传"）。
+- 业务规则放这里：依赖校验（如 user 必须存在 → 注入 `user.Repository` 或定义窄接口）、防重复、软删语义。
+- **禁止 import gin**；也不要 import `internal/web`。
+- 不要再定义 `PostService` 接口：repo 接口已是测试缝，handler 依赖 `*Service` 即可。
+
+## 5. handler（`internal/post/handler.go`）
+
+- `type Handler struct{ svc *Service }` + `func NewHandler(svc *Service) *Handler`。
+- 请求 DTO 用 binding tag：`binding:"required,min=2,max=128"`；失败 → `apperr.Wrap(apperr.CodeInvalidArgument, validationMessage(err), err)`。
+- 每个方法补 Swagger 注解（照 `user/handler.go`：@Summary/@Tags/@Param/@Success/@Failure/@Router）；`@Success {object} httpx.Body`。
+- 响应一律 `httpx.OK/Created/NoContent/Fail`；ID 解析复用包内 `parseID`。
+- 构造函数参数名不要与 import 包名同名（用 `svc`，否则 `gocritic:importShadow`）。
+
+## 6. routes（`internal/post/routes.go`）
+
+```go
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler) {
+    posts := rg.Group("/posts")
+    posts.POST("", h.Create)
+    posts.GET("", h.List)
+    posts.GET("/:id", h.Get)
+    posts.PATCH("/:id", h.Update)
+    posts.DELETE("/:id", h.Delete)
+}
+```
+
+路由挂在**域内**：`internal/web` 不 import 业务域，避免循环依赖。
+
+## 7. 装配（`internal/app/app.go` → `NewWithDB`）
+
+```go
+postRepo := post.NewRepository(db)
+postService := post.NewService(postRepo)
+postHandler := post.NewHandler(postService)
+post.RegisterRoutes(v1, postHandler)
+```
+
+`v1` 是 `web.New` 返回的 `/api/v1` 组（已带 RateLimit + Timeout）。
+
+## 8. 测试
+
+- service 单测：`internal/post/service_test.go`，手写 fake `Repository`（参考 `user/service_test.go` 的 `mockRepository`），覆盖规则分支。
+- repository 测试：`internal/post/repository_test.go`，`testutil.NewSQLiteDB(t, &post.Post{})`（**显式传 model**）。
+- 集成测试：在 `internal/app/integration_test.go` 追加 CRUD 用例，复用 `newTestHandler`、`doJSON`、`decodeEnvelope`、`createUser`。
+- 每个测试用独立命名内存库；`httptest.NewRequestWithContext`（不要 `httptest.NewRequest`，`noctx` 会报）。
+
+## 9. 收尾
 
 ```bash
-make check      # lint + gofmt + vet + race 测试 + build + docs 同步（必须全绿）
+make check      # lint + gofmt + vet + race + build + docs 同步（必须全绿）
 ```
 
-- 注解变更后 `make swagger` 并把 `docs/` 一起提交（`make check` 会检出未同步）。
+- 改了注解 → `make swagger` 并提交 `docs/`（`make check` 的 `swagger-diff` 会检出漂移）。
 - 同步 `context.md`（§5 表结构、§6 API 契约）与 `README.md`（用户可见变化）。
-- 可在有 DB 的环境跑 `make smoke` 验证真实进程（无 DB 时只验 liveness）。
+- 有 DB 时跑 `make smoke`；无 DB 时只验证 liveness 路径并如实说明。
 
 ## 注意
 
-- handler 包测试不要 import router（循环依赖）——集成测试放 `package router_test`。
-- 新领域需要 join 查询时在 repository 用 GORM `Preload/Joins`，service 层不感知 SQL。
+- `internal/web` 只能被动接收 `RegisterRoutes`，不能反向 import 域包。
+- 需要 join 时在 repository 用 GORM `Preload/Joins`，service 不感知 SQL。
+- 新表记得同时更新迁移 SQL 与 entity（双事实来源），测试库不跑迁移、只跑 AutoMigrate。

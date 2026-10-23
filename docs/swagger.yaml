@@ -1,6 +1,6 @@
 basePath: /api/v1
 definitions:
-  github_com_example_go-web-template_internal_errors.Code:
+  github_com_example_go-web-template_internal_platform_apperr.Code:
     enum:
     - 0
     - 40000
@@ -22,15 +22,15 @@ definitions:
     - CodeTooManyRequests
     - CodeInternal
     - CodeDatabase
-  github_com_example_go-web-template_internal_response.Body:
+  github_com_example_go-web-template_internal_platform_httpx.Body:
     properties:
       code:
-        $ref: '#/definitions/github_com_example_go-web-template_internal_errors.Code'
+        $ref: '#/definitions/github_com_example_go-web-template_internal_platform_apperr.Code'
       data: {}
       message:
         type: string
     type: object
-  internal_handler.CreateUserRequest:
+  internal_user.CreateRequest:
     properties:
       email:
         maxLength: 255
@@ -43,7 +43,7 @@ definitions:
     - email
     - name
     type: object
-  internal_handler.UpdateUserRequest:
+  internal_user.UpdateRequest:
     properties:
       email:
         maxLength: 255
@@ -89,7 +89,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
       summary: List users with pagination and keyword filter
       tags:
       - users
@@ -102,22 +102,22 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_handler.CreateUserRequest'
+          $ref: '#/definitions/internal_user.CreateRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
       summary: Create a user
       tags:
       - users
@@ -137,7 +137,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
       summary: Delete a user (soft delete)
       tags:
       - users
@@ -154,11 +154,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
       summary: Get a user by id
       tags:
       - users
@@ -176,26 +176,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_handler.UpdateUserRequest'
+          $ref: '#/definitions/internal_user.UpdateRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/github_com_example_go-web-template_internal_response.Body'
+            $ref: '#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body'
       summary: Update a user
       tags:
       - users

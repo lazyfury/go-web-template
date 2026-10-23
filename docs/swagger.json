@@ -55,7 +55,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -78,7 +78,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.CreateUserRequest"
+                            "$ref": "#/definitions/internal_user.CreateRequest"
                         }
                     }
                 ],
@@ -86,19 +86,19 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -126,13 +126,13 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -161,7 +161,7 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -191,7 +191,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.UpdateUserRequest"
+                            "$ref": "#/definitions/internal_user.UpdateRequest"
                         }
                     }
                 ],
@@ -199,25 +199,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/github_com_example_go-web-template_internal_response.Body"
+                            "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_httpx.Body"
                         }
                     }
                 }
@@ -225,7 +225,7 @@
         }
     },
     "definitions": {
-        "github_com_example_go-web-template_internal_errors.Code": {
+        "github_com_example_go-web-template_internal_platform_apperr.Code": {
             "type": "integer",
             "enum": [
                 0,
@@ -250,11 +250,11 @@
                 "CodeDatabase"
             ]
         },
-        "github_com_example_go-web-template_internal_response.Body": {
+        "github_com_example_go-web-template_internal_platform_httpx.Body": {
             "type": "object",
             "properties": {
                 "code": {
-                    "$ref": "#/definitions/github_com_example_go-web-template_internal_errors.Code"
+                    "$ref": "#/definitions/github_com_example_go-web-template_internal_platform_apperr.Code"
                 },
                 "data": {},
                 "message": {
@@ -262,7 +262,7 @@
                 }
             }
         },
-        "internal_handler.CreateUserRequest": {
+        "internal_user.CreateRequest": {
             "type": "object",
             "required": [
                 "email",
@@ -280,7 +280,7 @@
                 }
             }
         },
-        "internal_handler.UpdateUserRequest": {
+        "internal_user.UpdateRequest": {
             "type": "object",
             "properties": {
                 "email": {
