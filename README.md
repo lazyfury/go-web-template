@@ -246,6 +246,7 @@ make docker-down
 - **[context.md](context.md)** — 项目上下文：架构总览、包职责、配置模型、数据模型、API 契约、设计决策（ADR）、扩展指南。
 - **[docs/troubleshooting.md](docs/troubleshooting.md)** — 排错速查：环境/配置/迁移/代码结构/linter/前端/容器/鉴权。
 - **[docs/design-auth.md](docs/design-auth.md)** — 认证与权限的设计取舍（JWT/refresh/RBAC/威胁模型）。
+- **[docs/design-message.md](docs/design-message.md)** — 消息/通知模块设计：SQL 收件箱 + 多 channel 投递 + worker 生命周期与分阶段计划。
 - **[skills/](skills/)** — 可复用操作配方（同时以符号链接暴露于 `.agents/skills/` 供自动发现；**会话需从仓库根启动**）：
 
 | skill | 用途 |

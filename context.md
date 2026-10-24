@@ -36,6 +36,7 @@
 - **请求生命周期**：中间件链 → handler 校验 DTO → service 业务规则（依赖 repo 接口）→ repository 执行 SQL → 统一 `httpx.Body` 输出。
 - **依赖方向**（禁止反向）：`cmd → app → {web, auth, user, dict, platform/*}`；`auth → user`（仅单向：auth 通过包内 `UserStore` 接口消费用户数据）；`user/auth/dict → platform/*`；`web → platform/*`。`platform/*` 是叶子包；`web` 不得 import 业务域（域通过 `RegisterRoutes` 自己挂载）。`routekit` 只依赖 `httpx/apperr/gin`，不依赖任何业务域。
 - **鉴权装配在组合根**：`app` 用 `api.Group("", routekit.Security("bearerAuth"), routekit.Middleware(authkit.Authenticate(authService)))` 建受保护组，域内再用 `routekit.Middleware(authkit.RequirePermission(...))` 子组声明权限；路由元数据与运行时守卫写在同一次注册里。
+- **后台任务边界**：`cmd/server` 是进程生命周期与根 goroutine 的唯一所有者（`signal.NotifyContext` + `errgroup`）；`app` 只负责构造并暴露 worker，**不启动 goroutine**。worker 必须 `Run(ctx) error`、可取消、退出前等待在途任务；禁止在 app/service/handler/repository 里 fire-and-forget。详见 ADR 14 与 `docs/design-message.md`。
 
 ## 3. 包职责速查
 
@@ -231,6 +232,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 11. **JWT（HS256）+ 可吊销 refresh token + RBAC**：access token 无状态、15m、带 `ver`（users.token_version），改密/禁用即失效；refresh 为 32B 随机串、只存 SHA-256、每次轮换。**轮换是滑动的**（每次续满 `refresh_ttl`=30d），因此"活跃即长期在线"；`session_started_at` 跨轮换继承，把一次会话硬性封顶在 `refresh_max_lifetime`=90d。`refresh_reuse_interval`=30s 容忍多标签页并发轮换（否则一个标签页刷新会把另一个踢下线），容忍范围仅限 `revoked_reason=rotated`；登出/改密/禁用/重用检测/到期都是立即吊销。签名算法、issuer、过期时间在签发/校验两侧硬编码（`jwt.WithValidMethods`），杜绝 `alg=none`/算法混淆。refresh 放 `HttpOnly+SameSite=Strict` cookie、access 只存内存（前端不落 localStorage），降低 XSS 影响面。RBAC 用代码内静态表（admin/member → 权限字符串）：粗粒度守卫在 `authkit` 中间件，资源归属（本人）在 service，两处职责不重叠。
 12. **字典/配置模型（group = setting + items = dict array）**：`dict_groups` 保存 setting 元数据（`group_key` 不可变），`dict_items` 保存有序数组元素（`item_key`、`label`、`value`、`value_type`、`sort_order`）。消费侧 `GET /dicts/:group` 只返回启用项；管理端按 group/item 做 CRUD。其他业务模块通过 `dict.Store` 的 `Replace("seo", map)` / `Replace("keywords", []any)` 做整组替换（事务内 upsert group + purge/insert items），`GetInto` 按 `value_type` 解码到 map/slice/struct。这样模板既支持"下拉字典"，也支持"对象/数组型 setting"，且不把 JSON blob 塞进单列。
 13. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
+14. **进程生命周期与后台 goroutine**：`cmd/server/main.go` 持有 `signal.NotifyContext`，用 `errgroup.WithContext` 同时运行 HTTP 与后台 worker；任一失败取消另一个，全部退出后才 `App.Close` 释放 DB。`internal/app` 只装配（构造 repo/service/worker）并通过 `App` 暴露 worker，**禁止在 app 内启动 goroutine**；service/handler 只写投递记录（delivery/outbox），异步执行交给 worker。Worker 契约：`Run(ctx) error`、ticker/clock 可注入、ctx 取消后停止领取新任务并等待在途任务、禁止裸 `go func()` 与 `time.Sleep` 轮询。多实例用 `locked_until` 租约 + 条件更新领取任务（保持 SQLite 可测，不依赖 `SKIP LOCKED`）。
 
 ## 10. 扩展指南
 
@@ -264,6 +266,8 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 **新增配置项**：`config.go` 加字段 → `loader.go` `setDefaults` 加默认值 → `config.example.yaml`/`config.yaml` 同步 → 必要时加 Validate 分支。
 
 **新增中间件**：写 `internal/web/middleware_<name>.go`（`package web`，gin.HandlerFunc）→ `internal/web/router.go` 挂链（顺序：Recovery 最外、RequestID 先于 Logger）+ 补 `httptest` 单测。
+
+**新增后台任务/worker**：worker 实现放业务包（如 `internal/message/worker.go`），只暴露 `NewWorker(...)` + `Run(ctx) error`；在 `internal/app` 构造并通过 `App` 暴露，由 `cmd/server` 用 `errgroup` 启动。不得在 `app.New`/`app.Run` 里 `go`；需要周期任务用 `time.Ticker` + `select ctx.Done()`，需要并发时用有界 pool 并在 `Run` 返回前 `Wait`。详细设计见 `docs/design-message.md`。
 
 **新增运维端点**：放 `internal/web/router.go` 顶层组（豁免限流）；探针逻辑在 `internal/web/health.go`。
 
