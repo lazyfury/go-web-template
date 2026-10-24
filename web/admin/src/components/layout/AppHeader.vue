@@ -18,8 +18,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const pageTitle = computed(() => route.meta.title ?? '')
-const userName = computed(() => authStore.user?.username ?? 'Admin')
-const userRole = computed(() => authStore.user?.role ?? '管理员')
+const userName = computed(() => authStore.user?.name ?? 'Admin')
+const userRole = computed(() => (authStore.user?.role === 'admin' ? '管理员' : '成员'))
 const userEmail = computed(() => authStore.user?.email ?? 'admin@admin.local')
 const avatarText = computed(() => userName.value.slice(0, 1).toUpperCase())
 

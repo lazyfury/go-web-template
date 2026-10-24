@@ -61,6 +61,11 @@ services:
       APP_CORS_ALLOWED_ORIGINS: "https://example.com"
       # 生产式编排默认关闭 OpenAPI/Swagger；本地调试用 APP_SWAGGER_ENABLED=true make docker-up
       APP_SWAGGER_ENABLED: "${APP_SWAGGER_ENABLED:-false}"
+      # JWT 签名密钥：生产必须通过密钥管理注入 >=32 字节随机值。
+      # 这里的默认值只服务于本地编排，切勿用于真实环境。
+      APP_AUTH_JWT_SECRET: "${APP_AUTH_JWT_SECRET:-local-compose-default-jwt-secret-32b}"
+      # 本地 compose 走 http，Secure cookie 会导致浏览器不回传 refresh token。
+      APP_AUTH_COOKIE_SECURE: "${APP_AUTH_COOKIE_SECURE:-false}"
     ports:
       - "8080:8080"
     healthcheck:

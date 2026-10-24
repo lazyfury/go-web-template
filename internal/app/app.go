@@ -12,8 +12,11 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/example/go-web-template/internal/auth"
+	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/dbx"
+	"github.com/example/go-web-template/internal/platform/passwd"
 	"github.com/example/go-web-template/internal/platform/routekit"
 	"github.com/example/go-web-template/internal/user"
 	"github.com/example/go-web-template/internal/web"
@@ -66,17 +69,50 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	if err != nil {
 		return nil, fmt.Errorf("access sql.DB: %w", err)
 	}
+	if cfg.Auth.JWTSecret == "" {
+		return nil, fmt.Errorf("auth.jwt_secret is required (set APP_AUTH_JWT_SECRET)")
+	}
 
 	// Data layer → use-cases → HTTP adapter. Each domain is one package.
+	hasher := passwd.NewHasher(cfg.Auth.BcryptCost)
+
 	userRepo := user.NewRepository(db)
-	userService := user.NewService(userRepo)
+	authRepo := auth.NewRepository(db)
+	userService := user.NewService(userRepo, hasher, authRepo)
 	userHandler := user.NewHandler(userService)
+
+	issuer := authkit.NewTokenIssuer(cfg.Auth.JWTSecret, cfg.Auth.Issuer, cfg.Auth.AccessTTL)
+	authService := auth.NewService(
+		userRepo,
+		authRepo,
+		issuer,
+		hasher,
+		auth.Options{
+			RefreshTTL:       cfg.Auth.RefreshTTL,
+			MaxLoginAttempts: cfg.Auth.LoginMaxAttempts,
+			Lockout:          cfg.Auth.LoginLockout,
+		},
+		logger,
+	)
+	authHandler := auth.NewHandler(authService, cfg.Auth.CookieSecure, cfg.Auth.RefreshTTL)
 
 	// Transport layer. web knows nothing about domains; the composition root
 	// mounts each module on the versioned API group and then builds the
 	// OpenAPI document from the registered metadata.
 	engine, api := web.New(cfg, logger, web.NewHealth(sqlDB), options.Version)
-	user.RegisterRoutes(api, userHandler)
+
+	// Public auth endpoints: login is throttled per IP, refresh is not.
+	loginGuard := web.RateLimit(true, cfg.Auth.LoginRPS, cfg.Auth.LoginBurst)
+	auth.RegisterRoutes(api, authHandler, loginGuard)
+
+	// Everything below requires a valid access token. Authkit reads the user
+	// row on every request, so disabled accounts and password changes take
+	// effect immediately.
+	protected := api.Group("", routekit.Security(routekit.BearerAuth),
+		routekit.Middleware(authkit.Authenticate(authService)))
+	auth.RegisterProtectedRoutes(protected, authHandler)
+	user.RegisterRoutes(protected, userHandler)
+
 	if err := web.MountDocs(engine, api, cfg.Swagger.Enabled); err != nil {
 		return nil, fmt.Errorf("build openapi: %w", err)
 	}
@@ -87,6 +123,37 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		server:  web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
 		openapi: api.Registry(),
 	}, nil
+}
+
+// SeedOptions configures the bootstrap administrator created by cmd/admin.
+type SeedOptions struct {
+	Name     string
+	Email    string
+	Password string
+	Role     authkit.Role
+}
+
+// SeedAdmin provisions or resets an administrator against the configured
+// database. cmd/admin uses it; tests use it to obtain a login.
+func SeedAdmin(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts SeedOptions) (*user.User, error) {
+	if cfg.Auth.JWTSecret == "" {
+		return nil, fmt.Errorf("auth.jwt_secret is required (set APP_AUTH_JWT_SECRET)")
+	}
+	hasher := passwd.NewHasher(cfg.Auth.BcryptCost)
+	issuer := authkit.NewTokenIssuer(cfg.Auth.JWTSecret, cfg.Auth.Issuer, cfg.Auth.AccessTTL)
+	service := auth.NewService(
+		user.NewRepository(db),
+		auth.NewRepository(db),
+		issuer,
+		hasher,
+		auth.Options{
+			RefreshTTL:       cfg.Auth.RefreshTTL,
+			MaxLoginAttempts: cfg.Auth.LoginMaxAttempts,
+			Lockout:          cfg.Auth.LoginLockout,
+		},
+		logger,
+	)
+	return service.SeedAdmin(context.Background(), opts.Name, opts.Email, opts.Password, opts.Role)
 }
 
 // Handler exposes the HTTP handler (tests use it with httptest).

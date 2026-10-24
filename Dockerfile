@@ -13,7 +13,11 @@ ARG COMMIT=unknown
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-    -o /out/server ./cmd/server
+    -o /out/server ./cmd/server \
+ && CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+    -o /out/admin ./cmd/admin
 
 # ---- Runtime stage --------------------------------------------------------
 FROM alpine:3.21
@@ -23,6 +27,8 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 WORKDIR /app
 COPY --from=builder /out/server /usr/local/bin/server
+# admin 用于容器内 bootstrap 管理员：docker compose exec app /usr/local/bin/admin -email ... 
+COPY --from=builder /out/admin /usr/local/bin/admin
 COPY configs/config.yaml /app/configs/config.yaml
 
 USER app

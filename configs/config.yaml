@@ -57,3 +57,17 @@ ratelimit:
 
 swagger:
   enabled: true
+
+auth:
+  # HS256 签名密钥：生产环境必填且 >=32 字节（APP_AUTH_JWT_SECRET），开发环境可用默认值
+  jwt_secret: dev-only-insecure-secret-change-me-32b
+  issuer: go-web-template
+  access_ttl: 15m
+  refresh_ttl: 168h
+  bcrypt_cost: 12
+  login_max_attempts: 5
+  login_lockout: 15m
+  login_rps: 5
+  login_burst: 10
+  # 本地 http 调试时置 false，否则浏览器不会保存 refresh cookie
+  cookie_secure: true

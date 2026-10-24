@@ -20,6 +20,9 @@ type Repository interface {
 	FindByEmail(ctx context.Context, email string) (*User, error)
 	List(ctx context.Context, offset, limit int, keyword string) ([]User, int64, error)
 	Update(ctx context.Context, user *User) error
+	// SaveAuthState persists authentication columns (including zero values
+	// such as a reset failure counter or a revoked token version).
+	SaveAuthState(ctx context.Context, user *User) error
 	Delete(ctx context.Context, id uint64) error
 }
 
@@ -99,6 +102,33 @@ func (r *gormRepository) Update(ctx context.Context, user *User) error {
 			return apperr.Wrap(apperr.CodeConflict, "user already exists", err)
 		}
 		return apperr.Wrap(apperr.CodeDatabase, "update user failed", err)
+	}
+	return nil
+}
+
+// authStateColumns are written explicitly because Updates(struct) skips zero
+// values, and resetting failed_login_attempts to 0 must actually persist.
+var authStateColumns = []string{
+	"password_hash",
+	"role",
+	"status",
+	"token_version",
+	"last_login_at",
+	"password_changed_at",
+	"failed_login_attempts",
+	"locked_until",
+}
+
+func (r *gormRepository) SaveAuthState(ctx context.Context, user *User) error {
+	err := r.db.WithContext(ctx).
+		Model(user).
+		Select(authStateColumns).
+		Updates(user).Error
+	if err != nil {
+		if isUniqueViolation(err) {
+			return apperr.Wrap(apperr.CodeConflict, "user already exists", err)
+		}
+		return apperr.Wrap(apperr.CodeDatabase, "update auth state failed", err)
 	}
 	return nil
 }

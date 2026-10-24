@@ -6,9 +6,10 @@
 ## 1. 项目定位
 
 - 行业标准 Go Web **单体应用**模板（HTTP JSON API 服务），非微服务。
-- 技术栈：Go 1.26 / Gin / GORM / PostgreSQL / uber-go/zap / viper / golang-migrate / Prometheus / OpenAPI 3.0（routekit 代码生成）。
+- 技术栈：Go 1.26 / Gin / GORM / PostgreSQL / uber-go/zap / viper / golang-migrate / Prometheus / OpenAPI 3.0（routekit 代码生成）/ JWT（golang-jwt v5）+ bcrypt。
+- 认证：邮箱+密码登录 → **JWT access token（15m）+ HttpOnly refresh cookie（7d，轮换/重用检测）**；RBAC `admin`/`member`；`/api/v1` 除 `/auth/login`、`/auth/refresh` 外全部要求登录。
 - 模块路径：`github.com/example/go-web-template`（真实项目用 `scripts/rename-module.sh` 替换）。
-- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），登录（mock 可切换真实接口）/ 仪表盘 / users CRUD；开发时 vite 将 `/api` 代理到 `:8080`。API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`），详见 `web/admin/README.md`。
+- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），真实登录（JWT + refresh cookie）/ 权限化菜单 / 仪表盘 / users CRUD；开发时 vite 将 `/api` 代理到 `:8080`。API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`），详见 `web/admin/README.md`。
 
 ## 2. 架构总览
 
@@ -19,9 +20,10 @@
                        │    │ Recovery → RequestID → Logger → CORS → Metrics                 │
                        │    │ /api/v1 组: RateLimit → Timeout(ctx deadline)                  │
                        │    ▼                                                               │
+                       │  internal/auth   (登录/JWT/refresh 轮换：同包分文件)      │
                        │  internal/user   (业务一块：handler → service → repository 同包分文件) │
                        │    ▼                                                               │
-                       │  internal/platform/{config,logx,dbx,apperr,httpx} 叶子包 ─► PostgreSQL
+                       │  internal/platform/{config,logx,dbx,apperr,httpx,authkit,passwd} 叶子包 ─► PostgreSQL
                        │  internal/platform/routekit（路由元数据 → OpenAPI）              │
                        │                                                                     │
                        │  运维端点: /healthz /readyz /metrics /openapi.json /swagger/*any   │
@@ -32,13 +34,15 @@
 - **入口**：`cmd/server/main.go` 只做 flag 解析 → `config.Load` → `logx.New` → `app.New` → `App.Run`（`defer App.Close`）。
 - **装配（组合根）**：`internal/app` 手工依赖注入（DB→repo→service→handler→web→server）。`NewWithDB(cfg, logger, db)` 是测试缝：集成测试用同一套生产装配跑内存 SQLite。
 - **请求生命周期**：中间件链 → handler 校验 DTO → service 业务规则（依赖 repo 接口）→ repository 执行 SQL → 统一 `httpx.Body` 输出。
-- **依赖方向**（禁止反向）：`cmd → app → {web, user, platform/*}`；`user → platform/*`；`web → platform/*`。`platform/*` 是叶子包；`web` 不得 import 业务域（域通过 `RegisterRoutes` 自己挂载）。`routekit` 只依赖 `httpx/apperr/gin`，不依赖任何业务域。
+- **依赖方向**（禁止反向）：`cmd → app → {web, auth, user, platform/*}`；`auth → user`（仅单向：auth 通过包内 `UserStore` 接口消费用户数据）；`user/auth → platform/*`；`web → platform/*`。`platform/*` 是叶子包；`web` 不得 import 业务域（域通过 `RegisterRoutes` 自己挂载）。`routekit` 只依赖 `httpx/apperr/gin`，不依赖任何业务域。
+- **鉴权装配在组合根**：`app` 用 `api.Group("", routekit.Security("bearerAuth"), routekit.Middleware(authkit.Authenticate(authService)))` 建受保护组，域内再用 `routekit.Middleware(authkit.RequirePermission(...))` 子组声明权限；路由元数据与运行时守卫写在同一次注册里。
 
 ## 3. 包职责速查
 
 | 包 | 职责 | 关键文件 |
 |---|---|---|
 | `cmd/server` | 进程入口 | `main.go`（version/commit ldflags） |
+| `cmd/admin` | bootstrap/重置管理员 CLI（无公开注册） | `main.go` |
 | `internal/app` | 组合根：装配 + 生命周期 + 集成测试 | `app.go`, `integration_test.go` |
 | `internal/platform/apperr` | 业务错误码 + 类型化错误（纯） | `apperr.go` |
 | `internal/platform/httpx` | 统一响应信封 OK/Created/NoContent/Fail | `response.go` |
@@ -47,9 +51,12 @@
 | `internal/platform/dbx` | GORM PostgreSQL 连接池 | `db.go` |
 | `internal/platform/routekit` | 声明式路由元数据 + 反射生成 OpenAPI 3.0.3 | `types.go`, `schema.go`, `registry.go`, `group.go`, `serve.go` |
 | `internal/web` | 紧凑 HTTP 层：engine/中间件/探针/优雅停机/文档挂载（无业务） | `router.go`, `docs.go`, `middleware_*.go`, `health.go`, `server.go` |
-| `internal/user` | 业务一块：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
+| `internal/user` | 用户域：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
+| `internal/auth` | 认证域：登录、access token 签发、refresh 轮换/吊销、改密、bootstrap 管理员 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
+| `internal/platform/authkit` | 叶子包：JWT 签发/校验（HS256 钉死）、Principal、RBAC 表、gin 中间件 | `token.go`, `principal.go`, `rbac.go`, `middleware.go` |
+| `internal/platform/passwd` | 叶子包：bcrypt 哈希/校验 + 防枚举的 dummy 比较 | `passwd.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
-| `migrations/` | golang-migrate SQL（版本化） | `000001_create_users_table.*` |
+| `migrations/` | golang-migrate SQL（版本化） | `000001_create_users_table.*`, `000002_add_auth_fields_to_users.*`, `000003_create_refresh_tokens.*` |
 | `docs/` | 生成的 OpenAPI 契约 + 手写排错文档 | `openapi.json`, `troubleshooting.md` |
 
 ## 4. 配置模型
@@ -64,9 +71,12 @@ log:      {level: info|debug|warn|error, format: json|console}
 cors:     {allowed_origins, allowed_methods, allowed_headers, exposed_headers, allow_credentials, max_age}
 ratelimit:{enabled, rps, burst}
 swagger:  {enabled}   # /openapi.json + Swagger UI
+auth:     {jwt_secret, issuer, access_ttl: 15m, refresh_ttl: 168h, bcrypt_cost: 12,
+           login_max_attempts: 5, login_lockout: 15m, login_rps: 5, login_burst: 10, cookie_secure}
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（仅 `cmd/admin` 读取）。
+- `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或仍是 `CHANGE_ME`/含 `insecure` 的占位值 → 启动失败（fail-fast，避免用可猜密钥签发生产 token）。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
 - 显式 `-config` 缺失 → 启动失败；默认路径缺失 → 用默认值 + env。
 - 生产建议：密钥走环境变量/密钥管理；`APP_DEBUG=false`、CORS 收紧、`APP_LOG_FORMAT=json`。
@@ -82,8 +92,16 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 | name | varchar(64) NOT NULL | |
 | email | varchar(255) NOT NULL | 部分唯一索引 `WHERE deleted_at IS NULL`（软删下允许复用邮箱） |
 | status | smallint NOT NULL DEFAULT 1 | 1=active 0=disabled（`user.Status`） |
+| role | varchar(32) NOT NULL DEFAULT 'member' | `admin` / `member`（`authkit.Role`） |
+| password_hash | varchar(255) NOT NULL DEFAULT '' | bcrypt 摘要；空 = 未设凭证，无法登录 |
+| token_version | integer NOT NULL DEFAULT 0 | 改密/禁用时 +1 → 旧 access token 立即失效 |
+| last_login_at / password_changed_at | timestamptz NULL | 审计 |
+| failed_login_attempts | smallint NOT NULL DEFAULT 0 | 连续失败计数（登录成功清零） |
+| locked_until | timestamptz NULL | 超过 `auth.login_max_attempts` 后锁定 |
 | created_at / updated_at | timestamptz NOT NULL | |
 | deleted_at | timestamptz NULL | **软删除**：`Delete` 只置该列，行保留审计 |
+
+`refresh_tokens` 表（`migrations/000003_create_refresh_tokens.*`）：`id`、`user_id`（FK→users，ON DELETE CASCADE）、`token_hash CHAR(64) UNIQUE`（**只存 SHA-256**）、`expires_at`、`revoked_at`、`user_agent`、`ip`、`created_at`。轮换时旧行置 `revoked_at`；检测到重用则吊销该用户全部会话。
 
 - 迁移工具：golang-migrate（SQL 文件），`make migrate-up/down/create`。
 - **GORM model 与迁移 SQL 是两套事实来源**，改表必须两处同步；测试库用 `AutoMigrate`（`internal/testutil.NewSQLiteDB(t, &user.User{})`）自动建表。
@@ -94,9 +112,24 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 
 统一信封：`{"code": <int>, "message": <string>, "data": <any|omitempty>}`；`code=0` 成功。
 
-业务错误码（`internal/platform/apperr`）：`0` 成功；`40000` 参数错误；`40100` 未认证；`40300` 无权限；`40400` 不存在；`40900` 冲突；`41300` 请求体过大；`42900` 限流；`50000` 内部错误；`50001` 数据库错误。已知码精确映射到 HTTP 状态，未知码按 `[HTTP][类别][序号]` 布局回退。
+业务错误码（`internal/platform/apperr`）：`0` 成功；`40000` 参数错误；`40100` 未认证（缺失/无效/过期 token、凭证错误）；`40300` 无权限（角色不足、账号禁用/锁定、管理员自删）；`40400` 不存在；`40900` 冲突；`41300` 请求体过大；`42900` 限流；`50000` 内部错误；`50001` 数据库错误。已知码精确映射到 HTTP 状态，未知码按 `[HTTP][类别][序号]` 布局回退。
 
 错误响应额外带 `request_id`（与 `X-Request-ID` 一致，便于客户端关联日志）。OpenAPI 文档由 `routekit.Op` 元数据生成，响应的 `data` 使用真实 DTO 类型（不是 `any`）。
+
+**认证**：`Authorization: Bearer <access token>`（HS256，15m）；refresh token 只走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api/v1/auth`，7d）。OpenAPI 通过 `securitySchemes.bearerAuth` 声明，受保护操作自动带 `401`。
+
+| 端点 | 方法 | 登录 | 权限 | 说明 | 成功 | 失败 |
+|---|---|---|---|---|---|---|
+| `/api/v1/auth/login` | POST | 否 | — | `{email,password}`；按 IP 限流 + 账号锁定；失败统一 `401 invalid credentials`（不泄露用户是否存在） | 200 `{access_token,token_type,expires_in,user}` + cookie | 400/401/403 |
+| `/api/v1/auth/refresh` | POST | 否（凭 cookie） | — | 轮换 refresh token；重用已吊销 token → 吊销该用户全部会话 | 200 同上 | 401 |
+| `/api/v1/auth/logout` | POST | 是 | — | 吊销当前 refresh 会话（幂等） | 204 | 401 |
+| `/api/v1/auth/me` | GET | 是 | — | 当前用户 + 角色 + 权限列表 | 200 `UserView` | 401 |
+| `/api/v1/auth/password` | PATCH | 是 | — | `{current_password,new_password}`；`token_version++` 并吊销所有会话 | 204 | 400/401 |
+| `/api/v1/users` | GET | 是 | `users:read` | 列表（admin） | 200 | 401/403 |
+| `/api/v1/users` | POST | 是 | `users:write` | 建用户（须带初始密码） | 201 | 400/401/403/409 |
+| `/api/v1/users/:id` | GET | 是 | `users:read` 或 `users:read:self` | 详情；member 仅本人 | 200 | 400/401/403/404 |
+| `/api/v1/users/:id` | PATCH | 是 | `users:write` 或 `users:write:self` | 局部更新；member 仅本人且不能改 role/status/password | 200 | 400/401/403/404/409 |
+| `/api/v1/users/:id` | DELETE | 是 | `users:delete` | 软删除；管理员不能删自己 | 204 | 400/401/403/404 |
 
 | 端点 | 方法 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|
@@ -105,17 +138,12 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 | `/metrics` | GET | Prometheus 指标 | 200 | — |
 | `/openapi.json` | GET | OpenAPI 3.0 文档（`swagger.enabled` 控制） | 200 | — |
 | `/swagger/*any` | GET | Swagger UI，读取 `/openapi.json`（`swagger.enabled` 控制） | 200 | — |
-| `/api/v1/users` | POST | 建用户 `{name(2-64), email}` | 201 | 400/409/413 |
-| `/api/v1/users` | GET | 列表 `?page&page_size&keyword` | 200 `{items,total,page,page_size}` | — |
-| `/api/v1/users/:id` | GET | 详情 | 200 | 400/404 |
-| `/api/v1/users/:id` | PATCH | 局部更新（指针字段区分未传） | 200 | 400/404/409 |
-| `/api/v1/users/:id` | DELETE | 软删除 | 204 | 400/404 |
-
 中间件对 `/api/v1/*` 生效：先 `RateLimit`，再 `Timeout` 向 `c.Request.Context()` 注入 `http.request_timeout` deadline（service/repository 通过 ctx 传递；handler 不检查 ctx 时不会自动中断，硬超时由 http server 的 read/write timeout 兜底）。运维端点豁免限流。
 
 ## 7. 中间件与可观测性
 
-- 链路：`Recovery → RequestID → Logger → CORS → Metrics → BodyLimit → (v1: RateLimit → Timeout)`。`BodyLimit` 按 `http.max_body_bytes`（默认 1 MiB）拒绝过大请求体。
+- 链路：`Recovery → RequestID → Logger → CORS → Metrics → BodyLimit → (v1: RateLimit → Timeout)`；受保护子组再叠加 `Authenticate → RequirePermission`（`authkit`）。`BodyLimit` 按 `http.max_body_bytes`（默认 1 MiB）拒绝过大请求体。
+- 访问日志在已认证请求上追加 `user_id`（未认证不输出），便于按用户排查；**不记录** `Authorization`/密码/token。
 - `X-Request-ID`：入站复用或生成 UUID；响应头回写；访问日志与错误响应体（`request_id` 字段）均携带；错误响应统一经 `httpx.Fail`/`httpx.Error` 生成。
 - 指标：`http_requests_total{method,path,status}`、`http_request_duration_seconds{method,path}`、`http_requests_in_flight`；path 用路由模式（`/api/v1/users/:id`），未匹配路由固定记为 `unmatched`（避免扫描器打爆基数）。
 - 限流：每 IP token bucket（`x/time/rate`），X-Forwarded-For 取第一跳；超限 429 + `Retry-After`。
@@ -125,11 +153,12 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 ## 8. 测试策略
 
 - 独立包单测（不依赖 gin/gorm）：`platform/apperr`（码表/`From`/`Unwrap`）、`platform/httpx`（信封与错误映射）、`platform/logx`、`platform/config`（优先级/校验）。
-- 业务单测：`internal/user/service_test.go`（手写 fake `Repository`，只测规则；`NewService` 返回具体类型，接口只在消费侧）。
+- 业务单测：`internal/user/service_test.go`（fake `Repository`：角色/归属/禁用撤销 token_version）、`internal/auth/service_test.go`（fake `UserStore`+`Repository`+固定时钟：枚举防护、锁定、轮换、重用检测、改密失效）。
+- 认证原语：`internal/platform/authkit/authkit_test.go`（HS256 钉死、iss/exp、alg=none、typ 混淆、错误密钥、RBAC 表、中间件 401/403）。
 - 仓储：`internal/user/repository_test.go` 直接对 SQLite 测（软删、唯一冲突、分页）。
 - 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/Health，`httptest` 驱动）。
-- 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**全链路 CRUD。
-- OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件 `docs/openapi.json`、`engine.Routes()` 完整性、禁用时 404）。
+- 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**：`app.SeedAdmin` → login → bearer → CRUD，覆盖匿名 401、member 403/越权、refresh 轮换与旧 cookie 重用、改密后旧 token 失效。
+- OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、`engine.Routes()` 完整性、禁用时 404、**受保护操作必须带 bearerAuth+401/403，公开端点不得带 security**）。
 - 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移，`pnpm build` 做 vue-tsc + vite 构建。
 - 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见；每个测试用独立命名内存库，可并行。
 - 跑法：`make check`（提交前唯一门槛）；纯 Go 改动最快闭环 `make test`；端到端 `make smoke`（需 postgres）。
@@ -146,11 +175,14 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 8. **迁移与 model 双源**：SQL 迁移管生产 schema，AutoMigrate 只服务测试，避免启动时隐式改库。
 9. **平台包 + 垂直切片（模块化单体）**：`platform/*` 为无业务叶子包（可独立单测），`web` 为无业务的传输层，每个业务域一个包（`user/`）内部按文件分层。包是**部署/测试边界**，文件是**代码分层**；不再为单个域维护 model/repository/service/handler 四个包。`web` 与域之间通过 `*routekit.Group` + `RegisterRoutes` 组合根挂载，避免循环依赖。
 10. **OpenAPI 代码优先（routekit）**：路由与 `routekit.Op` 元数据在同一次注册中登记，启动时反射生成 OpenAPI 3.0.3；不再使用 swag 注解。`httpx.Body` 的信封与 `apperr.Code` 的 HTTP 映射自动复用，响应 `data` 有真实类型。`docs/openapi.json` 是黄金文件，`TestOpenAPIGolden` 校验漂移；`TestOpenAPICoversAllRoutes` 保证 gin 路由与文档一一对应。选择 3.0.3 是为了兼容 Swagger UI 与主流客户端生成器。
-11. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
+12. **JWT（HS256）+ 可吊销 refresh token + RBAC**：access token 无状态、15m、带 `ver`（users.token_version），改密/禁用即失效；refresh 为 32B 随机串、只存 SHA-256、每次轮换、重用即吊销全部会话（检测泄露）。签名算法、issuer、过期时间在签发/校验两侧硬编码（`jwt.WithValidMethods`），杜绝 `alg=none`/算法混淆。refresh 放 `HttpOnly+SameSite=Strict` cookie、access 只存内存（前端不落 localStorage），降低 XSS 影响面。RBAC 用代码内静态表（admin/member → 权限字符串）：粗粒度守卫在 `authkit` 中间件，资源归属（本人）在 service，两处职责不重叠。
+13. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
 
 ## 10. 扩展指南
 
 **新增领域模块**（详见 `.agents/skills/add-domain/SKILL.md`）：迁移 → `internal/<domain>/entity.go` → `repository.go`（接口+GORM 实现）→ `service.go` → `handler.go`（DTO+校验）→ `routes.go`（`RegisterRoutes(*routekit.Group, *Handler)` + `routekit.Op`）→ `app.NewWithDB` 装配 → 单测 + 集成测试 → `make openapi` → 前端 `cd web/admin && pnpm gen:api`。新增端点必须走 `routekit.Group`，不要直接挂 `*gin.RouterGroup`。
+
+**新增受保护端点**：把域挂到 `app.go` 的 `protected` 组（已带 `Security(bearerAuth)` + `Authenticate`），域内用 `rg.Group("", routekit.Middleware(authkit.RequirePermission(...)))` 声明权限；`Op.Errors` 里补 `CodeForbidden`（401 由 routekit 依据 security 自动补）。handler 用 `authkit.PrincipalFrom(c)` 取调用者，归属校验放 service。新增权限 → `authkit.Permission` 常量 + `rolePermissions` 表 + OpenAPI 测试的白名单/断言。
 
 **新增配置项**：`config.go` 加字段 → `loader.go` `setDefaults` 加默认值 → `config.example.yaml`/`config.yaml` 同步 → 必要时加 Validate 分支。
 
@@ -158,11 +190,15 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 
 **新增运维端点**：放 `internal/web/router.go` 顶层组（豁免限流）；探针逻辑在 `internal/web/health.go`。
 
-**加认证**：建议在 `RateLimit` 前挂 JWT 中间件，错误码用 `40100/40300`。
+**重置管理员/新增账号**：`EMAIL=... APP_SEED_PASSWORD='...' make seed-admin`（或容器内 `/usr/local/bin/admin`）。无公开注册流程；新建用户由 `POST /api/v1/users`（需 `users:write`）完成，必须带初始密码。
 
 ## 11. 已知限制
 
-- 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）。
+- 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）；登录限流/锁定同样是单实例状态。
+- access token 无状态：吊销/禁用最坏延迟 = `access_ttl`（15m）；改密/禁用通过 `token_version` 即时生效。
+- `VerifyAccess` 每请求查一次用户行（status/token_version/role 即时生效）；高 QPS 需要本地短 TTL 缓存。
+- HS256 单密钥：轮换需要多密钥 + `kid`，当前不支持；轮换会全量掉线（重新登录即可）。
+- 无忘记密码/邮箱验证流程：密码只能由管理员 PATCH 重置或本人 `PATCH /auth/password`。
 - `Timeout` 只注入 ctx deadline：handler 若不检查 ctx，响应仍会返回成功；需要保证中断的路径必须显式处理 `ctx.Err()`。
 - 测试库为每测试独立的命名内存 SQLite（`internal/testutil`），可并行；但仍需避免依赖真实 PostgreSQL 特性。
 - OpenAPI 反射只覆盖明确子集：query 数组/对象参数、`*any` 通配路径、自定义 `MarshalJSON`、复杂 `oneof` 尚未支持；不支持的类型会让启动失败，需调整 DTO 或后续扩展显式 schema 覆盖。

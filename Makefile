@@ -29,7 +29,7 @@ MIGRATE_VERSION       ?= v4.20.1
 
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
-        check gate openapi tidy-check vuln smoke db-up \
+        check gate openapi tidy-check vuln smoke seed-admin db-up \
         migrate-up migrate-down migrate-create \
         docker-build docker-up docker-down docker-logs clean
 
@@ -55,8 +55,9 @@ migrate-tool: ## 安装 golang-migrate（含 postgres 驱动，供无 docker 环
 
 ## ---- 构建 / 运行 -----------------------------------------------------------
 
-build: ## 编译二进制到 bin/
+build: ## 编译二进制到 bin/（server + admin）
 	$(GO) build -trimpath -ldflags "-s -w $(LDFLAGS)" -o $(BIN) ./cmd/server
+	$(GO) build -trimpath -ldflags "-s -w $(LDFLAGS)" -o bin/$(APP_NAME)-admin ./cmd/admin
 
 run: ## 直接运行（需先启动 postgres）
 	$(GO) run ./cmd/server
@@ -65,8 +66,13 @@ dev: ## 开发模式：air 热重载
 	@./scripts/check-tools.sh air
 	$(AIR) -c .air.toml
 
-smoke: ## 本地冒烟：自起自停服务，验证探针 + CRUD（DB 不可用时只验 liveness）
+smoke: ## 本地冒烟：自起自停服务，验证探针 + 登录 + CRUD（DB 不可用时只验 liveness）
 	@./scripts/smoke.sh
+
+seed-admin: ## 建/重置管理员: EMAIL=admin@example.com APP_SEED_PASSWORD='...' make seed-admin
+	@test -n "$(EMAIL)" || { echo "用法: EMAIL=admin@example.com APP_SEED_PASSWORD='...' make seed-admin"; exit 1; }
+	@test -n "$$APP_SEED_PASSWORD" || { echo "缺少 APP_SEED_PASSWORD 环境变量"; exit 1; }
+	$(GO) run ./cmd/admin -email "$(EMAIL)" -name "$(or $(NAME),Administrator)"
 
 db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postgres）
 	@if command -v docker >/dev/null 2>&1; then \

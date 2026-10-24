@@ -8,6 +8,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import StatCard from '@/components/common/StatCard.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { userApi } from '@/api/user'
+import { useAuthStore } from '@/stores/auth'
 import type { User } from '@/types/user'
 import { notifyError } from '@/utils/feedback'
 
@@ -105,6 +106,8 @@ const handleResize = () => {
 }
 
 const loadLatestUsers = async () => {
+  // member 没有 users:read 权限，列表接口会 403：直接跳过，避免噪音报错。
+  if (!useAuthStore().can('users:read')) return
   latestUsersLoading.value = true
   try {
     const result = await userApi.list({ page: 1, page_size: 5 })

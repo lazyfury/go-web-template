@@ -118,6 +118,11 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 - 路径参数必须在 `Op.Params` 里用 `routekit.Path[T]` 声明，否则 `Build()` 会失败。
 - `Errors` 里的 `apperr.Code` 会自动映射 HTTP 状态并生成错误信封；413/429/500 默认注入。
 - 路由挂在**域内**：`internal/web` 不 import 业务域，避免循环依赖。
+- **本模板的域默认要求登录**：`internal/app` 把域挂在 `protected` 组上（已带 `Security(bearerAuth)` + `authkit.Authenticate`）。域内再用权限子组声明授权：
+  ```go
+  adminOnly := rg.Group("/posts", routekit.Middleware(authkit.RequirePermission(authkit.PermUsersWrite)))
+  ```
+  `Op.Errors` 补 `apperr.CodeForbidden`（401 由 routekit 按 `Security` 自动补）。归属校验（"只能改自己的"）放 service，`actor authkit.Principal` 显式入参。
 
 ## 7. 装配（`internal/app/app.go` → `NewWithDB`）
 
@@ -134,7 +139,8 @@ post.RegisterRoutes(api, postHandler)
 
 - service 单测：`internal/post/service_test.go`，手写 fake `Repository`（参考 `user/service_test.go` 的 `mockRepository`），覆盖规则分支。
 - repository 测试：`internal/post/repository_test.go`，`testutil.NewSQLiteDB(t, &post.Post{})`（**显式传 model**）。
-- 集成测试：在 `internal/app/integration_test.go` 追加 CRUD 用例，复用 `newTestHandler`、`doJSON`、`decodeEnvelope`、`createUser`。
+- 集成测试：在 `internal/app/integration_test.go` 追加 CRUD 用例，复用 `newTestEnv`、`doJSONAuth`、`decodeEnvelope`、`createUser`、`env.loginAdmin(t)`；**必须**覆盖匿名 401 与越权 403。
+- 权限常量：`internal/platform/authkit/rbac.go` 加 `Permission` + 角色映射，并在 `internal/app/openapi_test.go` 的安全断言里保持受保护操作带 `bearerAuth`/401/403。
 - 每个测试用独立命名内存库；`httptest.NewRequestWithContext`（不要 `httptest.NewRequest`，`noctx` 会报）。
 
 ## 9. 收尾
@@ -151,5 +157,6 @@ make check      # lint + gofmt + vet + race + build + OpenAPI 黄金测试 + 依
 ## 注意
 
 - `internal/web` 只能被动接收 `RegisterRoutes`，不能反向 import 域包。
+- 不要把新域挂在公开的 `api` 组上（除登录/刷新这类必须公开的端点）；公开端点要在 OpenAPI 安全测试里显式列出。
 - 需要 join 时在 repository 用 GORM `Preload/Joins`，service 不感知 SQL。
 - 新表记得同时更新迁移 SQL 与 entity（双事实来源），测试库不跑迁移、只跑 AutoMigrate。

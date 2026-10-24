@@ -1,4 +1,14 @@
 import type { RouteRecordRaw } from 'vue-router'
+/**
+ * 路由/菜单用到的权限标识（与后端 authkit.Permission 对齐）。
+ * 集中在这里，避免在模板/守卫里散落裸字符串。
+ */
+export type PermissionKey =
+  | 'users:read'
+  | 'users:write'
+  | 'users:delete'
+  | 'users:read:self'
+  | 'users:write:self'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
@@ -23,6 +33,8 @@ declare module 'vue-router' {
     title?: string
     /** 布局：'admin'（后台布局，默认）| 'blank'（裸渲染，如登录页）。 */
     layout?: 'admin' | 'blank'
+    /** 访问该页所需的权限（后端 RBAC 常量）。 */
+    permission?: PermissionKey
   }
 }
 
@@ -48,7 +60,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'users',
         name: 'users',
         component: UsersView,
-        meta: { title: '用户管理' },
+        meta: { title: '用户管理', permission: 'users:read' },
       },
       // catch-all：未匹配路由渲染 404（保持在后台布局内）
       {

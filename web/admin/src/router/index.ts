@@ -8,9 +8,16 @@ const router = createRouter({
   routes,
 })
 
-/** 登录态守卫：未登录访问受保护页 → /login?redirect=；已登录访问登录页 → /dashboard。 */
-router.beforeEach((to) => {
+/**
+ * 登录态守卫：
+ * 1. 先 bootstrap（用 HttpOnly refresh cookie 换 access token），刷新页面后不会掉线；
+ * 2. 未登录访问受保护页 → /login?redirect=；已登录访问登录页 → /dashboard；
+ * 3. 路由声明了 meta.permission 而当前角色不具备 → 回仪表盘（真正的拦截在后端）。
+ */
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  await auth.bootstrap()
+
   const requiresAuth = to.meta.requiresAuth !== false
 
   if (to.name === 'login' && auth.isAuthenticated) {
@@ -19,6 +26,10 @@ router.beforeEach((to) => {
 
   if (requiresAuth && !auth.isAuthenticated) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+
+  if (to.meta.permission && !auth.can(to.meta.permission)) {
+    return { path: '/dashboard' }
   }
 
   return true

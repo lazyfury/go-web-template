@@ -336,6 +336,11 @@ func (r *Registry) buildOperation(b *schemaBuilder, doc *Document, op *operation
 	}
 
 	codes := append([]apperr.Code(nil), op.op.Errors...)
+	if len(op.op.Security) > 0 {
+		// Secured operations must document 401: the runtime guard rejects
+		// missing/invalid tokens and the contract has to say so.
+		codes = append(codes, apperr.CodeUnauthorized)
+	}
 	if !op.op.SkipDefaultErrors {
 		codes = append(codes, r.cfg.DefaultErrors...)
 	}

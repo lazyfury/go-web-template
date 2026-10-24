@@ -12,6 +12,21 @@ import (
 	"github.com/example/go-web-template/internal/platform/apperr"
 )
 
+// BearerAuth is the security-scheme name used for JWT bearer authentication.
+// It is referenced by Config.SecuritySchemes and by Op.Security, so the
+// document and the runtime guard share one string.
+const BearerAuth = "bearerAuth"
+
+// BearerScheme returns the OpenAPI security scheme for HTTP bearer JWTs.
+func BearerScheme() SecurityScheme {
+	return SecurityScheme{
+		Type:         "http",
+		Scheme:       "bearer",
+		BearerFormat: "JWT",
+		Description:  "Access token issued by POST /api/v1/auth/login",
+	}
+}
+
 // ParamIn is the location of a parameter in an OpenAPI operation.
 type ParamIn string
 

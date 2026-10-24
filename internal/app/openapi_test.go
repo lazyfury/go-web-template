@@ -171,3 +171,78 @@ func TestOpenAPIGolden(t *testing.T) {
 		t.Error("OpenAPI document differs from docs/openapi.json; run make openapi and review the diff")
 	}
 }
+
+func TestOpenAPISecurity(t *testing.T) {
+	application := newTestApplication(t, true)
+	raw := openAPIJSON(t, application)
+
+	var doc struct {
+		Paths map[string]map[string]struct {
+			Security  []map[string][]string      `json:"security"`
+			Responses map[string]json.RawMessage `json:"responses"`
+		} `json:"paths"`
+		Components struct {
+			SecuritySchemes map[string]struct {
+				Type         string `json:"type"`
+				Scheme       string `json:"scheme"`
+				BearerFormat string `json:"bearerFormat"`
+			} `json:"securitySchemes"`
+			Schemas map[string]json.RawMessage `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode document: %v", err)
+	}
+
+	scheme, ok := doc.Components.SecuritySchemes["bearerAuth"]
+	if !ok {
+		t.Fatal("missing bearerAuth security scheme")
+	}
+	if scheme.Type != "http" || scheme.Scheme != "bearer" || scheme.BearerFormat != "JWT" {
+		t.Errorf("bearerAuth = %+v", scheme)
+	}
+
+	// Every user operation is protected, documents 401/403 and the caller's
+	// permission failure mode.
+	for path, item := range doc.Paths {
+		if !strings.HasPrefix(path, "/users") {
+			continue
+		}
+		for method, op := range item {
+			if !hasBearer(op.Security) {
+				t.Errorf("%s %s: missing bearerAuth security", strings.ToUpper(method), path)
+			}
+			if _, ok := op.Responses["401"]; !ok {
+				t.Errorf("%s %s: missing documented 401", strings.ToUpper(method), path)
+			}
+			if _, ok := op.Responses["403"]; !ok {
+				t.Errorf("%s %s: missing documented 403", strings.ToUpper(method), path)
+			}
+		}
+	}
+
+	// Public endpoints must stay public in the contract.
+	for _, path := range []string{"/auth/login", "/auth/refresh"} {
+		for method, op := range doc.Paths[path] {
+			if len(op.Security) != 0 {
+				t.Errorf("%s %s must not require a bearer token", strings.ToUpper(method), path)
+			}
+		}
+	}
+
+	// The auth schemas must exist so the frontend can generate types.
+	for _, schema := range []string{"LoginRequest", "LoginResponse", "ChangePasswordRequest", "UserView"} {
+		if _, ok := doc.Components.Schemas[schema]; !ok {
+			t.Errorf("missing component schema %q", schema)
+		}
+	}
+}
+
+func hasBearer(security []map[string][]string) bool {
+	for _, requirement := range security {
+		if _, ok := requirement["bearerAuth"]; ok {
+			return true
+		}
+	}
+	return false
+}

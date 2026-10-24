@@ -62,6 +62,11 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string)
 		},
 		BasePath: "/api/v1",
 		Servers:  []routekit.Server{{URL: "/api/v1", Description: "Current server"}},
+		// Domains attach BearerAuth to protected operations; the scheme itself
+		// is declared once here so the contract and the token format agree.
+		SecuritySchemes: map[string]routekit.SecurityScheme{
+			routekit.BearerAuth: routekit.BearerScheme(),
+		},
 	})
 	v1 := routekit.NewGroup(ginV1, registry)
 

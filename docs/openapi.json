@@ -13,15 +13,280 @@
   ],
   "tags": [
     {
+      "name": "auth",
+      "description": "Authentication: password login, JWT access token, refresh-token rotation"
+    },
+    {
       "name": "users",
-      "description": "User management"
+      "description": "User management (authenticated, RBAC)"
     }
   ],
   "paths": {
+    "/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "Exchange email and password for a JWT access token",
+        "description": "Sets an HttpOnly refresh cookie and returns the access token. Failures are deliberately uniform (401 invalid credentials) to avoid user enumeration.",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LoginResponse"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "Revoke the current refresh session",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "getCurrentUser",
+        "summary": "Return the authenticated user, role and permissions",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "current user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/UserView"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/auth/password": {
+      "patch": {
+        "operationId": "changePassword",
+        "summary": "Change the caller's password",
+        "description": "Rotates the bcrypt hash, bumps the token version (all access tokens become invalid) and revokes every refresh session.",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "operationId": "refreshToken",
+        "summary": "Rotate the refresh cookie and issue a new access token",
+        "description": "The presented refresh token is revoked and replaced. Reusing a revoked token revokes every session of that user.",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "rotated session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LoginResponse"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
     "/users": {
       "get": {
         "operationId": "listUsers",
-        "summary": "List users with pagination and keyword filter",
+        "summary": "List users with pagination and keyword filter (admin)",
         "tags": [
           "users"
         ],
@@ -83,6 +348,12 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
           "413": {
             "$ref": "#/components/responses/Error413"
           },
@@ -92,11 +363,16 @@
           "500": {
             "$ref": "#/components/responses/Error500"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       },
       "post": {
         "operationId": "createUser",
-        "summary": "Create a user",
+        "summary": "Create a user (admin)",
         "tags": [
           "users"
         ],
@@ -143,6 +419,12 @@
           "400": {
             "$ref": "#/components/responses/Error400"
           },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
           "409": {
             "$ref": "#/components/responses/Error409"
           },
@@ -155,13 +437,18 @@
           "500": {
             "$ref": "#/components/responses/Error500"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/users/{id}": {
       "get": {
         "operationId": "getUser",
-        "summary": "Get a user by id",
+        "summary": "Get a user by id (admin, or self)",
         "tags": [
           "users"
         ],
@@ -211,6 +498,12 @@
           "400": {
             "$ref": "#/components/responses/Error400"
           },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
           "404": {
             "$ref": "#/components/responses/Error404"
           },
@@ -223,11 +516,16 @@
           "500": {
             "$ref": "#/components/responses/Error500"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       },
       "delete": {
         "operationId": "deleteUser",
-        "summary": "Delete a user (soft delete)",
+        "summary": "Delete a user (soft delete, admin)",
         "tags": [
           "users"
         ],
@@ -251,6 +549,12 @@
           "400": {
             "$ref": "#/components/responses/Error400"
           },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
           "404": {
             "$ref": "#/components/responses/Error404"
           },
@@ -263,11 +567,16 @@
           "500": {
             "$ref": "#/components/responses/Error500"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       },
       "patch": {
         "operationId": "updateUser",
-        "summary": "Update a user",
+        "summary": "Update a user (admin any field, member only own name/email)",
         "tags": [
           "users"
         ],
@@ -327,6 +636,12 @@
           "400": {
             "$ref": "#/components/responses/Error400"
           },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
           "404": {
             "$ref": "#/components/responses/Error404"
           },
@@ -342,12 +657,36 @@
           "500": {
             "$ref": "#/components/responses/Error500"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     }
   },
   "components": {
     "schemas": {
+      "ChangePasswordRequest": {
+        "type": "object",
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 72
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 72
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ]
+      },
       "CreateRequest": {
         "type": "object",
         "properties": {
@@ -360,11 +699,24 @@
             "type": "string",
             "minLength": 2,
             "maxLength": 64
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 72
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
           }
         },
         "required": [
           "name",
-          "email"
+          "email",
+          "password"
         ]
       },
       "ListResponse": {
@@ -396,6 +748,49 @@
           "page_size"
         ]
       },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 255
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 72
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "token_type": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserView"
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "user"
+        ]
+      },
       "UpdateRequest": {
         "type": "object",
         "properties": {
@@ -410,6 +805,29 @@
             "nullable": true,
             "minLength": 2,
             "maxLength": 64
+          },
+          "password": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 8,
+            "maxLength": 72
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ],
+            "nullable": true
           }
         }
       },
@@ -431,6 +849,13 @@
           "name": {
             "type": "string"
           },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          },
           "status": {
             "type": "integer",
             "format": "int32",
@@ -449,8 +874,45 @@
           "name",
           "email",
           "status",
+          "role",
           "created_at",
           "updated_at"
+        ]
+      },
+      "UserView": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "permissions"
         ]
       }
     },
@@ -466,6 +928,60 @@
                   "type": "integer",
                   "format": "int32",
                   "example": 40000
+                },
+                "message": {
+                  "type": "string"
+                },
+                "request_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "format": "int32",
+                  "example": 40100
+                },
+                "message": {
+                  "type": "string"
+                },
+                "request_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        }
+      },
+      "Error403": {
+        "description": "Forbidden",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "format": "int32",
+                  "example": 40300
                 },
                 "message": {
                   "type": "string"
@@ -616,6 +1132,14 @@
             }
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "description": "Access token issued by POST /api/v1/auth/login",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
       }
     }
   }

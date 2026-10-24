@@ -1,10 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { menuConfig, type MenuItem } from '@/config/menu'
+import { useAuthStore } from '@/stores/auth'
 
 defineProps<{
   activeMenu: string
   isCollapse: boolean
 }>()
+
+const auth = useAuthStore()
+
+/** 按当前角色权限过滤菜单：无权限的入口不渲染（后端仍会二次校验）。 */
+const visibleMenu = computed(() => menuConfig.filter((item) => !item.permission || auth.can(item.permission)))
 
 const hasChildren = (item: MenuItem) => Boolean(item.children?.length)
 </script>
@@ -32,7 +39,7 @@ const hasChildren = (item: MenuItem) => Boolean(item.children?.length)
     <!-- 导航菜单：图标必须用 el-icon 包裹，折叠态才会保留（Element Plus 官方契约） -->
     <nav class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-2">
       <el-menu :default-active="activeMenu" :collapse="isCollapse" router>
-        <template v-for="item in menuConfig" :key="item.path">
+        <template v-for="item in visibleMenu" :key="item.path">
           <el-sub-menu v-if="hasChildren(item)" :index="item.path">
             <template #title>
               <el-icon v-if="item.icon" :size="16"><component :is="item.icon" /></el-icon>

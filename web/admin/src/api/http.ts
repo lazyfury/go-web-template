@@ -1,5 +1,6 @@
-import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import axios, { type AxiosRequestConfig, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { BusinessCode, type ApiEnvelope } from '@/types/api'
+import type { LoginResult } from '@/types/auth'
 
 /**
  * 业务错误（统一信封解包后抛出）。
@@ -46,6 +47,50 @@ export const setAuthTokenProvider = (provider: () => string | null) => {
 }
 
 /* ------------------------------------------------------------------ */
+/* 会话刷新：401 时单飞（single-flight）调用 /auth/refresh，成功后重放一次   */
+/* ------------------------------------------------------------------ */
+
+let sessionUpdater: ((result: LoginResult) => void) | null = null
+
+/** 注册「刷新成功」回调（auth store 用它写入内存中的 access token）。 */
+export const setSessionUpdater = (updater: (result: LoginResult) => void) => {
+  sessionUpdater = updater
+}
+
+/**
+ * 独立的 axios 实例：刷新请求不能走 client 的拦截器，
+ * 否则 refresh 自己 401 时会递归触发刷新。
+ */
+const refreshClient = axios.create({ baseURL: '/api/v1', withCredentials: true, timeout: 15000 })
+
+let refreshInFlight: Promise<boolean> | null = null
+
+/**
+ * 用 HttpOnly refresh cookie 换新 access token。
+ * 并发调用共享同一个请求（single-flight），避免轮换竞态把会话挤掉。
+ */
+export const refreshSession = (): Promise<boolean> => {
+  if (!sessionUpdater) return Promise.resolve(false)
+  if (!refreshInFlight) {
+    refreshInFlight = refreshClient
+      .post<ApiEnvelope<LoginResult>>('/auth/refresh')
+      .then((response) => {
+        const payload = response.data
+        if (!isEnvelope(payload) || payload.code !== BusinessCode.OK || !payload.data) {
+          return false
+        }
+        sessionUpdater?.(payload.data as LoginResult)
+        return true
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null
+      })
+  }
+  return refreshInFlight
+}
+
+/* ------------------------------------------------------------------ */
 /* 登录过期处理：默认整页跳转；router 模块可覆盖为 SPA 内跳转            */
 /* ------------------------------------------------------------------ */
 
@@ -68,9 +113,13 @@ const handleAuthExpired = () => {
 /* axios 实例                                                          */
 /* ------------------------------------------------------------------ */
 
+type RetriableConfig = InternalAxiosRequestConfig & { _retried?: boolean }
+
 const client = axios.create({
   baseURL: '/api/v1',
   timeout: 15000,
+  // refresh token 走 HttpOnly cookie：同源请求必须带上凭据。
+  withCredentials: true,
 })
 
 client.interceptors.request.use((config) => {
@@ -100,23 +149,36 @@ client.interceptors.response.use(
 
     return response
   },
-  (error: unknown) => {
+  async (error: unknown) => {
     if (!axios.isAxiosError(error)) {
       return Promise.reject(error)
     }
 
     const status = error.response?.status ?? 0
     const payload = error.response?.data
+    const config = error.config as RetriableConfig | undefined
 
     // 登录态失效：业务码 40100 或 HTTP 401
     const code = isEnvelope(payload) ? payload.code : status
-    if (status === 401 || code === BusinessCode.UNAUTHORIZED) {
-      handleAuthExpired()
-      return Promise.reject(new ApiError('登录已过期，请重新登录', BusinessCode.UNAUTHORIZED, status))
+    const unauthorized = status === 401 || code === BusinessCode.UNAUTHORIZED
+    if (!unauthorized || !config) {
+      const message = extractErrorMessage(payload, error.message || '请求失败')
+      return Promise.reject(new ApiError(message, code, status))
     }
 
-    const message = extractErrorMessage(payload, error.message || '请求失败')
-    return Promise.reject(new ApiError(message, code, status))
+    // 登录/刷新自身 401 不触发刷新（避免递归），直接按登录过期处理。
+    const isAuthEndpoint = config.url?.startsWith('/auth/login') || config.url?.startsWith('/auth/refresh')
+
+    // 401 且尚未重试：先用 refresh cookie 换新 token，成功则重放原请求一次。
+    if (!isAuthEndpoint && !config._retried) {
+      config._retried = true
+      if (await refreshSession()) {
+        return client.request(config)
+      }
+    }
+
+    handleAuthExpired()
+    return Promise.reject(new ApiError('登录已过期，请重新登录', BusinessCode.UNAUTHORIZED, status))
   },
 )
 

@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/viper"
 )
 
+// minJWTSecretBytes is the minimum HS256 signing key length recommended by
+// RFC 7518 §3.2 (256 bits).
+const minJWTSecretBytes = 32
+
 // setDefaults registers every configuration key with its built-in default
 // value. Registering all keys is what makes environment overrides work for
 // nested fields (APP_DATABASE_HOST → database.host).
@@ -52,6 +56,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ratelimit.burst", 200)
 
 	v.SetDefault("swagger.enabled", true)
+
+	v.SetDefault("auth.jwt_secret", "")
+	v.SetDefault("auth.issuer", "go-web-template")
+	v.SetDefault("auth.access_ttl", "15m")
+	v.SetDefault("auth.refresh_ttl", "168h")
+	v.SetDefault("auth.bcrypt_cost", 12)
+	v.SetDefault("auth.login_max_attempts", 5)
+	v.SetDefault("auth.login_lockout", "15m")
+	v.SetDefault("auth.login_rps", 5.0)
+	v.SetDefault("auth.login_burst", 10)
+	v.SetDefault("auth.cookie_secure", true)
 }
 
 // Defaults returns the built-in default configuration.
@@ -154,6 +169,51 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPServer.MaxBodyBytes <= 0 {
 		return fmt.Errorf("http.max_body_bytes must be positive")
+	}
+	return c.validateAuth()
+}
+
+// isPlaceholderSecret rejects the example secrets shipped with the template so
+// a copy-pasted config cannot silently sign production tokens.
+func isPlaceholderSecret(secret string) bool {
+	lower := strings.ToLower(secret)
+	return strings.HasPrefix(lower, "change_me") ||
+		strings.Contains(lower, "insecure") ||
+		strings.Contains(lower, "changeme")
+}
+
+// validateAuth enforces the non-negotiable authentication invariants: a strong
+// signing secret in production (fail-fast instead of shipping a guessable
+// token), positive lifetimes and a sane bcrypt cost.
+func (c *Config) validateAuth() error {
+	if c.IsProduction() {
+		if len(c.Auth.JWTSecret) < minJWTSecretBytes {
+			return fmt.Errorf("auth.jwt_secret must be at least %d bytes in production (set APP_AUTH_JWT_SECRET)", minJWTSecretBytes)
+		}
+		if isPlaceholderSecret(c.Auth.JWTSecret) {
+			return fmt.Errorf("auth.jwt_secret still uses a template placeholder; set APP_AUTH_JWT_SECRET to a random value")
+		}
+	}
+	if c.Auth.Issuer == "" {
+		return fmt.Errorf("auth.issuer must not be empty")
+	}
+	if c.Auth.AccessTTL <= 0 {
+		return fmt.Errorf("auth.access_ttl must be positive")
+	}
+	if c.Auth.RefreshTTL <= c.Auth.AccessTTL {
+		return fmt.Errorf("auth.refresh_ttl must be greater than auth.access_ttl")
+	}
+	if c.Auth.BcryptCost < 10 || c.Auth.BcryptCost > 14 {
+		return fmt.Errorf("auth.bcrypt_cost must be between 10 and 14")
+	}
+	if c.Auth.LoginMaxAttempts <= 0 {
+		return fmt.Errorf("auth.login_max_attempts must be positive")
+	}
+	if c.Auth.LoginLockout <= 0 {
+		return fmt.Errorf("auth.login_lockout must be positive")
+	}
+	if c.Auth.LoginRPS <= 0 || c.Auth.LoginBurst <= 0 {
+		return fmt.Errorf("auth.login_rps and auth.login_burst must be positive")
 	}
 	return nil
 }

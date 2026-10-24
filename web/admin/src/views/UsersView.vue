@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { usePagination } from '@/composables/usePagination'
 import { userApi } from '@/api/user'
+import { useAuthStore } from '@/stores/auth'
 import type { User } from '@/types/user'
 import { notifyError } from '@/utils/feedback'
+
+const auth = useAuthStore()
+const canWrite = computed(() => auth.can('users:write'))
+const canDelete = computed(() => auth.can('users:delete'))
 
 /**
  * 用户管理：列表（关键字 + 分页）+ 新建 + 编辑 + 删除。
@@ -56,6 +61,8 @@ const formRef = ref<FormInstance>()
 const form = reactive({
   name: '',
   email: '',
+  password: '',
+  role: 'member' as User['role'],
 })
 
 const rules: FormRules = {
@@ -67,6 +74,10 @@ const rules: FormRules = {
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
   ],
+  password: [
+    { required: true, message: '请输入初始密码', trigger: 'blur' },
+    { min: 8, max: 72, message: '密码长度 8-72 位', trigger: 'blur' },
+  ],
 }
 
 const openCreateDialog = () => {
@@ -74,6 +85,8 @@ const openCreateDialog = () => {
   editingId.value = null
   form.name = ''
   form.email = ''
+  form.password = ''
+  form.role = 'member'
   dialogVisible.value = true
 }
 
@@ -82,6 +95,8 @@ const openEditDialog = (row: User) => {
   editingId.value = row.id
   form.name = row.name
   form.email = row.email
+  form.password = ''
+  form.role = row.role
   dialogVisible.value = true
 }
 
@@ -93,11 +108,16 @@ const submitForm = async () => {
   submitting.value = true
   try {
     if (dialogMode.value === 'create') {
-      await userApi.create({ name: form.name, email: form.email })
+      await userApi.create({
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        role: form.role,
+      })
       ElMessage.success('创建成功')
       reset()
     } else if (editingId.value !== null) {
-      await userApi.update(editingId.value, { name: form.name, email: form.email })
+      await userApi.update(editingId.value, { name: form.name, email: form.email, role: form.role })
       ElMessage.success('保存成功')
     }
     dialogVisible.value = false
@@ -159,7 +179,7 @@ onMounted(loadUsers)
             <span class="i-ep-refresh-left mr-1" />重置
           </el-button>
         </div>
-        <el-button type="primary" @click="openCreateDialog">
+        <el-button v-if="canWrite" type="primary" @click="openCreateDialog">
           <span class="i-ep-plus mr-1" />新建用户
         </el-button>
       </div>
@@ -173,6 +193,13 @@ onMounted(loadUsers)
           </template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="220" />
+        <el-table-column label="角色" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.role === 'admin' ? 'warning' : 'info'" size="small">
+              {{ row.role === 'admin' ? '管理员' : '成员' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <StatusTag :status="row.status" />
@@ -183,8 +210,8 @@ onMounted(loadUsers)
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button v-if="canWrite" link type="primary" @click="openEditDialog(row)">编辑</el-button>
+            <el-button v-if="canDelete" link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -220,7 +247,16 @@ onMounted(loadUsers)
           <el-input v-model="form.name" placeholder="2-64 个字符" clearable />
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" placeholder="example@domain.com" clearable />
+          <el-input v-model="form.email" placeholder="user@example.com" clearable />
+        </el-form-item>
+        <el-form-item v-if="dialogMode === 'create'" label="初始密码" prop="password">
+          <el-input v-model="form.password" type="password" placeholder="8-72 位，交付后请让对方自行修改" show-password />
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="form.role" class="w-full">
+            <el-option label="成员（仅自己）" value="member" />
+            <el-option label="管理员（全部权限）" value="admin" />
+          </el-select>
         </el-form-item>
       </el-form>
 

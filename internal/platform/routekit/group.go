@@ -9,15 +9,17 @@ import (
 
 // Group wraps a gin router group and records metadata for every route.
 type Group struct {
-	rg       *gin.RouterGroup
-	reg      *Registry
-	tags     []string
-	security []string
+	rg          *gin.RouterGroup
+	reg         *Registry
+	tags        []string
+	security    []string
+	middlewares []gin.HandlerFunc
 }
 
 type groupConfig struct {
-	tags     []string
-	security []string
+	tags        []string
+	security    []string
+	middlewares []gin.HandlerFunc
 }
 
 // GroupOption customizes a child group.
@@ -37,6 +39,15 @@ func Security(names ...string) GroupOption {
 	}
 }
 
+// Middleware attaches gin middleware to the group and every child group. It
+// keeps guards next to the route metadata that documents them, so a protected
+// operation and its OpenAPI security requirement are declared in one place.
+func Middleware(middleware ...gin.HandlerFunc) GroupOption {
+	return func(cfg *groupConfig) {
+		cfg.middlewares = append(cfg.middlewares, middleware...)
+	}
+}
+
 // NewGroup creates a metadata-aware wrapper around a gin router group.
 func NewGroup(rg *gin.RouterGroup, reg *Registry) *Group {
 	if rg == nil || reg == nil {
@@ -48,17 +59,21 @@ func NewGroup(rg *gin.RouterGroup, reg *Registry) *Group {
 // Group creates a child group that inherits tags and security.
 func (g *Group) Group(relativePath string, opts ...GroupOption) *Group {
 	cfg := groupConfig{
-		tags:     append([]string(nil), g.tags...),
-		security: append([]string(nil), g.security...),
+		tags:        append([]string(nil), g.tags...),
+		security:    append([]string(nil), g.security...),
+		middlewares: append([]gin.HandlerFunc(nil), g.middlewares...),
 	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	child := g.rg.Group(relativePath)
+	child.Use(cfg.middlewares...)
 	return &Group{
-		rg:       g.rg.Group(relativePath),
-		reg:      g.reg,
-		tags:     cfg.tags,
-		security: cfg.security,
+		rg:          child,
+		reg:         g.reg,
+		tags:        cfg.tags,
+		security:    cfg.security,
+		middlewares: cfg.middlewares,
 	}
 }
 

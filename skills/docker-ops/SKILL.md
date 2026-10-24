@@ -80,6 +80,8 @@ make docker-down
 
 - 工具版本 pin 在 `Makefile` 顶部；`make tools` 安装。
 - 仓库不配置 GitHub Actions；CI 成本由本地命令替代。
+- compose 默认 `APP_AUTH_JWT_SECRET` 是本地占位值（`APP_ENV=production` 但密钥非模板占位样式）；真实环境必须注入 `APP_AUTH_JWT_SECRET`，并恢复 `APP_AUTH_COOKIE_SECURE=true`。
+- 容器内 bootstrap 管理员：`docker compose exec app /usr/local/bin/admin -email admin@example.com -name Admin`（密码用 `-e APP_SEED_PASSWORD=...` 或 `docker compose run -e ...`）。
 - Linux 上 `--network host` + `127.0.0.1` 可用（与 macOS 不同）。
 
 ## 6. 生产配置建议

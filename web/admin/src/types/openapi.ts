@@ -4,6 +4,100 @@
  */
 
 export interface paths {
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange email and password for a JWT access token
+         * @description Sets an HttpOnly refresh cookie and returns the access token. Failures are deliberately uniform (401 invalid credentials) to avoid user enumeration.
+         */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke the current refresh session */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return the authenticated user, role and permissions */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change the caller's password
+         * @description Rotates the bcrypt hash, bumps the token version (all access tokens become invalid) and revokes every refresh session.
+         */
+        patch: operations["changePassword"];
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate the refresh cookie and issue a new access token
+         * @description The presented refresh token is revoked and replaced. Reusing a revoked token revokes every session of that user.
+         */
+        post: operations["refreshToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -11,10 +105,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List users with pagination and keyword filter */
+        /** List users with pagination and keyword filter (admin) */
         get: operations["listUsers"];
         put?: never;
-        /** Create a user */
+        /** Create a user (admin) */
         post: operations["createUser"];
         delete?: never;
         options?: never;
@@ -29,15 +123,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get a user by id */
+        /** Get a user by id (admin, or self) */
         get: operations["getUser"];
         put?: never;
         post?: never;
-        /** Delete a user (soft delete) */
+        /** Delete a user (soft delete, admin) */
         delete: operations["deleteUser"];
         options?: never;
         head?: never;
-        /** Update a user */
+        /** Update a user (admin any field, member only own name/email) */
         patch: operations["updateUser"];
         trace?: never;
     };
@@ -45,10 +139,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ChangePasswordRequest: {
+            current_password: string;
+            new_password: string;
+        };
         CreateRequest: {
             /** Format: email */
             email: string;
             name: string;
+            password: string;
+            /** @enum {string} */
+            role?: "admin" | "member";
         };
         ListResponse: {
             items: components["schemas"]["UserDTO"][];
@@ -59,10 +160,30 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        LoginRequest: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        LoginResponse: {
+            access_token: string;
+            /** Format: int64 */
+            expires_in: number;
+            token_type: string;
+            user: components["schemas"]["UserView"];
+        };
         UpdateRequest: {
             /** Format: email */
             email?: string | null;
             name?: string | null;
+            password?: string | null;
+            /** @enum {string|null} */
+            role?: "admin" | "member" | null;
+            /**
+             * Format: int32
+             * @enum {integer|null}
+             */
+            status?: 0 | 1 | null;
         };
         UserDTO: {
             /** Format: date-time */
@@ -71,6 +192,8 @@ export interface components {
             /** Format: int64 */
             id: number;
             name: string;
+            /** @enum {string} */
+            role: "admin" | "member";
             /**
              * Format: int32
              * @enum {integer}
@@ -78,6 +201,15 @@ export interface components {
             status: 0 | 1;
             /** Format: date-time */
             updated_at: string;
+        };
+        UserView: {
+            email: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            permissions: string[];
+            /** @enum {string} */
+            role: "admin" | "member";
         };
     };
     responses: {
@@ -91,6 +223,40 @@ export interface components {
                     /**
                      * Format: int32
                      * @example 40000
+                     */
+                    code: number;
+                    message: string;
+                    request_id?: string;
+                };
+            };
+        };
+        /** @description Unauthorized */
+        Error401: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /**
+                     * Format: int32
+                     * @example 40100
+                     */
+                    code: number;
+                    message: string;
+                    request_id?: string;
+                };
+            };
+        };
+        /** @description Forbidden */
+        Error403: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /**
+                     * Format: int32
+                     * @example 40300
                      */
                     code: number;
                     message: string;
@@ -191,6 +357,153 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description authenticated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["LoginResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error401"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description current user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["UserView"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Error401"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    refreshToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description rotated session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["LoginResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
     listUsers: {
         parameters: {
             query?: {
@@ -222,6 +535,8 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
@@ -256,6 +571,8 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
             409: components["responses"]["Error409"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
@@ -290,6 +607,8 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
@@ -316,6 +635,8 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
@@ -354,6 +675,8 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
             413: components["responses"]["Error413"];

@@ -2,11 +2,12 @@
 
 行业标准的 Go Web 单体应用模板（Monolith），开箱即用。
 
-> 技术栈：**Go 1.26 · Gin · GORM · PostgreSQL · uber-go/zap · viper · golang-migrate · Prometheus · OpenAPI 3.0 / Swagger UI**
+> 技术栈：**Go 1.26 · Gin · GORM · PostgreSQL · JWT + bcrypt · uber-go/zap · viper · golang-migrate · Prometheus · OpenAPI 3.0 / Swagger UI**
 
 ## 特性
 
 - **模块化单体**：`internal/platform/*` 叶子包 + `internal/web` 传输层 + 每个业务域一个包（`internal/user`），包内按 handler → service → repository 分文件
+- **认证与权限**：邮箱+密码登录 → **JWT access token（15m）+ HttpOnly refresh cookie（7d，轮换 + 重用检测）**；RBAC `admin`/`member`；`/api/v1` 默认全部要求登录（除登录/刷新），401/403 语义分离
 - **统一响应格式**：`{ code, message, data }` + 稳定的业务错误码（`internal/platform/apperr`）
 - **配置管理**：默认值 < `configs/config.yaml` < 环境变量（`APP_*` 前缀），支持 `.env`
 - **结构化日志**：zap JSON 日志，访问日志携带 request-id、耗时、状态码
@@ -27,7 +28,10 @@ make docker-up
 # 本地想看 Swagger UI 时（会重建 app 容器）：
 # APP_SWAGGER_ENABLED=true make docker-up
 
-# 2. 验证
+# 2. 创建管理员（无公开注册）
+APP_SEED_PASSWORD='admin-password' make seed-admin EMAIL=admin@example.com
+
+# 3. 验证
 curl http://localhost:8080/healthz        # {"status":"ok"}
 curl http://localhost:8080/readyz         # {"status":"ok"}
 
@@ -51,20 +55,38 @@ make run                                  # 或 make dev（air 热重载）
 ## API 示例
 
 ```bash
-# 创建用户
-curl -X POST http://localhost:8080/api/v1/users \
+# 登录（refresh token 由服务端写入 HttpOnly cookie；access token 放 body）
+TOKEN=$(curl -s -c cookies.txt -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Alice","email":"alice@example.com"}'
-# => 201 {"code":0,"message":"created","data":{"id":1,"name":"Alice","email":"alice@example.com","status":1,...}}
+  -d '{"email":"admin@example.com","password":"admin-password"}' \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+# => 200 {"code":0,"data":{"access_token":"…","token_type":"Bearer","expires_in":900,"user":{...,"role":"admin","permissions":["users:read","users:write","users:delete"]}}}
 
-# 列表（分页 + 关键字）
-curl 'http://localhost:8080/api/v1/users?page=1&page_size=20&keyword=ali'
+# 创建用户（需要 users:write；账号必须带初始密码）
+curl -X POST http://localhost:8080/api/v1/users \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Alice","email":"alice@example.com","password":"alice-password","role":"member"}'
+# => 201 {"code":0,"message":"created","data":{"id":2,...,"role":"member",...}}
 
-# 详情 / 更新 / 删除
-curl http://localhost:8080/api/v1/users/1
-curl -X PATCH http://localhost:8080/api/v1/users/1 -H 'Content-Type: application/json' -d '{"name":"Alicia"}'
-curl -X DELETE http://localhost:8080/api/v1/users/1
+# 列表 / 详情 / 更新 / 删除（均需 Bearer token）
+curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/v1/users?page=1&page_size=20&keyword=ali'
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/users/2
+curl -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Alicia"}' http://localhost:8080/api/v1/users/2
+curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/users/2
+
+# 刷新 access token（凭 cookie 轮换，旧 cookie 立即失效）
+curl -b cookies.txt -c cookies.txt -X POST http://localhost:8080/api/v1/auth/refresh
+
+# 登出 / 当前用户 / 改密
+curl -X POST -H "Authorization: Bearer $TOKEN" -b cookies.txt http://localhost:8080/api/v1/auth/logout
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/auth/me
+curl -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"current_password":"admin-password","new_password":"new-admin-password"}' \
+  http://localhost:8080/api/v1/auth/password
 ```
+
+匿名请求返回 `401 {"code":40100,...}`；已登录但权限不足返回 `403 {"code":40300,...}`。
 
 完整接口定义见 `docs/openapi.json` 或 Swagger UI（`/swagger/index.html`）；两者由路由元数据生成，不需要手写注解。
 
@@ -73,6 +95,7 @@ curl -X DELETE http://localhost:8080/api/v1/users/1
 ```
 go-web-template/
 ├── cmd/server/            # 进程入口（main），只做装配
+├── cmd/admin/             # CLI：bootstrap/重置管理员（无公开注册）
 ├── internal/
 │   ├── app/               # 组合根：装配、生命周期、全链路集成测试
 │   ├── platform/          # 叶子包（无业务，可独立单测）
@@ -81,9 +104,12 @@ go-web-template/
 │   │   ├── config/        # 配置模型 + viper 加载（文件/环境变量）
 │   │   ├── logx/          # zap logger 构建
 │   │   ├── routekit/      # 声明式路由元数据 + OpenAPI 3.0 生成
+│   │   ├── authkit/       # JWT 签发/校验 + Principal + RBAC + gin 中间件（叶子包）
+│   │   ├── passwd/        # bcrypt 哈希/校验（叶子包）
 │   │   └── dbx/           # GORM PostgreSQL 连接池
 │   ├── web/               # 紧凑 HTTP 层：engine/中间件/探针/优雅停机（无业务）
-│   ├── user/              # 业务一块：entity → repository → service → handler → routes
+│   ├── auth/              # 认证域：登录、refresh 轮换、改密、bootstrap 管理员
+│   ├── user/              # 用户域：entity → repository → service → handler → routes
 │   └── testutil/          # 测试共享工具（内存 SQLite，显式传 models）
 ├── migrations/            # golang-migrate SQL 迁移
 ├── configs/               # YAML 配置（config.yaml / config.example.yaml）
@@ -115,6 +141,10 @@ go-web-template/
 | `APP_HTTP_MAX_BODY_BYTES` | 请求体大小上限 | `1048576`（1 MiB） |
 | `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔） | `*` |
 | `APP_SWAGGER_ENABLED` | 是否暴露 `/openapi.json` 与 Swagger UI | `true` |
+| `APP_AUTH_JWT_SECRET` | JWT 签名密钥（HS256，≥32 字节；生产必填且不得是占位值） | 空（启动失败） |
+| `APP_AUTH_ACCESS_TTL` / `APP_AUTH_REFRESH_TTL` | access / refresh 有效期 | `15m` / `168h` |
+| `APP_AUTH_COOKIE_SECURE` | refresh cookie 是否带 `Secure`（本地 http 调试置 `false`） | `true` |
+| `APP_SEED_PASSWORD` | 仅 `cmd/admin` / `make seed-admin` 读取的初始密码 | — |
 
 `deploy/docker-compose.yml` 按生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地调试时显式 `APP_SWAGGER_ENABLED=true make docker-up`。
 
@@ -131,7 +161,8 @@ make test           # 单元测试（内存 SQLite，无需 postgres）
 make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
 make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
-make smoke          # 本地冒烟：自起自停服务，验证探针 + CRUD
+make smoke          # 本地冒烟：探针 + 登录/JWT + 权限 + CRUD + refresh
+make seed-admin EMAIL=admin@example.com APP_SEED_PASSWORD='...'  # 建/重置管理员
 make db-up          # 起本地 postgres（docker compose 优先）
 make openapi        # 重新生成 docs/openapi.json（改了路由元数据后）
 make migrate-up     # 执行迁移（有 docker 用镜像，否则用本地 migrate）
@@ -149,8 +180,9 @@ make test
 测试策略：
 
 - **独立包单测**：`platform/{apperr,httpx,logx,config}` + `web` 中间件（`httptest`）
-- **业务单测**：`internal/user` 的 service（手写 fake repository）与 repository（SQLite）
-- **集成测试**：`internal/app/integration_test.go` 用 `app.NewWithDB` + 内存 SQLite 走通生产同款装配的路由 → handler → service → repository 全链路 CRUD
+- **业务单测**：`internal/user`（角色/归属/禁用失效）、`internal/auth`（枚举防护、锁定、refresh 轮换与重用检测、改密失效）与 repository（SQLite）
+- **认证原语**：`internal/platform/authkit`（HS256 钉死、alg=none、iss/exp、RBAC、中间件 401/403）
+- **集成测试**：`internal/app/integration_test.go` 用 `app.NewWithDB` + 内存 SQLite 走通生产同款装配：seed 管理员 → 登录 → bearer → CRUD，并覆盖匿名 401、member 403、refresh 轮换、改密后旧 token 失效
 - **OpenAPI 测试**：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、路由完整性、禁用时 404）
 - 测试运行无需 PostgreSQL（SQLite 仅用于测试，不进生产镜像）
 
@@ -187,7 +219,8 @@ make docker-down
 
 - **[AGENTS.md](AGENTS.md)** — 协作规则：硬性规则（分层、错误处理、测试）、质量门（`make check`）、标准流程、破坏性操作边界、完成定义（DoD）。
 - **[context.md](context.md)** — 项目上下文：架构总览、包职责、配置模型、数据模型、API 契约、设计决策（ADR）、扩展指南。
-- **[docs/troubleshooting.md](docs/troubleshooting.md)** — 排错速查：环境/配置/迁移/代码结构/linter/前端/容器。
+- **[docs/troubleshooting.md](docs/troubleshooting.md)** — 排错速查：环境/配置/迁移/代码结构/linter/前端/容器/鉴权。
+- **[docs/design-auth.md](docs/design-auth.md)** — 认证与权限的设计取舍（JWT/refresh/RBAC/威胁模型）。
 - **[skills/](skills/)** — 可复用操作配方（同时以符号链接暴露于 `.agents/skills/` 供自动发现；**会话需从仓库根启动**）：
 
 | skill | 用途 |

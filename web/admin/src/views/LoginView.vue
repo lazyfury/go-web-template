@@ -11,15 +11,18 @@ const loading = ref(false)
 const formRef = ref<FormInstance>()
 
 const form = reactive({
-  username: '',
+  email: '',
   password: '',
 })
 
 const rules: FormRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 4, message: '密码至少 4 位', trigger: 'blur' },
+    { min: 8, message: '密码至少 8 位', trigger: 'blur' },
   ],
 }
 
@@ -30,7 +33,7 @@ const handleLogin = async () => {
 
   loading.value = true
   try {
-    await authApi.login({ username: form.username, password: form.password })
+    await authApi.login({ email: form.email.trim(), password: form.password })
     ElMessage.success('登录成功')
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
     router.replace(redirect)
@@ -98,8 +101,8 @@ const handleLogin = async () => {
         <p class="mt-2 text-sm text-[var(--text-secondary)]">登录后台管理系统</p>
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" size="large" class="mt-8" @submit.prevent="handleLogin">
-          <el-form-item label="用户名" prop="username">
-            <el-input v-model="form.username" placeholder="请输入用户名" clearable :prefix-icon="'User'" />
+          <el-form-item label="邮箱" prop="email">
+            <el-input v-model="form.email" placeholder="admin@example.com" clearable :prefix-icon="'Message'" />
           </el-form-item>
 
           <el-form-item label="密码" prop="password">

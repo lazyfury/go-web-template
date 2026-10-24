@@ -1,5 +1,6 @@
 import type { Component } from 'vue'
 import { Odometer, User } from '@element-plus/icons-vue'
+import type { PermissionKey } from '@/router/routes'
 
 /**
  * 侧栏菜单配置 —— 与路由表解耦。
@@ -16,6 +17,8 @@ export interface MenuItem {
   title: string
   icon?: Component
   children?: MenuItem[]
+  /** 需要的权限；缺省表示登录即可见（与后端 RBAC 对齐）。 */
+  permission?: PermissionKey
 }
 
 export const menuConfig: MenuItem[] = [
@@ -28,5 +31,7 @@ export const menuConfig: MenuItem[] = [
     path: '/users',
     title: '用户管理',
     icon: User,
+    // 只有能读用户列表的角色（admin）才显示；member 只能看自己的资料。
+    permission: 'users:read',
   },
 ]

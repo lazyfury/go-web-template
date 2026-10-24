@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/httpx"
 )
 
@@ -33,6 +34,10 @@ func Logger(logger *zap.Logger) gin.HandlerFunc {
 		}
 		if len(c.Errors) > 0 {
 			fields = append(fields, zap.String("error", c.Errors.String()))
+		}
+		// Authenticated routes set the principal; anonymous routes omit user_id.
+		if principal, ok := authkit.PrincipalFrom(c); ok {
+			fields = append(fields, zap.Uint64("user_id", principal.UserID))
 		}
 		logger.Info("http_request", fields...)
 	}

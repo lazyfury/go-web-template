@@ -16,13 +16,13 @@ pnpm build      # 类型检查 + 生产构建到 dist/
 pnpm gen:api    # docs/openapi.json → src/types/openapi.ts
 ```
 
-登录页为**演示模式**（mock）：任意用户名 + 4 位以上密码即可登录，见下方「接入真实认证」。
+登录走真实后端 `POST /api/v1/auth/login`（邮箱 + 密码）：access token 只存内存，refresh token 由后端写入 HttpOnly cookie；账号由管理员创建（`make seed-admin` 或后台「用户管理」）。
 
 ## 页面
 
 | 路由 | 说明 | 数据 |
 |---|---|---|
-| `/login` | 登录页（左品牌区 + 右表单） | mock，可切换真实接口 |
+| `/login` | 登录页（左品牌区 + 右表单） | 真实 `POST /api/v1/auth/login` |
 | `/dashboard` | 仪表盘：统计卡 + 销售趋势 + 渠道占比 + 最新用户 | 统计为演示值，最新用户走真实 API |
 | `/users` | 用户管理：搜索 / 分页 / 新建 / 编辑 / 删除 | 全部对接真实 `/api/v1/users` |
 | 任意未匹配 | 404（后台布局内） | — |
@@ -81,11 +81,18 @@ pnpm gen:api
 - 提交前在本地跑 `pnpm api:check`：重新生成并 `git diff --exit-code`，防止契约变更后忘记更新前端类型（仓库不配置远端 CI）。
 - 业务代码不要手写重复的 `User` / `CreateUserPayload` 等接口，统一从 `components['schemas']` 取。
 
-## 接入真实认证
+## 认证与权限
 
-1. `src/api/auth.ts`：将 `USE_MOCK` 置为 `false`，按后端契约调整 `realLogin` 的路径与响应字段（当前 `POST /auth/login`）。
-2. 登录响应需返回 `{ token, user: { id, username, email, role } }`（见 `src/types/auth.ts`）。
-3. 如需菜单/权限接口，在 `src/config/menu.ts` 与路由守卫中扩展（参考 `filterMenusByPermissions` 的思路，但保持静态路由不变）。
+| 关注点 | 实现 |
+|---|---|
+| 登录 | `src/api/auth.ts` → `POST /auth/login`；响应 `{ access_token, token_type, expires_in, user{id,name,email,role,permissions} }` |
+| 令牌存放 | access token **只在内存**（pinia store）；refresh token 在 HttpOnly + SameSite=Strict cookie（JS 不可读） |
+| 刷新 | `src/api/http.ts`：401 → single-flight 调 `/auth/refresh` → 重放原请求一次；失败才跳登录 |
+| 首屏恢复 | `stores/auth.ts#bootstrap()`（路由守卫调用）：用 cookie 换回 access token，刷新页面不掉线 |
+| 权限 | `stores/auth.ts#can('users:write')`；菜单 `config/menu.ts` 的 `permission`、路由 `meta.permission`、按钮 `v-if` 三处共用同一套权限常量 |
+| 类型 | `src/types/auth.ts` 全部来自 `openapi.ts` 生成的 schema，禁止手写重复接口 |
+
+后端 RBAC：`admin` = `users:read/write/delete`；`member` = `users:read:self` + `users:write:self`。前端隐藏只是体验，**真正判定在服务端**（40100 未认证 / 40300 无权限）。
 
 ## 对接后端
 

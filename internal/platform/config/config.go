@@ -17,6 +17,7 @@ type Config struct {
 	CORS       CORS       `mapstructure:"cors"`
 	RateLimit  RateLimit  `mapstructure:"ratelimit"`
 	Swagger    Swagger    `mapstructure:"swagger"`
+	Auth       Auth       `mapstructure:"auth"`
 }
 
 // App holds generic application metadata.
@@ -82,3 +83,33 @@ type RateLimit struct {
 type Swagger struct {
 	Enabled bool `mapstructure:"enabled"`
 }
+
+// Auth holds the authentication and token settings.
+type Auth struct {
+	// JWTSecret signs access tokens (HMAC-SHA256). Production requires at
+	// least 32 bytes; a short or empty secret fails startup.
+	JWTSecret string `mapstructure:"jwt_secret"`
+	Issuer    string `mapstructure:"issuer"`
+
+	// AccessTTL bounds the stateless access token lifetime.
+	AccessTTL time.Duration `mapstructure:"access_ttl"`
+	// RefreshTTL bounds the refresh token lifetime (rotated on every use).
+	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
+
+	// BcryptCost is the password hashing cost (10-14).
+	BcryptCost int `mapstructure:"bcrypt_cost"`
+
+	// LoginMaxAttempts consecutive failures lock the account for LoginLockout.
+	LoginMaxAttempts int           `mapstructure:"login_max_attempts"`
+	LoginLockout     time.Duration `mapstructure:"login_lockout"`
+
+	// LoginRPS/LoginBurst throttle POST /auth/login per client IP.
+	LoginRPS   float64 `mapstructure:"login_rps"`
+	LoginBurst int     `mapstructure:"login_burst"`
+
+	// CookieSecure marks the refresh cookie Secure; set false for local http.
+	CookieSecure bool `mapstructure:"cookie_secure"`
+}
+
+// IsProduction reports whether the app runs with production hardening rules.
+func (c *Config) IsProduction() bool { return c.App.Env == "production" }

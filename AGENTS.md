@@ -16,7 +16,7 @@
 
 ## 项目一句话
 
-Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，内置 Docker / OpenAPI（routekit 生成）/ Prometheus。
+Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，JWT 登录 + RBAC，内置 Docker / OpenAPI（routekit 生成）/ Prometheus。
 
 ## 开工顺序
 
@@ -26,15 +26,17 @@ Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler 
 
 ## 硬性规则（违反 = 打回）
 
-1. **分层与依赖方向**：业务包内 `handler → service → repository`（同一包内按文件分层）；包级方向 `cmd → app → {web, user, platform/*}`，`platform/*` 是叶子包。禁止反向 import；service 不得 import gin；`web` 不得 import 业务域（域用 `RegisterRoutes` 自己挂载）；`internal/` 不得被外部非 main 包 import。
+1. **分层与依赖方向**：业务包内 `handler → service → repository`（同一包内按文件分层）；包级方向 `cmd → app → {web, auth, user, platform/*}`，`platform/*` 是叶子包。`auth → user` 只允许单向（经包内 `UserStore` 接口）。禁止反向 import；service 不得 import gin；`web` 不得 import 业务域（域用 `RegisterRoutes` 自己挂载）；`internal/` 不得被外部非 main 包 import。
 2. **错误处理**：业务错误一律 `internal/platform/apperr`（`apperr.Wrap/New` + 稳定 Code）；handler 用 `httpx.Fail(c, err)` 输出 `{code,message,data}`，不返回裸 error、不自造 JSON。
 3. **校验**：请求 DTO 用 gin binding tag；`ShouldBindJSON` 失败 → `apperr.CodeInvalidArgument`。
 4. **日志**：只用 zap（`logx.New` 构建）；访问日志由中间件产出，业务代码不 print。
 5. **上下文**：service/repository 方法首参必须是 `context.Context`，透传 `c.Request.Context()`；DB 查询 `WithContext(ctx)`。
-6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。
+6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。受保护端点要覆盖匿名 401、越权 403、正常路径；用 `app.SeedAdmin` + `loginAsAdmin` 取 token。
 7. **依赖**：新增依赖后 `go mod tidy`；sqlite 只允许出现在测试路径（`internal/testutil`）。
 8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
 9. **OpenAPI 代码优先**：路由必须通过 `routekit.Group` 注册并带 `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`（改完运行 `make openapi` 并提交）。API 契约变化后同步前端类型（`cd web/admin && pnpm gen:api`）。新增端点漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
+10. **鉴权默认拒绝**：`/api/v1` 下除 `/auth/login`、`/auth/refresh` 外一律挂在 `protected` 组（`Security(bearerAuth)` + `authkit.Authenticate`）。新增端点必须显式声明权限（`authkit.RequirePermission`）并在 `Op.Errors` 里带 `CodeForbidden`；**401（未认证）与 403（无权限）不得混用**。资源归属校验放 service（`actor` 显式入参），不要只靠中间件。禁止把密码/token 写日志或放进 DTO。
+11. **凭证与密钥**：密码只存 bcrypt 摘要；access token 无状态（`users.token_version` 控失效）；refresh token 只存 SHA-256、必须轮换、重用即吊销全部会话。生产必须注入 `APP_AUTH_JWT_SECRET`（≥32 字节、非占位值）。
 
 ## 质量门（唯一入口）
 

@@ -59,6 +59,20 @@
 | `noctx: httptest.NewRequest must not be called` | 改 `httptest.NewRequestWithContext(context.Background(), ...)` |
 | `gofmt`/`goimports` 报差异 | `make fmt`（`docs/` 为生成代码，已豁免 `make fmt-check`） |
 
+## 5.1 鉴权（JWT / 登录）
+
+| 症状 | 原因与处理 |
+|---|---|
+| 启动报 `auth.jwt_secret is required` | 没有任何来源提供密钥：`configs/config.yaml` 有开发默认值；容器/生产用 `APP_AUTH_JWT_SECRET`（≥32 字节） |
+| 生产启动报 `still uses a template placeholder` | 密钥仍是 `CHANGE_ME…` 或含 `insecure`：换成随机值（如 `openssl rand -base64 48`） |
+| 所有 `/api/v1/*` 都 401，但确实带了 token | 先确认 header 形如 `Authorization: Bearer <jwt>`；再确认 `APP_AUTH_ACCESS_TTL` 未过期、用户未被禁用/改密（`users.token_version` 已变） |
+| 401 与 403 分不清 | 40100 = 未认证（没带/无效/过期 token、登录凭证错）；40300 = 已认证但角色权限不足、账号禁用/锁定、管理员自删 |
+| 登录总是 `invalid credentials` | 账号可能没有凭证（`password_hash=''`，仅老数据）：用 `make seed-admin EMAIL=… APP_SEED_PASSWORD=…` 重置；或用管理员 `PATCH /users/:id` 设密码 |
+| 连续输错后 `account temporarily locked` | `auth.login_max_attempts`（默认 5）+ `auth.login_lockout`（默认 15m）；等待或用 seed-admin 重置（会清空锁定计数） |
+| refresh 一直失败 / 刷新页面就掉线 | refresh cookie 是 `Secure` 而当前是 http：本地置 `APP_AUTH_COOKIE_SECURE=false`（`make smoke` 已自动处理）；跨域部署还需 `allow_credentials=true` 且不能 `*` origin |
+| 前端偶发登出 | 多个并发 401 触发多次 refresh 会把轮换令牌用掉：前端已做 single-flight；若自定义客户端，必须保证同一时刻只发一个 refresh |
+| 改密后旧 access token 仍能用 | 只有走 `PATCH /auth/password` 或管理员改密/禁用才会 `token_version++`；直接把 hash 写库不会触发失效 |
+
 ## 6. 前端（web/admin）
 
 | 报错 | 处理 |

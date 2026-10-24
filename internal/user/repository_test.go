@@ -74,3 +74,41 @@ func TestRepositoryCRUD(t *testing.T) {
 		t.Errorf("second delete expected not found, got %v", err)
 	}
 }
+
+func TestRepositorySaveAuthStatePersistsZeroValues(t *testing.T) {
+	db := testutil.NewSQLiteDB(t, &User{})
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	u := &User{Name: "Auth", Email: "auth@example.com", Status: StatusActive, PasswordHash: "hash-1"}
+	if err := repo.Create(ctx, u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Simulate a failed login followed by a successful one: the counter must go
+	// back to 0 (Updates(struct) alone would skip the zero value).
+	u.FailedLoginCount = 4
+	if err := repo.SaveAuthState(ctx, u); err != nil {
+		t.Fatalf("SaveAuthState: %v", err)
+	}
+	u.FailedLoginCount = 0
+	u.TokenVersion = 3
+	u.PasswordHash = "hash-2"
+	if err := repo.SaveAuthState(ctx, u); err != nil {
+		t.Fatalf("SaveAuthState reset: %v", err)
+	}
+
+	got, err := repo.FindByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if got.FailedLoginCount != 0 {
+		t.Errorf("failed login count = %d, want 0", got.FailedLoginCount)
+	}
+	if got.TokenVersion != 3 {
+		t.Errorf("token version = %d, want 3", got.TokenVersion)
+	}
+	if got.PasswordHash != "hash-2" {
+		t.Errorf("password hash = %q, want hash-2", got.PasswordHash)
+	}
+}
