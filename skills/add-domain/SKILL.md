@@ -144,6 +144,7 @@ make check      # lint + gofmt + vet + race + build + OpenAPI 黄金测试 + 依
 ```
 
 - 改了路由或 `Op` → `make openapi` 并提交 `docs/openapi.json`（`make check` 的黄金测试会检出漂移）。
+- API 契约变化后同步前端类型：`cd web/admin && pnpm gen:api`，提交 `src/types/openapi.ts`。
 - 同步 `context.md`（§5 表结构、§6 API 契约）与 `README.md`（用户可见变化）。
 - 有 DB 时跑 `make smoke`；无 DB 时只验证 liveness 路径并如实说明。
 

@@ -34,7 +34,7 @@ Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler 
 6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。
 7. **依赖**：新增依赖后 `go mod tidy`；sqlite 只允许出现在测试路径（`internal/testutil`）。
 8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
-9. **OpenAPI 代码优先**：路由必须通过 `routekit.Group` 注册并带 `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`（改完运行 `make openapi` 并提交）。新增端点漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
+9. **OpenAPI 代码优先**：路由必须通过 `routekit.Group` 注册并带 `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`（改完运行 `make openapi` 并提交）。API 契约变化后同步前端类型（`cd web/admin && pnpm gen:api`）。新增端点漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
 
 ## 质量门（唯一入口）
 

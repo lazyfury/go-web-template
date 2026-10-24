@@ -8,7 +8,7 @@
 - 行业标准 Go Web **单体应用**模板（HTTP JSON API 服务），非微服务。
 - 技术栈：Go 1.26 / Gin / GORM / PostgreSQL / uber-go/zap / viper / golang-migrate / Prometheus / OpenAPI 3.0（routekit 代码生成）。
 - 模块路径：`github.com/example/go-web-template`（真实项目用 `scripts/rename-module.sh` 替换）。
-- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），登录（mock 可切换真实接口）/ 仪表盘 / users CRUD；开发时 vite 将 `/api` 代理到 `:8080`。详见 `web/admin/README.md`。
+- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），登录（mock 可切换真实接口）/ 仪表盘 / users CRUD；开发时 vite 将 `/api` 代理到 `:8080`。API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`），详见 `web/admin/README.md`。
 
 ## 2. 架构总览
 
@@ -21,7 +21,8 @@
                        │    ▼                                                               │
                        │  internal/user   (业务一块：handler → service → repository 同包分文件) │
                        │    ▼                                                               │
-                       │  internal/platform/{config,logx,dbx,apperr,httpx}  叶子包 ────────► PostgreSQL
+                       │  internal/platform/{config,logx,dbx,apperr,httpx} 叶子包 ─► PostgreSQL
+                       │  internal/platform/routekit（路由元数据 → OpenAPI）              │
                        │                                                                     │
                        │  运维端点: /healthz /readyz /metrics /openapi.json /swagger/*any   │
                        │  （不经限流；OpenAPI 由 routekit 路由元数据在启动时生成）           │
@@ -46,7 +47,7 @@
 | `internal/platform/dbx` | GORM PostgreSQL 连接池 | `db.go` |
 | `internal/platform/routekit` | 声明式路由元数据 + 反射生成 OpenAPI 3.0.3 | `types.go`, `schema.go`, `registry.go`, `group.go`, `serve.go` |
 | `internal/web` | 紧凑 HTTP 层：engine/中间件/探针/优雅停机/文档挂载（无业务） | `router.go`, `docs.go`, `middleware_*.go`, `health.go`, `server.go` |
-| `internal/user` | 业务一块：entity/repo/service/handler/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `routes.go` |
+| `internal/user` | 业务一块：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
 | `migrations/` | golang-migrate SQL（版本化） | `000001_create_users_table.*` |
 | `docs/` | 生成的 OpenAPI 契约 + 手写排错文档 | `openapi.json`, `troubleshooting.md` |
@@ -129,6 +130,7 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 - 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/Health，`httptest` 驱动）。
 - 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**全链路 CRUD。
 - OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件 `docs/openapi.json`、`engine.Routes()` 完整性、禁用时 404）。
+- 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移，`pnpm build` 做 vue-tsc + vite 构建。
 - 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见；每个测试用独立命名内存库，可并行。
 - 跑法：`make check`（提交前唯一门槛）；纯 Go 改动最快闭环 `make test`；端到端 `make smoke`（需 postgres）。
 
@@ -148,7 +150,7 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 
 ## 10. 扩展指南
 
-**新增领域模块**（详见 skill `/add-domain`）：迁移 → `internal/<domain>/entity.go` → `repository.go`（接口+GORM 实现）→ `service.go` → `handler.go`（DTO+校验）→ `routes.go`（`RegisterRoutes(*routekit.Group, *Handler)` + `routekit.Op`）→ `app.NewWithDB` 装配 → 单测 + 集成测试 → `make openapi`。新增端点必须走 `routekit.Group`，不要直接挂 `*gin.RouterGroup`。
+**新增领域模块**（详见 skill `/add-domain`）：迁移 → `internal/<domain>/entity.go` → `repository.go`（接口+GORM 实现）→ `service.go` → `handler.go`（DTO+校验）→ `routes.go`（`RegisterRoutes(*routekit.Group, *Handler)` + `routekit.Op`）→ `app.NewWithDB` 装配 → 单测 + 集成测试 → `make openapi` → 前端 `cd web/admin && pnpm gen:api`。新增端点必须走 `routekit.Group`，不要直接挂 `*gin.RouterGroup`。
 
 **新增配置项**：`config.go` 加字段 → `loader.go` `setDefaults` 加默认值 → `config.example.yaml`/`config.yaml` 同步 → 必要时加 Validate 分支。
 

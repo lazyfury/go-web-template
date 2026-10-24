@@ -38,6 +38,7 @@
 | `/metrics` 404 | 不能用 DefaultServeMux 自动注册，直挂 `promhttp.Handler()` |
 | `errors.Is(err, apperrors.ErrNotFound)` 不成立 | `apperrors.Error.Is` 按 Code 匹配；确认是 `apperrors.Wrap/New` 产出的错误，且调用了 `Unwrap` 链（`fmt.Errorf("%w")` 也可） |
 | `TestOpenAPIGolden` 失败 | 改了路由/`Op` 但没更新契约：运行 `make openapi`，review `docs/openapi.json` 后提交 |
+| `pnpm api:check` 失败 | 后端契约已变但前端类型未更新：`make openapi` → `cd web/admin && pnpm gen:api`，提交 `src/types/openapi.ts` |
 | 启动报 `routekit: unsupported type` / `path parameter ... missing` | `Op` 与 gin path 不一致，或 DTO 含 routekit 未覆盖的类型；按错误中的路由/类型修正（query 数组/对象、通配路径当前不支持） |
 
 ## 5. golangci-lint

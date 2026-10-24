@@ -14,7 +14,7 @@
 - **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
-- **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用
+- **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用；API 类型由 `docs/openapi.json` 生成
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、golangci-lint、单元测试全绿
 
 ## 快速开始
@@ -159,9 +159,9 @@ make test
 仓库不配置远端 CI，提交前在本地跑：
 
 ```bash
-make check                          # golangci-lint + gofmt + vet + race + build + OpenAPI 黄金文件 + tidy
-cd web/admin && pnpm api:check      # 校验 generated API types 与 docs/openapi.json 同步
-cd web/admin && pnpm build          # vue-tsc + vite build
+make check                              # golangci-lint + gofmt + vet + race + build + OpenAPI 黄金文件 + tidy
+(cd web/admin && pnpm api:check)        # 校验生成的 API 类型与 docs/openapi.json 同步
+(cd web/admin && pnpm build)            # vue-tsc + vite build
 ```
 
 Docker 端到端：
@@ -178,7 +178,7 @@ make docker-down
    ```bash
    ./scripts/rename-module.sh github.com/yourorg/your-project
    ```
-2. 按需新增领域：`internal/<domain>/` 内加 entity → 迁移 → repository → service → handler，`routes.go` 用 `routekit.Group` + `Op` 注册路由（不用写 Swagger 注解），最后 `make openapi`。
+2. 按需新增领域：`internal/<domain>/` 内加 entity → 迁移 → repository → service → handler，`routes.go` 用 `routekit.Group` + `Op` 注册路由（不用写 Swagger 注解），最后 `make openapi`；前端类型用 `cd web/admin && pnpm gen:api` 同步。
 3. 常用扩展方向：JWT 认证中间件、Redis 缓存、消息队列（Kafka/RabbitMQ）、gRPC 网关、多租户。
 
 ## AI 协作文件
