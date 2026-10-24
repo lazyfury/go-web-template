@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
@@ -431,4 +432,49 @@ func counterValue(t *testing.T, name string, labels map[string]string) float64 {
 		}
 	}
 	return 0
+}
+
+// TestRequestIDRejectsClientSuppliedJunk 钉住 F11：客户端只能提供格式合法的
+// X-Request-Id，否则服务端重新生成（避免伪造关联 id / 往日志里塞任意文本）。
+func TestRequestIDRejectsClientSuppliedJunk(t *testing.T) {
+	t.Parallel()
+
+	newRouter := func() *gin.Engine {
+		r := gin.New()
+		r.Use(RequestID())
+		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+		return r
+	}
+
+	t.Run("well formed id is preserved", func(t *testing.T) {
+		t.Parallel()
+		r := newRouter()
+		req := newRequest(t, http.MethodGet, "/")
+		req.Header.Set(RequestIDHeader, "3f1a9c2e-7b44-4d0f-9a5e-0d1c2b3a4f50")
+		if got := serve(t, r, req).Header().Get(RequestIDHeader); got != "3f1a9c2e-7b44-4d0f-9a5e-0d1c2b3a4f50" {
+			t.Errorf("request id = %q, want the client value", got)
+		}
+	})
+
+	for name, junk := range map[string]string{
+		"spaces":   "id with spaces",
+		"newline":  "abc\ndef",
+		"quotes":   `"><script>`,
+		"unicode":  "ｕｕｉｄ",
+		"too long": strings.Repeat("a", maxRequestIDLen+1),
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			t.Parallel()
+			r := newRouter()
+			req := newRequest(t, http.MethodGet, "/")
+			req.Header.Set(RequestIDHeader, junk)
+			got := serve(t, r, req).Header().Get(RequestIDHeader)
+			if got == junk {
+				t.Fatalf("junk request id %q was accepted", junk)
+			}
+			if _, err := uuid.Parse(got); err != nil {
+				t.Errorf("regenerated id %q is not a uuid: %v", got, err)
+			}
+		})
+	}
 }
