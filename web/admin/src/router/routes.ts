@@ -11,6 +11,9 @@ export type PermissionKey =
   | 'users:write:self'
   | 'dicts:read'
   | 'dicts:write'
+  | 'messages:read'
+  | 'messages:send'
+  | 'messages:manage'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
@@ -18,6 +21,10 @@ import UsersView from '@/views/UsersView.vue'
 import DictsView from '@/views/DictsView.vue'
 import BasicSettingsView from '@/views/BasicSettingsView.vue'
 import SeoSettingsView from '@/views/SeoSettingsView.vue'
+import MessagesView from '@/views/MessagesView.vue'
+import SendMessageView from '@/views/SendMessageView.vue'
+import MessageTemplatesView from '@/views/MessageTemplatesView.vue'
+import MessageDeliveriesView from '@/views/MessageDeliveriesView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
 
 /**
@@ -88,6 +95,34 @@ export const routes: RouteRecordRaw[] = [
         name: 'settings-seo',
         component: SeoSettingsView,
         meta: { title: 'SEO设置', permission: 'dicts:write' },
+      },
+      {
+        path: 'messages',
+        name: 'messages',
+        component: MessagesView,
+        meta: { title: '消息中心', permission: 'messages:read' },
+      },
+      {
+        path: 'message-admin',
+        redirect: '/messages/send',
+      },
+      {
+        path: 'messages/send',
+        name: 'message-send',
+        component: SendMessageView,
+        meta: { title: '发送消息', permission: 'messages:send' },
+      },
+      {
+        path: 'message-templates',
+        name: 'message-templates',
+        component: MessageTemplatesView,
+        meta: { title: '消息模板', permission: 'messages:manage' },
+      },
+      {
+        path: 'message-deliveries',
+        name: 'message-deliveries',
+        component: MessageDeliveriesView,
+        meta: { title: '投递记录', permission: 'messages:manage' },
       },
       // catch-all：未匹配路由渲染 404（保持在后台布局内）
       {

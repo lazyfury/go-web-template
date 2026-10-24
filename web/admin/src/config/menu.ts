@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Collection, Odometer, Search, Setting, Tools, User } from '@element-plus/icons-vue'
+import { Bell, Collection, List, Odometer, Promotion, Search, Setting, Tickets, Tools, User } from '@element-plus/icons-vue'
 import type { PermissionKey } from '@/router/routes'
 
 /**
@@ -26,6 +26,23 @@ export const menuConfig: MenuItem[] = [
     path: '/dashboard',
     title: '仪表盘',
     icon: Odometer,
+  },
+  {
+    path: '/messages',
+    title: '消息中心',
+    icon: Bell,
+    permission: 'messages:read',
+  },
+  {
+    path: '/message-admin',
+    title: '消息管理',
+    icon: Promotion,
+    permission: 'messages:send',
+    children: [
+      { path: '/messages/send', title: '发送消息', icon: Promotion },
+      { path: '/message-templates', title: '消息模板', icon: Tickets },
+      { path: '/message-deliveries', title: '投递记录', icon: List },
+    ],
   },
   {
     path: '/users',

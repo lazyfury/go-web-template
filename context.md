@@ -9,7 +9,7 @@
 - 技术栈：Go 1.26 / Gin / GORM / PostgreSQL / uber-go/zap / viper / golang-migrate / Prometheus / OpenAPI 3.0（routekit 代码生成）/ JWT（golang-jwt v5）+ bcrypt。
 - 认证：邮箱+密码登录 → **JWT access token（15m）+ HttpOnly refresh cookie（滑动 30 天 + 绝对上限 90 天，轮换带 30s 复用宽限）**；RBAC `admin`/`member`；`/api/v1` 除 `/auth/login`、`/auth/refresh` 外全部要求登录。
 - 模块路径：`github.com/example/go-web-template`（真实项目用 `scripts/rename-module.sh` 替换）。
-- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），真实登录（JWT + refresh cookie）/ 权限化菜单 / 仪表盘 / users CRUD / 字典管理 / 系统设置（基础设置、SEO 设置）；开发时 vite 将 `/api` 代理到 `:8080`。API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`），详见 `web/admin/README.md`。
+- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），真实登录（JWT + refresh cookie）/ 权限化菜单 / 仪表盘 / users CRUD / 字典管理 / 系统设置（基础设置、SEO 设置）/ 消息中心与消息管理（发送、模板、投递记录）；开发时 vite 将 `/api` 代理到 `:8080`。API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`），详见 `web/admin/README.md`。
 
 ## 2. 架构总览
 

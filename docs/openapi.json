@@ -3225,11 +3225,7 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "enum": [
-              "admin",
-              "member"
-            ]
+            }
           },
           "user_ids": {
             "type": "array",
@@ -3261,13 +3257,7 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "enum": [
-              "inbox",
-              "email",
-              "sms",
-              "webhook"
-            ]
+            }
           },
           "data": {
             "type": "object",

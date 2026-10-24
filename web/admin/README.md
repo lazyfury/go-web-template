@@ -28,13 +28,17 @@ pnpm gen:api    # docs/openapi.json → src/types/openapi.ts
 | `/dicts` | 字典管理：左侧 group（setting）列表，右侧维护 dict items | 全部对接真实 `/api/v1/dict-groups`、`/api/v1/dict-items` |
 | `/settings/basic` | 基础设置：站点名称/地址/Logo/联系方式等 | `GET` + `PUT /api/v1/dicts/site.basic` |
 | `/settings/seo` | SEO 设置：标题/关键词/描述/robots/og:image | `GET` + `PUT /api/v1/dicts/site.seo` |
+| `/messages` | 消息中心：收件箱、未读筛选、详情、已读、删除 | 真实 `/api/v1/messages/inbox`；顶栏铃铛 30s 轮询未读数 |
+| `/messages/send` | 发送消息：渠道/收件人/模板/变量 + 最近发送 | 真实 `/api/v1/messages`、`/messages/sent` |
+| `/message-templates` | 消息模板 CRUD | 真实 `/api/v1/message-templates` |
+| `/message-deliveries` | 外部投递记录与手动重试 | 真实 `/api/v1/message-deliveries` |
 | 任意未匹配 | 404（后台布局内） | — |
 
 ## 目录结构
 
 ```
 web/admin/src/
-├── api/            # HTTP 层（http.ts：axios + 统一信封解包）与领域 API（user.ts / auth.ts / dict.ts）
+├── api/            # HTTP 层（http.ts：axios + 统一信封解包）与领域 API（user/auth/dict/message）
 ├── components/
 │   ├── common/     # 通用组件（StatCard / StatusTag）
 │   └── layout/     # 布局组件（AppSidebar / AppHeader / AppTabs）
@@ -42,10 +46,10 @@ web/admin/src/
 ├── config/         # menu.ts 侧栏菜单配置（与路由解耦）
 ├── layouts/        # AdminLayout 主布局
 ├── router/         # 静态路由表 + 登录守卫
-├── stores/         # pinia：auth（登录态）/ tabs（多标签工作区）
+├── stores/         # pinia：auth（登录态）/ tabs（多标签工作区）/ messages（未读数轮询）
 ├── styles/         # tokens.css 设计令牌 / base.css / element.css（EP 主题接入）
-├── types/          # 类型与常量（api 信封 / user / auth / dict / openapi 生成）
-└── views/          # 页面（Login / Dashboard / Users / Dicts / Settings / NotFound）
+├── types/          # 类型与常量（api 信封 / user / auth / dict / message / openapi 生成）
+└── views/          # 页面（Login / Dashboard / Users / Dicts / Settings / Messages / NotFound）
 ```
 
 ## 范式约定（相对参考项目的修正）
@@ -96,6 +100,14 @@ pnpm gen:api
 | 类型 | `src/types/auth.ts` 全部来自 `openapi.ts` 生成的 schema，禁止手写重复接口 |
 
 后端 RBAC：`admin` = `users:read/write/delete` + `dicts:read/write`；`member` = `users:read:self` + `users:write:self` + `dicts:read`。前端隐藏只是体验，**真正判定在服务端**（40100 未认证 / 40300 无权限）。
+
+## 消息中心 / 消息管理
+
+- 顶栏铃铛由 `MessageBell.vue` + `stores/messages.ts` 驱动，30s 轮询 `/messages/unread-count`；未读红点与消息中心共享同一状态。
+- `/messages`：收件箱、只看未读、详情（打开即已读）、全部已读、删除。
+- `/messages/send`（admin）：渠道多选、全员/指定用户/角色、模板变量 JSON、最近发送统计。模板模式下只允许选择该模板已覆盖的渠道。
+- `/message-templates`（admin）：按 key + channel + locale 管理模板，变量白名单。
+- `/message-deliveries`（admin）：查看 pending/sent/failed/dead 与最近错误，手动重试 failed/dead。
 
 ## 字典/配置页
 

@@ -3,6 +3,7 @@ import { ElMessage } from 'element-plus'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authApi } from '@/api/auth'
+import MessageBell from '@/components/layout/MessageBell.vue'
 import { useAuthStore } from '@/stores/auth'
 
 defineProps<{
@@ -48,15 +49,7 @@ const handleLogout = () => {
     </div>
 
     <div class="flex shrink-0 items-center gap-1">
-      <el-tooltip content="暂无新消息" placement="bottom">
-        <button
-          type="button"
-          class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
-          @click="ElMessage.info('暂无新消息')"
-        >
-          <span class="i-ep-bell text-base" />
-        </button>
-      </el-tooltip>
+      <MessageBell />
 
       <el-dropdown trigger="click" placement="bottom-end">
         <button

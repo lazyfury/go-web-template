@@ -608,8 +608,7 @@ export interface components {
         };
         RecipientsRequest: {
             all?: boolean;
-            /** @enum {array} */
-            roles?: "admin" | "member";
+            roles?: string[];
             user_ids?: number[];
         };
         ReplaceValuesRequest: {
@@ -617,8 +616,7 @@ export interface components {
         };
         SendRequest: {
             body?: string;
-            /** @enum {array} */
-            channels: "inbox" | "email" | "sms" | "webhook";
+            channels: string[];
             data?: {
                 [key: string]: unknown;
             };

@@ -14,7 +14,7 @@ type SendRequest struct {
 	Type        Type              `json:"type" binding:"omitempty,oneof=system announcement alert"`
 	Level       Level             `json:"level" binding:"omitempty,oneof=info success warning error"`
 	Link        string            `json:"link" binding:"max=512"`
-	Channels    []Channel         `json:"channels" binding:"required,min=1,dive,oneof=inbox email sms webhook"`
+	Channels    []Channel         `json:"channels" binding:"required,min=1"`
 	Recipients  RecipientsRequest `json:"recipients" binding:"required"`
 	TemplateKey string            `json:"template_key" binding:"omitempty,max=64"`
 	Locale      string            `json:"locale" binding:"omitempty,max=16"`
@@ -26,7 +26,7 @@ type SendRequest struct {
 type RecipientsRequest struct {
 	All     bool           `json:"all"`
 	UserIDs []uint64       `json:"user_ids"`
-	Roles   []authkit.Role `json:"roles" binding:"dive,oneof=admin member"`
+	Roles   []authkit.Role `json:"roles"`
 }
 
 // SendResultDTO is returned by POST /messages.

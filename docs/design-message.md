@@ -385,10 +385,10 @@ message:
 
 验收：无 Redis 也能发送；worker 可取消；失败重试与 dead 状态正确；`make check` 全绿。
 
-### Phase 4：前端
+### Phase 4：前端（已完成）
 
-- [ ] 消息中心 + 未读红点 + 管理员发送/模板页
-- [ ] `pnpm typecheck` / `pnpm build` / `pnpm api:check`
+- [x] 消息中心 + 未读红点 + 管理员发送/模板/投递页
+- [x] `pnpm typecheck` / `pnpm build` / `pnpm api:check`
 
 ### Phase 5：可选增强
 
