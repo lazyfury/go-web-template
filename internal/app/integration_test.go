@@ -1259,3 +1259,28 @@ func TestMetricsEndpointCanBeDisabled(t *testing.T) {
 		t.Fatalf("/healthz = %d, want 200", w.Code)
 	}
 }
+
+// TestListEchoesNormalizedPaging 是 F12 的对外契约断言：响应信封里的 page/page_size
+// 必须是实际生效的值，不能回显越界的请求参数。
+func TestListEchoesNormalizedPaging(t *testing.T) {
+	env := newTestEnv(t, false)
+	env.seedAdmin(t)
+	admin := env.login(t, adminEmail, adminPassword, http.StatusOK)
+
+	w := doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/users?page=-1&page_size=100000", nil, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Page     int `json:"page"`
+			PageSize int `json:"page_size"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Data.Page != 1 || body.Data.PageSize != 20 {
+		t.Errorf("page/page_size = %d/%d, want 1/20 (normalized)", body.Data.Page, body.Data.PageSize)
+	}
+}

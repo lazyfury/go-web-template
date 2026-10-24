@@ -190,10 +190,10 @@ func TestServiceGetOwnership(t *testing.T) {
 
 func TestServiceListAdminOnly(t *testing.T) {
 	svc := newTestService(newMockUserRepo())
-	if _, _, err := svc.List(context.Background(), adminActor, 1, 20, ""); err != nil {
+	if _, _, _, _, err := svc.List(context.Background(), adminActor, 1, 20, ""); err != nil {
 		t.Fatalf("admin list: %v", err)
 	}
-	if _, _, err := svc.List(context.Background(), memberA, 1, 20, ""); !errors.Is(err, apperr.ErrForbidden) {
+	if _, _, _, _, err := svc.List(context.Background(), memberA, 1, 20, ""); !errors.Is(err, apperr.ErrForbidden) {
 		t.Errorf("member list should be forbidden, got %v", err)
 	}
 }
@@ -308,5 +308,28 @@ func TestServiceCannotDeleteSelf(t *testing.T) {
 	actor := authkit.Principal{UserID: created.ID, Role: authkit.RoleAdmin}
 	if err := svc.Delete(context.Background(), actor, created.ID); !errors.Is(err, apperr.ErrForbidden) {
 		t.Errorf("self delete should be forbidden, got %v", err)
+	}
+}
+
+// TestServiceListNormalizesPaging 钉住 F12：service 归一化后的分页值要能被 handler
+// 回显（否则响应里写着 page_size=100000，实际只读了 20 行）。
+func TestServiceListNormalizesPaging(t *testing.T) {
+	svc := newTestService(newMockUserRepo())
+	cases := []struct{ page, size, wantPage, wantSize int }{
+		{1, 20, 1, 20},
+		{0, 0, 1, 20},
+		{-3, 100000, 1, 20},
+		{2, 500, 2, 20},
+		{3, 50, 3, 50},
+	}
+	for _, tc := range cases {
+		_, _, page, size, err := svc.List(context.Background(), adminActor, tc.page, tc.size, "")
+		if err != nil {
+			t.Fatalf("List(%d,%d): %v", tc.page, tc.size, err)
+		}
+		if page != tc.wantPage || size != tc.wantSize {
+			t.Errorf("List(%d,%d) normalized to (%d,%d), want (%d,%d)",
+				tc.page, tc.size, page, size, tc.wantPage, tc.wantSize)
+		}
 	}
 }

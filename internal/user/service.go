@@ -107,9 +107,12 @@ func (s *Service) Get(ctx context.Context, actor authkit.Principal, id uint64) (
 }
 
 // List returns a page of users matching an optional keyword. Admin only.
-func (s *Service) List(ctx context.Context, actor authkit.Principal, page, pageSize int, keyword string) ([]User, int64, error) {
+// It also returns the normalized page/pageSize so the handler echoes what was
+// actually applied: a request for page_size=100000 used to come back with
+// page_size=100000 in the envelope while only 20 rows were read.
+func (s *Service) List(ctx context.Context, actor authkit.Principal, page, pageSize int, keyword string) ([]User, int64, int, int, error) {
 	if !actor.IsAdmin() {
-		return nil, 0, forbidden("insufficient permissions")
+		return nil, 0, 0, 0, forbidden("insufficient permissions")
 	}
 	if page < 1 {
 		page = 1
@@ -118,7 +121,11 @@ func (s *Service) List(ctx context.Context, actor authkit.Principal, page, pageS
 		pageSize = 20
 	}
 	offset := (page - 1) * pageSize
-	return s.repo.List(ctx, offset, pageSize, strings.TrimSpace(keyword))
+	users, total, err := s.repo.List(ctx, offset, pageSize, strings.TrimSpace(keyword))
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	return users, total, page, pageSize, nil
 }
 
 // Update applies a partial update, rejecting an email owned by another user.

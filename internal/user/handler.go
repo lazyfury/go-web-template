@@ -66,11 +66,12 @@ func (h *Handler) List(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	keyword := c.Query("keyword")
 
-	users, total, err := h.svc.List(c.Request.Context(), actor, page, pageSize, keyword)
+	users, total, page, pageSize, err := h.svc.List(c.Request.Context(), actor, page, pageSize, keyword)
 	if err != nil {
 		httpx.Fail(c, err)
 		return
 	}
+	// Echo the normalized values the service applied, not the raw query.
 	httpx.OK(c, ListResponse{
 		Items:    toDTOs(users),
 		Total:    total,
