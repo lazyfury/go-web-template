@@ -15,7 +15,7 @@
 - **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **字典/配置模块**：`dict_groups`（setting）+ `dict_items`（dict array）；消费侧 `GET /api/v1/dicts/:group`，管理侧 `/dict-groups`、`/dict-items`；业务模块可用 `dict.Store.Replace/Get/GetInto` 维护对象/数组型配置
-- **消息/通知模块**：站内信收件箱 + 模板 + 邮件/短信/Webhook 投递 outbox（`/api/v1/messages`、`/message-templates`、`/message-deliveries`）；实际发送 worker 在 Phase 3
+- **消息/通知模块**：站内信收件箱 + 模板 + 邮件/短信/Webhook 投递 outbox（`/api/v1/messages`、`/message-templates`、`/message-deliveries`）；worker 支持租约重试与 SMTP/Twilio/Webhook sender，由 `cmd/server` 统一启停
 - **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户管理 / 字典管理 / 系统设置开箱即用；API 类型由 `docs/openapi.json` 生成
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、golangci-lint、单元测试全绿

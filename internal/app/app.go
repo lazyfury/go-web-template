@@ -43,10 +43,11 @@ func WithVersion(version string) Option {
 
 // App owns the assembled HTTP stack and the database handle.
 type App struct {
-	db      *gorm.DB
-	engine  *gin.Engine
-	server  *web.Server
-	openapi *routekit.Registry
+	db            *gorm.DB
+	engine        *gin.Engine
+	server        *web.Server
+	openapi       *routekit.Registry
+	messageWorker *message.Worker
 }
 
 // New opens the database and wires the application. It is the entry point used
@@ -113,6 +114,22 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	})
 	messageHandler := message.NewHandler(messageService)
 
+	var messageWorker *message.Worker
+	if cfg.Message.WorkerEnabled {
+		senders, err := buildMessageSenders(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("build message senders: %w", err)
+		}
+		messageWorker = message.NewWorker(messageRepo, senders, message.WorkerOptions{
+			PollInterval:    cfg.Message.PollInterval,
+			BatchSize:       cfg.Message.BatchSize,
+			Lease:           cfg.Message.Lease,
+			RetryBase:       cfg.Message.RetryBase,
+			DeliveryTimeout: cfg.Message.DeliveryTimeout,
+			Logger:          logger,
+		})
+	}
+
 	// Transport layer. web knows nothing about domains; the composition root
 	// mounts each module on the versioned API group and then builds the
 	// OpenAPI document from the registered metadata.
@@ -137,10 +154,11 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	}
 
 	return &App{
-		db:      db,
-		engine:  engine,
-		server:  web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
-		openapi: api.Registry(),
+		db:            db,
+		engine:        engine,
+		server:        web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
+		openapi:       api.Registry(),
+		messageWorker: messageWorker,
 	}, nil
 }
 
@@ -193,6 +211,10 @@ func (a *App) Handler() http.Handler { return a.engine }
 // OpenAPI exposes the registry backing the generated document. Tests use it
 // to assert that every gin route is documented.
 func (a *App) OpenAPI() *routekit.Registry { return a.openapi }
+
+// MessageWorker exposes the delivery worker for cmd/server to start. It returns
+// nil when message.worker_enabled is false. App never starts goroutines itself.
+func (a *App) MessageWorker() *message.Worker { return a.messageWorker }
 
 // Run blocks until ctx is canceled, then drains connections gracefully.
 func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }

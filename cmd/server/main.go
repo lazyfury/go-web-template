@@ -3,12 +3,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os/signal"
 	"syscall"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/example/go-web-template/internal/app"
 	"github.com/example/go-web-template/internal/platform/config"
@@ -59,7 +61,15 @@ func main() {
 		}
 	}()
 
-	if err := application.Run(ctx); err != nil {
+	// Root goroutines live here: HTTP and the message worker share one
+	// lifecycle. A failure in either cancels the other; App itself never
+	// starts goroutines.
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error { return application.Run(groupCtx) })
+	if worker := application.MessageWorker(); worker != nil {
+		group.Go(func() error { return worker.Run(groupCtx) })
+	}
+	if err := group.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Fatal("application exited with error", zap.Error(err))
 	}
 	logger.Info("application stopped")

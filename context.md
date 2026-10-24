@@ -55,7 +55,7 @@
 | `internal/user` | 用户域：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/auth` | 认证域：登录、access token 签发、refresh 轮换/吊销、改密、bootstrap 管理员 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/dict` | 字典/配置域：group=setting，items=dict array；含其他模块用的 `Store` 快捷方法（Replace/Get/GetInto） | `entity.go`, `repository.go`, `service.go`, `values.go`, `handler.go`, `dto.go`, `routes.go` |
-| `internal/message` | 消息/通知域：内容、站内信收件箱、外部投递 outbox、模板；HTTP 已接，worker 在 Phase 3 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
+| `internal/message` | 消息/通知域：内容、站内信、投递 outbox、模板、HTTP、worker、SMTP/Twilio/Webhook sender | `entity.go`, `repository.go`, `service.go`, `sender.go`, `worker.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/platform/authkit` | 叶子包：JWT 签发/校验（HS256 钉死）、Principal、RBAC 表、gin 中间件 | `token.go`, `principal.go`, `rbac.go`, `middleware.go` |
 | `internal/platform/passwd` | 叶子包：bcrypt 哈希/校验 + 防枚举的 dummy 比较 | `passwd.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
@@ -80,10 +80,16 @@ auth:     {jwt_secret, issuer, access_ttl: 15m,
            refresh_reuse_interval: 30s,  # 轮换后旧 token 的宽限期（多标签页竞态）
            bcrypt_cost: 12, login_max_attempts: 5, login_lockout: 15m,
            login_rps: 5, login_burst: 10, cookie_secure}
-message:  {webhook_urls: [], default_locale: zh-CN, max_attempts: 5}
+message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
+          retry_base: 30s, delivery_timeout: 30s,
+          webhook_urls: [], webhook_secret, webhook_allow_private: false,
+          mail: {host, port: 587, username, password, from},
+          sms:  {provider: twilio, account_sid, auth_token, from, endpoint},
+          default_locale: zh-CN, max_attempts: 5}
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（仅 `cmd/admin` 读取）。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（仅 `cmd/admin` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`。
+- 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或仍是 `CHANGE_ME`/含 `insecure` 的占位值 → 启动失败（fail-fast，避免用可猜密钥签发生产 token）。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
 - 显式 `-config` 缺失 → 启动失败；默认路径缺失 → 用默认值 + env。
@@ -208,7 +214,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/message-deliveries/:id/retry` | POST | 是 | `messages:manage` | 手动重试 failed/dead 投递 | 204 | 400/401/403/404/409 |
 
 - `dicts:read` 授予 admin + member；`dicts:write` 仅 admin。消费侧只返回启用组/项，管理侧可见停用数据。
-- `messages:read` 授予 admin + member（只能读自己的收件箱）；`messages:send` / `messages:manage` 仅 admin。邮件/短信/Webhook 在 Phase 2 只写 `message_deliveries` outbox，实际发送由 Phase 3 的 worker 完成。
+- `messages:read` 授予 admin + member（只能读自己的收件箱）；`messages:send` / `messages:manage` 仅 admin。邮件/短信/Webhook 写入 `message_deliveries` outbox，由 `cmd/server` 启动的 worker 异步发送并重试。
 - `ItemDTO.value` 是**存储原值**（空字符串表示未显式设置）；`dict.Store.GetInto` 解码时才回落 `item_key`，避免前端表单回写时把 key 误固化成 value。
 - 业务模块内部用 `dict.Store` 的 `Get` / `GetInto` / `Replace`（见 §10）；前端/外部系统用 `GET` / `PUT /api/v1/dicts/:group`。
 
@@ -230,6 +236,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 限流：每 IP token bucket（`x/time/rate`），X-Forwarded-For 取第一跳；超限 429 + `Retry-After`。
 - 超时：`Timeout` 只注入 context deadline，不另起 goroutine、不伪造响应（`gin.Context` 非并发安全，goroutine 版会 data race）。需要硬拒绝时在 handler 内检查 `ctx.Err()` 并返回业务错误。
 - 优雅停机：SIGINT/SIGTERM → `signal.NotifyContext` → `http.Server.Shutdown`（`http.shutdown_timeout` 上限）。
+- 消息 worker 日志只记录 `delivery_id`/`channel`/`attempt`，不记录收件地址、payload、密钥。
 
 ## 8. 测试策略
 
@@ -261,7 +268,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 13. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
 14. **进程生命周期与后台 goroutine**：`cmd/server/main.go` 持有 `signal.NotifyContext`，用 `errgroup.WithContext` 同时运行 HTTP 与后台 worker；任一失败取消另一个，全部退出后才 `App.Close` 释放 DB。`internal/app` 只装配（构造 repo/service/worker）并通过 `App` 暴露 worker，**禁止在 app 内启动 goroutine**；service/handler 只写投递记录（delivery/outbox），异步执行交给 worker。Worker 契约：`Run(ctx) error`、ticker/clock 可注入、ctx 取消后停止领取新任务并等待在途任务、禁止裸 `go func()` 与 `time.Sleep` 轮询。多实例用 `locked_until` 租约 + 条件更新领取任务（保持 SQLite 可测，不依赖 `SKIP LOCKED`）。
 
-15. **消息/通知 SQL-first（无通用 event bus）**：`messages` 存内容快照，`message_recipients` 是站内信收件箱与已读状态，`message_deliveries` 是邮件/短信/Webhook 的投递 outbox，`message_templates` 存模板。发送在一事务内写 message + recipients + deliveries；worker（Phase 3，由 `cmd/server` 启动）领取 `message_deliveries` 并调用 channel adapter。不做通用 event bus；未来跨域事件用 `outbox_events` + dispatcher。Redis 只作为可选加速层，不是消息事实来源。详见 `docs/design-message.md`。
+15. **消息/通知 SQL-first（无通用 event bus）**：`messages` 存内容快照，`message_recipients` 是站内信收件箱与已读状态，`message_deliveries` 是邮件/短信/Webhook 的投递 outbox，`message_templates` 存模板。发送在一事务内写 message + recipients + deliveries；`message.Worker` 由 `cmd/server` 通过 errgroup 启动，领取 `message_deliveries` 并调用 SMTP/Twilio/Webhook sender，失败按指数退避重试（failed → 再次领取），超过 `max_attempts` 变 dead。不做通用 event bus；未来跨域事件用 `outbox_events` + dispatcher。Redis 只作为可选加速层，不是消息事实来源。详见 `docs/design-message.md`。
 
 ## 10. 扩展指南
 

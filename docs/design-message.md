@@ -368,18 +368,20 @@ message:
 - [x] `internal/app` 装配 + `internal/app/integration_test.go`
 - [x] `make openapi` + `pnpm gen:api`
 
-说明：邮件/短信/Webhook 本阶段只创建 `message_deliveries` outbox；实际发送在 Phase 3。
+说明：邮件/短信/Webhook 在 Phase 2 只创建 `message_deliveries` outbox；Phase 3 已补上 worker 与 sender。
 
 验收：匿名 401、member 403、admin 发送/收件箱/已读全链路；`make check` 全绿。
 
-### Phase 3：worker + 多 channel
+### Phase 3：worker + 多 channel（已完成）
 
-- [ ] `internal/message/worker.go`：`Run(ctx)`、ticker、租约领取、退避、在途等待
-- [ ] `go mod tidy` 将 `golang.org/x/sync` 提升为直接依赖（errgroup）
-- [ ] `internal/message/sender.go` + mail/sms/webhook 实现
-- [ ] `internal/app` 构造 `MessageWorker()`；`cmd/server` 用 `errgroup` 启动
-- [ ] worker 单测：fake clock + fake sender（成功/失败/重试/dead/cancel）
-- [ ] `make smoke` 验证进程优雅退出
+- [x] `internal/message/worker.go`：`Run(ctx)`、ticker、租约领取、退避、在途等待
+- [x] `go mod tidy` 将 `golang.org/x/sync` 提升为直接依赖（errgroup）
+- [x] `internal/message/sender.go` + SMTP/Twilio/Webhook 实现
+- [x] `internal/app` 构造 `MessageWorker()`；`cmd/server` 用 `errgroup` 启动
+- [x] worker 单测：fake clock + fake sender（成功/失败/重试/dead/cancel）
+- [x] `make smoke` 验证进程优雅退出
+
+实现细节：失败投递写入 `status=failed + next_attempt_at`，worker 到点后重新领取；`sending` 租约过期也可被回收。Webhook 支持 HMAC-SHA256、超时与私网 IP 拦截；SMTP 使用连接 deadline；Twilio 使用 Messages API。未配置 sender 的 channel 直接标 dead（`sender not configured`）。
 
 验收：无 Redis 也能发送；worker 可取消；失败重试与 dead 状态正确；`make check` 全绿。
 

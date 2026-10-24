@@ -71,7 +71,25 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.login_burst", 10)
 	v.SetDefault("auth.cookie_secure", true)
 
+	v.SetDefault("message.worker_enabled", true)
+	v.SetDefault("message.poll_interval", "5s")
+	v.SetDefault("message.batch_size", 50)
+	v.SetDefault("message.lease", "2m")
+	v.SetDefault("message.retry_base", "30s")
+	v.SetDefault("message.delivery_timeout", "30s")
 	v.SetDefault("message.webhook_urls", []string{})
+	v.SetDefault("message.webhook_secret", "")
+	v.SetDefault("message.webhook_allow_private", false)
+	v.SetDefault("message.mail.host", "")
+	v.SetDefault("message.mail.port", 587)
+	v.SetDefault("message.mail.username", "")
+	v.SetDefault("message.mail.password", "")
+	v.SetDefault("message.mail.from", "")
+	v.SetDefault("message.sms.provider", "")
+	v.SetDefault("message.sms.account_sid", "")
+	v.SetDefault("message.sms.auth_token", "")
+	v.SetDefault("message.sms.from", "")
+	v.SetDefault("message.sms.endpoint", "")
 	v.SetDefault("message.default_locale", "zh-CN")
 	v.SetDefault("message.max_attempts", 5)
 }
@@ -179,6 +197,17 @@ func (c *Config) Validate() error {
 	}
 	if c.Message.MaxAttempts <= 0 {
 		return fmt.Errorf("message.max_attempts must be positive")
+	}
+	if c.Message.WorkerEnabled {
+		if c.Message.PollInterval <= 0 || c.Message.Lease <= 0 || c.Message.RetryBase <= 0 || c.Message.DeliveryTimeout <= 0 {
+			return fmt.Errorf("message worker durations must be positive")
+		}
+		if c.Message.BatchSize <= 0 {
+			return fmt.Errorf("message.batch_size must be positive")
+		}
+	}
+	if c.Message.Mail.Host != "" && c.Message.Mail.From == "" {
+		return fmt.Errorf("message.mail.from is required when mail.host is set")
 	}
 	return c.validateAuth()
 }

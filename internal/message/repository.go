@@ -309,8 +309,8 @@ func (r *gormRepository) ClaimDeliveries(ctx context.Context, now time.Time, lim
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var candidates []Delivery
 		err := tx.Where(
-			"(status = ? AND next_attempt_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until < ?)",
-			DeliveryPending, now, DeliverySending, now,
+			"((status IN ? AND next_attempt_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until < ?))",
+			[]DeliveryStatus{DeliveryPending, DeliveryFailed}, now, DeliverySending, now,
 		).
 			Order("next_attempt_at ASC, id ASC").
 			Limit(limit).
@@ -323,8 +323,8 @@ func (r *gormRepository) ClaimDeliveries(ctx context.Context, now time.Time, lim
 			lockedUntil := now.Add(lease)
 			res := tx.Model(&Delivery{}).
 				Where(
-					"id = ? AND ((status = ? AND next_attempt_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until < ?))",
-					candidates[i].ID, DeliveryPending, now, DeliverySending, now,
+					"id = ? AND ((status IN ? AND next_attempt_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until < ?))",
+					candidates[i].ID, []DeliveryStatus{DeliveryPending, DeliveryFailed}, now, DeliverySending, now,
 				).
 				Updates(map[string]any{
 					"status":       DeliverySending,

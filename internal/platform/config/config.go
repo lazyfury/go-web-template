@@ -121,15 +121,58 @@ type Auth struct {
 	CookieSecure bool `mapstructure:"cookie_secure"`
 }
 
-// Message holds notification delivery settings (Phase 2: no worker yet).
+// Message holds notification delivery and worker settings.
 type Message struct {
+	// WorkerEnabled starts the delivery worker from cmd/server.
+	WorkerEnabled bool `mapstructure:"worker_enabled"`
+	// PollInterval is how often the worker claims due deliveries.
+	PollInterval time.Duration `mapstructure:"poll_interval"`
+	// BatchSize caps how many deliveries one tick claims.
+	BatchSize int `mapstructure:"batch_size"`
+	// Lease is how long a claimed delivery stays locked before another worker
+	// may reclaim it.
+	Lease time.Duration `mapstructure:"lease"`
+	// RetryBase is the base delay for exponential backoff.
+	RetryBase time.Duration `mapstructure:"retry_base"`
+	// DeliveryTimeout bounds one external send.
+	DeliveryTimeout time.Duration `mapstructure:"delivery_timeout"`
+
 	// WebhookURLs is the allowlist of endpoints used by the webhook channel.
 	// Empty disables the channel.
 	WebhookURLs []string `mapstructure:"webhook_urls"`
+	// WebhookSecret signs webhook bodies with HMAC-SHA256 when non-empty.
+	WebhookSecret string `mapstructure:"webhook_secret"`
+	// WebhookAllowPrivate permits loopback/private IP targets. Keep false in
+	// production; tests may enable it for httptest servers.
+	WebhookAllowPrivate bool `mapstructure:"webhook_allow_private"`
+
+	// Mail configures the SMTP email sender.
+	Mail MessageMail `mapstructure:"mail"`
+	// SMS configures the SMS provider (currently Twilio).
+	SMS MessageSMS `mapstructure:"sms"`
+
 	// DefaultLocale is used when a template lookup has no explicit locale.
 	DefaultLocale string `mapstructure:"default_locale"`
 	// MaxAttempts is the default retry budget for external deliveries.
 	MaxAttempts int `mapstructure:"max_attempts"`
+}
+
+// MessageMail configures the SMTP sender. Empty Host disables email delivery.
+type MessageMail struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	From     string `mapstructure:"from"`
+}
+
+// MessageSMS configures the SMS sender. Empty Provider disables SMS delivery.
+type MessageSMS struct {
+	Provider   string `mapstructure:"provider"` // twilio
+	AccountSID string `mapstructure:"account_sid"`
+	AuthToken  string `mapstructure:"auth_token"`
+	From       string `mapstructure:"from"`
+	Endpoint   string `mapstructure:"endpoint"` // override for tests/proxies
 }
 
 // IsProduction reports whether the app runs with production hardening rules.

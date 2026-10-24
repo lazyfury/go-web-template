@@ -259,6 +259,38 @@ func TestClaimDeliveriesLeaseRetryAndDead(t *testing.T) {
 	}
 }
 
+func TestClaimRetriesFailedDelivery(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+
+	message := &Message{Title: "Retry", Body: "body", Type: TypeSystem, Level: LevelInfo, Audience: AudienceUsers}
+	if err := repo.CreateMessage(ctx, message, nil, []DeliveryDraft{
+		{RecipientIndex: -1, Channel: ChannelEmail, Target: "a@example.com", Payload: `{}`, MaxAttempts: 3},
+	}, now); err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	claimed, err := repo.ClaimDeliveries(ctx, now, 10, time.Minute)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("first claim = %+v err=%v", claimed, err)
+	}
+	deliveryID := claimed[0].ID
+	nextAttempt := now.Add(30 * time.Second)
+	if err := repo.MarkDeliveryFailed(ctx, deliveryID, "temporary", nextAttempt, false, now); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+	if claimed, err := repo.ClaimDeliveries(ctx, now.Add(10*time.Second), 10, time.Minute); err != nil || len(claimed) != 0 {
+		t.Errorf("claim before next attempt = %+v err=%v", claimed, err)
+	}
+	claimed, err = repo.ClaimDeliveries(ctx, nextAttempt, 10, time.Minute)
+	if err != nil {
+		t.Fatalf("retry claim: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != deliveryID || claimed[0].Attempts != 2 {
+		t.Fatalf("retry claim = %+v, want attempts 2", claimed)
+	}
+}
+
 func TestTemplateCRUDSoftDeleteAndDisabledStatus(t *testing.T) {
 	repo := newTestRepository(t)
 	ctx := context.Background()
