@@ -94,6 +94,7 @@
 | `TS5103 Invalid value for '--ignoreDeprecations'` | tsconfig 的值必须匹配 TS major：TS 5.x 只认 `"5.0"`，TS 6.0/7.0 认 `"6.0"`（见 `context.md` ADR 12） |
 | `[sass] Expected newline` | `<style lang="sass">` 是缩进式语法却写了 SCSS 花括号 → 改 `lang="scss"` |
 | `[unocss] failed to load icon "-"` | 无害噪音，来自 JSDoc 注释里独立的 `-` token，可忽略 |
+| 新加的菜单/按钮不显示（如「字典管理」） | 前端按 `auth.can(permission)` 过滤，权限来自登录/refresh 返回的 `user.permissions`。**后端进程或镜像还是旧代码**时，refresh 仍返回旧权限列表 → 菜单被隐藏。重建并重启后端（`docker compose -f deploy/docker-compose.yml up -d --build app`），然后**整页刷新**或退出重登；仅 Vite HMR 不会重新执行 `bootstrap()`。可用 `POST /api/v1/auth/login` 检查返回的 `permissions` 是否包含新权限 |
 
 ## 7. 容器
 
