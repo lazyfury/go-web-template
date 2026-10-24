@@ -72,13 +72,20 @@ func RateLimit(enabled bool, rps float64, burst int) gin.HandlerFunc {
 	if !enabled {
 		return func(c *gin.Context) { c.Next() }
 	}
+	// gin's ClientIP honors X-Forwarded-For only when the TCP peer is one of
+	// the configured trusted proxies (see web.New / SetTrustedProxies), so this
+	// key cannot be spoofed by the caller.
+	return RateLimitKeyed(func(c *gin.Context) string { return c.ClientIP() }, rps, burst)
+}
+
+// RateLimitKeyed returns a middleware enforcing one token bucket per key. It is
+// the same machinery as RateLimit with a caller-supplied dimension: the login
+// guard keys by IP, the password-change guard keys by user id (an attacker who
+// already holds a token would simply rotate IPs otherwise).
+func RateLimitKeyed(keyFn func(*gin.Context) string, rps float64, burst int) gin.HandlerFunc {
 	limiter := NewIPRateLimiter(rps, burst)
 	return func(c *gin.Context) {
-		// gin's ClientIP honors X-Forwarded-For only when the TCP peer is one
-		// of the configured trusted proxies (see web.New / SetTrustedProxies),
-		// so this key cannot be spoofed by the caller.
-		ip := c.ClientIP()
-		if !limiter.allow(ip) {
+		if !limiter.allow(keyFn(c)) {
 			c.Header("Retry-After", strconv.Itoa(1))
 			httpx.Error(c, http.StatusTooManyRequests, apperr.CodeTooManyRequests, "too many requests, please slow down")
 			return

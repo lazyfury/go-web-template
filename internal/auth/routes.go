@@ -46,7 +46,7 @@ func RegisterRoutes(rg *routekit.Group, h *Handler, loginGuards ...gin.HandlerFu
 
 // RegisterProtectedRoutes mounts the endpoints that require a valid access
 // token. It must be called on the authenticated group.
-func RegisterProtectedRoutes(rg *routekit.Group, h *Handler) {
+func RegisterProtectedRoutes(rg *routekit.Group, h *Handler, passwordGuards ...gin.HandlerFunc) {
 	authGroup := rg.Group("/auth", routekit.Tags("auth"), routekit.Security(routekit.BearerAuth))
 
 	authGroup.POST("/logout", &routekit.Op{
@@ -65,12 +65,18 @@ func RegisterProtectedRoutes(rg *routekit.Group, h *Handler) {
 		Errors:    []apperr.Code{apperr.CodeNotFound},
 	}, h.Me)
 
-	authGroup.PATCH("/password", &routekit.Op{
-		ID:          "changePassword",
-		Summary:     "Change the caller's password",
-		Description: "Rotates the bcrypt hash, bumps the token version (all access tokens become invalid) and revokes every refresh session.",
-		Request:     routekit.JSON[ChangePasswordRequest](true),
-		Responses:   []routekit.Response{routekit.NoContent()},
-		Errors:      []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeUnauthorized},
+	// Changing the password runs bcrypt on the current password, so it needs its
+	// own per-user budget: without one, a stolen access token can both grind
+	// passwords online and burn CPU at full speed (the global IP limiter is
+	// useless to an attacker who can rotate IPs).
+	passwordGroup := authGroup.Group("", routekit.Middleware(passwordGuards...))
+	passwordGroup.PATCH("/password", &routekit.Op{
+		ID:      "changePassword",
+		Summary: "Change the caller's password",
+		Description: "Rotates the bcrypt hash, bumps the token version (all access tokens become invalid) and revokes every refresh session. " +
+			"Rate limited per user (auth.password_rps / auth.password_burst).",
+		Request:   routekit.JSON[ChangePasswordRequest](true),
+		Responses: []routekit.Response{routekit.NoContent()},
+		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeUnauthorized, apperr.CodeTooManyRequests},
 	}, h.ChangePassword)
 }

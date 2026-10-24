@@ -73,7 +73,7 @@ export interface paths {
         head?: never;
         /**
          * Change the caller's password
-         * @description Rotates the bcrypt hash, bumps the token version (all access tokens become invalid) and revokes every refresh session.
+         * @description Rotates the bcrypt hash, bumps the token version (all access tokens become invalid) and revokes every refresh session. Rate limited per user (auth.password_rps / auth.password_burst).
          */
         patch: operations["changePassword"];
         trace?: never;

@@ -83,6 +83,9 @@ auth:
   login_lockout: 15m
   login_rps: 5
   login_burst: 10
+  # 改密端点按用户限流（每次都要 bcrypt 校验当前密码）：突发 5 次，之后每 5 秒 1 次
+  password_rps: 0.2
+  password_burst: 5
   # 镜像里烘焙的默认值必须是 true：这是会随镜像进生产的那份配置。
   # 本地 http 调试由 make dev / make run / make docker-up / smoke.sh 注入
   # APP_AUTH_COOKIE_SECURE=false（Secure cookie 在 http 上不会回传，

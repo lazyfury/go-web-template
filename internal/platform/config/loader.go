@@ -76,6 +76,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.login_lockout", "15m")
 	v.SetDefault("auth.login_rps", 5.0)
 	v.SetDefault("auth.login_burst", 10)
+	// 改密要跑 bcrypt：按用户限流（突发 5 次，之后每 5 秒 1 次）。
+	v.SetDefault("auth.password_rps", 0.2)
+	v.SetDefault("auth.password_burst", 5)
 	v.SetDefault("auth.cookie_secure", true)
 
 	v.SetDefault("message.worker_enabled", true)
@@ -309,6 +312,9 @@ func (c *Config) validateAuth() error {
 	}
 	if c.Auth.LoginRPS <= 0 || c.Auth.LoginBurst <= 0 {
 		return fmt.Errorf("auth.login_rps and auth.login_burst must be positive")
+	}
+	if c.Auth.PasswordRPS <= 0 || c.Auth.PasswordBurst <= 0 {
+		return fmt.Errorf("auth.password_rps and auth.password_burst must be positive")
 	}
 	return nil
 }

@@ -84,6 +84,9 @@ auth:
   login_lockout: 15m
   login_rps: 5
   login_burst: 10
+  # 改密端点按用户限流（每次都要 bcrypt 校验当前密码）：突发 5 次，之后每 5 秒 1 次
+  password_rps: 0.2
+  password_burst: 5
   # 本地 http 调试时置 false，否则浏览器不会保存 refresh cookie
   cookie_secure: true
 

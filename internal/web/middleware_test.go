@@ -478,3 +478,29 @@ func TestRequestIDRejectsClientSuppliedJunk(t *testing.T) {
 		})
 	}
 }
+
+// TestRateLimitKeyed 验证按调用方给定的维度分桶：不同 key 互不影响，同 key 共享桶。
+func TestRateLimitKeyed(t *testing.T) {
+	t.Parallel()
+
+	r := gin.New()
+	r.Use(RateLimitKeyed(func(c *gin.Context) string { return c.GetHeader("X-Test-Key") }, 1, 1))
+	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	send := func(key string) int {
+		req := newRequest(t, http.MethodGet, "/")
+		req.RemoteAddr = "203.0.113.20:1234" // 同一个 IP，靠 key 区分
+		req.Header.Set("X-Test-Key", key)
+		return serve(t, r, req).Code
+	}
+
+	if code := send("user:1"); code != http.StatusOK {
+		t.Fatalf("first user:1 = %d, want 200", code)
+	}
+	if code := send("user:2"); code != http.StatusOK {
+		t.Fatalf("user:2 must have its own bucket, got %d", code)
+	}
+	if code := send("user:1"); code != http.StatusTooManyRequests {
+		t.Fatalf("second user:1 = %d, want 429", code)
+	}
+}

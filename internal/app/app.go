@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -144,7 +145,18 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	// effect immediately.
 	protected := api.Group("", routekit.Security(routekit.BearerAuth),
 		routekit.Middleware(authkit.Authenticate(authService)))
-	auth.RegisterProtectedRoutes(protected, authHandler)
+	// Password changes are limited per user, not per IP: the caller already
+	// holds a valid token and can rotate IPs freely.
+	var passwordGuards []gin.HandlerFunc
+	if cfg.RateLimit.Enabled {
+		passwordGuards = append(passwordGuards, web.RateLimitKeyed(func(c *gin.Context) string {
+			if principal, ok := authkit.PrincipalFrom(c); ok {
+				return "user:" + strconv.FormatUint(principal.UserID, 10)
+			}
+			return "ip:" + c.ClientIP()
+		}, cfg.Auth.PasswordRPS, cfg.Auth.PasswordBurst))
+	}
+	auth.RegisterProtectedRoutes(protected, authHandler, passwordGuards...)
 	user.RegisterRoutes(protected, userHandler)
 	dict.RegisterRoutes(protected, dictHandler)
 	message.RegisterRoutes(protected, messageHandler)

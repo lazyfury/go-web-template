@@ -91,7 +91,7 @@ message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
           default_locale: zh-CN, max_attempts: 5}
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
@@ -182,11 +182,11 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 
 | 端点 | 方法 | 登录 | 权限 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|---|---|
-| `/api/v1/auth/login` | POST | 否 | — | `{email,password}`；按 IP 限流 + 账号锁定；失败统一 `401 invalid credentials`（未知邮箱/密码错/锁定/禁用同形，均跑 bcrypt 消除时序差） | 200 `{access_token,token_type,expires_in,user}` + cookie | 400/401 |
+| `/api/v1/auth/login` | POST | 否 | — | `{email,password}`；按 IP 限流 + 账号锁定（`auth.login_rps/burst`）；失败统一 `401 invalid credentials`（未知邮箱/密码错/锁定/禁用同形，均跑 bcrypt 消除时序差） | 200 `{access_token,token_type,expires_in,user}` + cookie | 400/401 |
 | `/api/v1/auth/refresh` | POST | 否（cookie 或 `X-Refresh-Token`） | — | 轮换 + 滑动续期；30s 内重放旧 token 容忍（并清理兄弟 token）；超窗重用 → 吊销全部会话；超 90 天绝对上限 → 401 | 200 同上 | 401 |
 | `/api/v1/auth/logout` | POST | 是 | — | 吊销当前 refresh 会话（幂等，立即生效、不受宽限期影响） | 204 | 401 |
 | `/api/v1/auth/me` | GET | 是 | — | 当前用户 + 角色 + 权限列表 | 200 `UserView` | 401 |
-| `/api/v1/auth/password` | PATCH | 是 | — | `{current_password,new_password}`；`token_version++` 并吊销所有会话 | 204 | 400/401 |
+| `/api/v1/auth/password` | PATCH | 是 | — | `{current_password,new_password}`；`token_version++` 并吊销所有会话；按用户限流（`auth.password_rps/burst`） | 204 | 400/401/429 |
 | `/api/v1/users` | GET | 是 | `users:read` | 列表（admin） | 200 | 401/403 |
 | `/api/v1/users` | POST | 是 | `users:write` | 建用户（须带初始密码） | 201 | 400/401/403/409 |
 | `/api/v1/users/:id` | GET | 是 | `users:read` 或 `users:read:self` | 详情；member 仅本人 | 200 | 400/401/403/404 |

@@ -164,7 +164,8 @@ POST /api/v1/auth/login      {"email":"admin@example.com","password":"…"}
 | 密码长度 | 8–72 字节（bcrypt 截断上限，超过 72 直接 400，避免静默截断） |
 | 用户枚举 | 未知邮箱 / 密码错 / 锁定 / 禁用 全部执行一次 bcrypt（`BurnTiming`），响应码、消息、耗时不区分；错误消息统一 `invalid credentials` |
 | 锁定 | 连续 5 次失败 → `locked_until = now()+15m`；成功登录清零；锁定期间仍返回 `401 invalid credentials` 并 `BurnTiming`。**已知取舍**：锁定本身仍可被用来短时踢掉已知账号（15m，不可续期、不延长），属于「可用性换爆破成本」，运维可用 `make seed-admin` 清零 |
-| 登录限流 | 独立令牌桶（IP + email 维度，如 5/min），复用 `web` 的 limiter 实现并在 `/auth/login` 路由组上挂 |
+| 登录限流 | 独立令牌桶（IP 维度，`auth.login_rps/burst`），复用 `web.RateLimit` 并在 `/auth/login` 路由组上挂 |
+| 改密限流 | 按 **用户 id** 分桶（`auth.password_rps/burst`，`web.RateLimitKeyed`）：改密要 bcrypt 校验当前密码，持有 token 的人换 IP 也躲不掉 |
 | 审计 | `last_login_at`、`failed_login_attempts`；登录成功/失败写结构化日志（**不含密码/token**） |
 | 禁用账号 | `users.status=0` → 登录拒绝，且 `VerifyAccess` 直接 401（token 立即失效） |
 | 改密 | 校验旧密码 → 更新 hash + `password_changed_at` + `token_version++` → 吊销其他 refresh token |

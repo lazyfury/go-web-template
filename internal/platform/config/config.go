@@ -132,6 +132,12 @@ type Auth struct {
 	LoginRPS   float64 `mapstructure:"login_rps"`
 	LoginBurst int     `mapstructure:"login_burst"`
 
+	// PasswordRPS/PasswordBurst throttle PATCH /auth/password per user id. The
+	// endpoint verifies the current password with bcrypt, so an unlimited
+	// caller can guess passwords and burn CPU while holding a stolen token.
+	PasswordRPS   float64 `mapstructure:"password_rps"`
+	PasswordBurst int     `mapstructure:"password_burst"`
+
 	// CookieSecure marks the refresh cookie Secure; set false for local http.
 	CookieSecure bool `mapstructure:"cookie_secure"`
 }

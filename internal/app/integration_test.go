@@ -1313,3 +1313,48 @@ func TestMemberCannotProbeEmailsViaPatch(t *testing.T) {
 		t.Errorf("member patch own name = %d, want 200", w.Code)
 	}
 }
+
+// TestPasswordChangeIsRateLimitedPerUser 钉住 F8：改密端点要跑 bcrypt，必须有自己的
+// 预算（按用户而非 IP），否则持有 token 的人可以无限速猜当前密码并烧 CPU。
+func TestPasswordChangeIsRateLimitedPerUser(t *testing.T) {
+	env := newTestEnvWithConfig(t, func(cfg *config.Config) {
+		cfg.RateLimit.Enabled = true // 全局限流开关同时控制改密限流
+		cfg.Auth.PasswordRPS = 0.001 // 窗口内不补充，便于断言
+		cfg.Auth.PasswordBurst = 2
+	})
+	h := env.handler
+	admin := env.loginAdmin(t)
+
+	body := map[string]string{"current_password": "wrong-password", "new_password": "Whatever-1234"}
+	codes := make([]int, 0, 3)
+	for i := 0; i < 3; i++ {
+		w := doJSONAuth(t, h, http.MethodPatch, "/api/v1/auth/password", body, admin.accessToken)
+		codes = append(codes, w.Code)
+	}
+	if codes[0] != http.StatusUnauthorized || codes[1] != http.StatusUnauthorized {
+		t.Fatalf("first two attempts = %v, want 401 401", codes)
+	}
+	if codes[2] != http.StatusTooManyRequests {
+		t.Fatalf("third attempt = %d, want 429 (per-user budget exhausted)", codes[2])
+	}
+
+	// 其他用户不受影响（按用户分桶，不是全局）。
+	env.seedMemberForRateLimitTest(t, h, admin.accessToken)
+}
+
+// seedMemberForRateLimitTest 建一个成员并断言其改密请求不被别人的桶挡住。
+func (e *testEnv) seedMemberForRateLimitTest(t *testing.T, h http.Handler, adminToken string) {
+	t.Helper()
+	memberID, _ := createUser(t, h, adminToken, "Rio", "rio@example.com")
+	if w := doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", memberID),
+		map[string]string{"password": memberPass}, adminToken); w.Code != http.StatusOK {
+		t.Fatalf("set member password = %d", w.Code)
+	}
+	member := e.login(t, "rio@example.com", memberPass, http.StatusOK)
+
+	w := doJSONAuth(t, h, http.MethodPatch, "/api/v1/auth/password",
+		map[string]string{"current_password": "wrong-password", "new_password": "Whatever-1234"}, member.accessToken)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("other user's first attempt = %d, want 401 (own bucket)", w.Code)
+	}
+}
