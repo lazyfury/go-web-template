@@ -65,6 +65,9 @@ services:
       APP_CORS_ALLOW_CREDENTIALS: "${APP_CORS_ALLOW_CREDENTIALS:-true}"
       # 生产式编排默认关闭 OpenAPI/Swagger；本地调试用 APP_SWAGGER_ENABLED=true make docker-up
       APP_SWAGGER_ENABLED: "${APP_SWAGGER_ENABLED:-false}"
+      # /metrics 会暴露 Go 版本、路由清单与流量画像：默认关闭，抓取走内网/反代 ACL。
+      # 本地需要 Prometheus 抓取时 APP_METRICS_ENABLED=true make docker-up
+      APP_METRICS_ENABLED: "${APP_METRICS_ENABLED:-false}"
       # JWT 签名密钥：**必须由外部注入**（>=32 字节随机值）。
       # 这里故意不提供可用默认值：仓库里自带的默认值 = 公开密钥，任何能读到
       # 仓库的人都能用它自签 admin token（历史版本踩过这个坑）。

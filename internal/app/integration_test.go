@@ -42,18 +42,27 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T, swaggerEnabled bool) *testEnv {
 	t.Helper()
+	return newTestEnvWithConfig(t, func(cfg *config.Config) { cfg.Swagger.Enabled = swaggerEnabled })
+}
+
+// newTestEnvWithConfig assembles the real composition root and lets a test
+// tweak the config before the router is built (e.g. disable /metrics).
+func newTestEnvWithConfig(t *testing.T, mutate func(*config.Config)) *testEnv {
+	t.Helper()
 	db := testutil.NewSQLiteDB(t, &user.User{}, &auth.RefreshToken{},
 		&dict.Group{}, &dict.Item{},
 		&message.Message{}, &message.Recipient{}, &message.Delivery{}, &message.Template{})
 
 	cfg := config.Defaults()
 	cfg.RateLimit.Enabled = false
-	cfg.Swagger.Enabled = swaggerEnabled
 	cfg.Auth.JWTSecret = "integration-test-secret-32-bytes!"
 	// cost 4 keeps the suite fast; production uses auth.bcrypt_cost (12).
 	cfg.Auth.BcryptCost = 4
 	cfg.Auth.CookieSecure = false
 	cfg.Message.WebhookURLs = []string{"https://example.com/hook"}
+	if mutate != nil {
+		mutate(cfg)
+	}
 
 	application, err := app.NewWithDB(cfg, zap.NewNop(), db)
 	if err != nil {
@@ -1230,5 +1239,23 @@ func TestSecurityHeadersAndNoStoreAreWired(t *testing.T) {
 	}
 	if got := ops.Header().Get("Cache-Control"); got != "" {
 		t.Errorf("healthz Cache-Control = %q, want empty (probes are not API payloads)", got)
+	}
+}
+
+// TestMetricsEndpointCanBeDisabled 钉住 F7：/metrics 暴露 Go 版本与路由画像，
+// 必须有开关能关掉（生产式编排默认就是关的）。
+func TestMetricsEndpointCanBeDisabled(t *testing.T) {
+	enabled := newTestEnv(t, false) // config.Defaults() → metrics.enabled=true
+	if w := doJSON(t, enabled.handler, http.MethodGet, "/metrics", nil); w.Code != http.StatusOK {
+		t.Fatalf("/metrics with metrics.enabled=true = %d, want 200", w.Code)
+	}
+
+	disabled := newTestEnvWithConfig(t, func(cfg *config.Config) { cfg.Metrics.Enabled = false })
+	if w := doJSON(t, disabled.handler, http.MethodGet, "/metrics", nil); w.Code != http.StatusNotFound {
+		t.Fatalf("/metrics with metrics.enabled=false = %d, want 404", w.Code)
+	}
+	// 探针不受影响。
+	if w := doJSON(t, disabled.handler, http.MethodGet, "/healthz", nil); w.Code != http.StatusOK {
+		t.Fatalf("/healthz = %d, want 200", w.Code)
 	}
 }

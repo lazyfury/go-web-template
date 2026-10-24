@@ -17,6 +17,7 @@ type Config struct {
 	CORS       CORS       `mapstructure:"cors"`
 	RateLimit  RateLimit  `mapstructure:"ratelimit"`
 	Swagger    Swagger    `mapstructure:"swagger"`
+	Metrics    Metrics    `mapstructure:"metrics"`
 	Auth       Auth       `mapstructure:"auth"`
 	Message    Message    `mapstructure:"message"`
 }
@@ -83,6 +84,15 @@ type RateLimit struct {
 	Enabled bool    `mapstructure:"enabled"`
 	RPS     float64 `mapstructure:"rps"`
 	Burst   int     `mapstructure:"burst"`
+}
+
+// Metrics controls the Prometheus scrape endpoint.
+type Metrics struct {
+	// Enabled mounts GET /metrics. Turn it off when the port is reachable from
+	// the public internet and scraping happens through a sidecar or an ACL'd
+	// reverse proxy instead: the endpoint advertises the Go version, the full
+	// route inventory and the traffic volume.
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // Swagger controls whether /openapi.json and the Swagger UI are exposed.

@@ -275,3 +275,17 @@ func TestTrustedProxiesEmptyEnvIsNoProxy(t *testing.T) {
 		t.Errorf("trusted proxies = %v, want none", cfg.HTTPServer.TrustedProxies)
 	}
 }
+
+func TestMetricsEnabledDefaultAndOverride(t *testing.T) {
+	if !Defaults().Metrics.Enabled {
+		t.Error("metrics.enabled should default to true")
+	}
+	t.Setenv("APP_METRICS_ENABLED", "false")
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Metrics.Enabled {
+		t.Error("APP_METRICS_ENABLED=false should disable the endpoint")
+	}
+}

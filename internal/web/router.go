@@ -56,11 +56,16 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string)
 		BodyLimit(cfg.HTTPServer.MaxBodyBytes),
 	)
 
-	// Ops endpoints: liveness, readiness and Prometheus metrics. These are
-	// intentionally not rate-limited so orchestrators can always probe.
+	// Ops endpoints: liveness, readiness and (optionally) Prometheus metrics.
+	// These are intentionally not rate-limited so orchestrators can always
+	// probe. /metrics advertises the Go version, the route inventory and the
+	// traffic volume, so a public-facing deployment turns it off and scrapes
+	// through a sidecar / ACL'd proxy instead.
 	r.GET("/healthz", health.Liveness)
 	r.GET("/readyz", health.Readiness)
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	if cfg.Metrics.Enabled {
+		r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	}
 
 	// API v1. RateLimit stays outermost so abusive clients are rejected before
 	// consuming a request deadline.

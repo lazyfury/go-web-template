@@ -61,6 +61,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ratelimit.burst", 200)
 
 	v.SetDefault("swagger.enabled", true)
+	// 抓取端点默认开启（本地/内网 Prometheus 直接可用）；编排与公网部署在
+	// compose/env 里关掉，或用反代 ACL 限制来源。
+	v.SetDefault("metrics.enabled", true)
 
 	v.SetDefault("auth.jwt_secret", "")
 	v.SetDefault("auth.issuer", "go-web-template")
