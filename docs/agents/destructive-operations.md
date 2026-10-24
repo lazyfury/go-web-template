@@ -28,6 +28,16 @@
 | 大规模重构 | 拆成多个可独立验证的小提交，先问范围 |
 | 提交本地配置 | 用 `.env` / `.agents/local.md`（gitignored），提交 `.env.example` |
 
+## 保留期清理（retention janitor）
+
+- `internal/housekeeping` 会**自动硬删除**过期的 refresh token、终态投递记录和过期消息。
+  改窗口（调小）、对生产关闭任务、或先手动 `DELETE` 都属于数据决策，**先问人**。
+- 排查/取证期间要保住数据：把对应 `retention.*_retention` 调大或 `APP_RETENTION_ENABLED=false`，
+  而不是去手工改 SQL。窗口是从「可清理时刻」起算（token/消息=过期时间，终态投递=最后更新），
+  所以调大窗口立刻生效、无需回滚。
+- 跑在共享库上时，janitor 是多副本幂等的（条件 DELETE），但会真实删数据：确认那份库里的
+  「过期」数据不是别人正在用的测试样本。
+
 ## 迁移边界
 
 - 生产 schema 只以 `migrations/*.sql` 为准；GORM AutoMigrate 只服务测试。
