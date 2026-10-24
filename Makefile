@@ -80,15 +80,15 @@ verify-auth: ## 认证端到端验证：宽限期/登出即时/body 传输/会�
 seed-admin: ## 建/重置管理员: EMAIL=admin@example.com APP_SEED_PASSWORD='...' make seed-admin
 	@test -n "$(EMAIL)" || { echo "用法: EMAIL=admin@example.com APP_SEED_PASSWORD='...' make seed-admin"; exit 1; }
 	@test -n "$$APP_SEED_PASSWORD" || { echo "缺少 APP_SEED_PASSWORD 环境变量"; exit 1; }
-	$(GO) run ./cmd/admin -email "$(EMAIL)" -name "$(or $(NAME),Administrator)"
+	$(GO) run ./cmd/admin seed --email "$(EMAIL)" --name "$(or $(NAME),Administrator)"
 
 seed-demo: ## 批量创建测试假数据: USERS=20 MESSAGES=10 PREFIX=seed make seed-demo
-	$(GO) run ./cmd/seeding -config configs/config.yaml \
-		-prefix "$(or $(PREFIX),seed)" \
-		-users $(or $(USERS),20) \
-		-messages $(or $(MESSAGES),10) \
-		-max-recipients $(or $(MAX_RECIPIENTS),5) \
-		-admin-every $(or $(ADMIN_EVERY),0)
+	$(GO) run ./cmd/seeding --config configs/config.yaml \
+		--prefix "$(or $(PREFIX),seed)" \
+		--users $(or $(USERS),20) \
+		--messages $(or $(MESSAGES),10) \
+		--max-recipients $(or $(MAX_RECIPIENTS),5) \
+		--admin-every $(or $(ADMIN_EVERY),0)
 
 db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postgres）
 	@if command -v docker >/dev/null 2>&1; then \

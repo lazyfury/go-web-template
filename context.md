@@ -43,9 +43,10 @@
 | 包 | 职责 | 关键文件 |
 |---|---|---|
 | `cmd/server` | 进程入口 | `main.go`（version/commit ldflags） |
-| `cmd/admin` | bootstrap/重置管理员 CLI（无公开注册） | `main.go` |
-| `cmd/seeding` | 本地测试假数据 CLI：用户/字典/模板/站内信，幂等、生产默认拒绝 | `main.go` |
-| `internal/seed` | 假数据生成逻辑（可 SQLite 单测） | `seed.go` |
+| `cmd/admin` | Cobra CLI：`seed` 建/重置管理员、`show` 查看账号（无公开注册） | `main.go` |
+| `cmd/seeding` | Cobra CLI：`users/dicts/templates/messages` 子命令 + `--only`，幂等、生产默认拒绝 | `main.go` |
+| `internal/seed` | 假数据生成逻辑（可 SQLite 单测，支持 Only 分片） | `seed.go` |
+| `internal/cli` | CLI 公共启动：config/logger/db/signal（cmd/admin、cmd/seeding） | `cli.go` |
 | `internal/app` | 组合根：装配 + 生命周期 + 集成测试 | `app.go`, `integration_test.go` |
 | `internal/platform/apperr` | 业务错误码 + 类型化错误（纯） | `apperr.go` |
 | `internal/platform/httpx` | 统一响应信封 OK/Created/NoContent/Fail | `response.go` |
@@ -90,7 +91,7 @@ message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
           default_locale: zh-CN, max_attempts: 5}
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（仅 `cmd/admin` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或仍是 `CHANGE_ME`/含 `insecure` 的占位值 → 启动失败（fail-fast，避免用可猜密钥签发生产 token）。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。

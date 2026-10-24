@@ -24,6 +24,18 @@ import (
 
 var prefixPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
 
+// Seed parts accepted by Options.Only and the seeding subcommands.
+const (
+	// PartUsers seeds fake users.
+	PartUsers = "users"
+	// PartDict seeds demo dictionary groups/items.
+	PartDict = "dict"
+	// PartTemplates seeds demo message templates.
+	PartTemplates = "templates"
+	// PartMessages seeds inbox messages for seeded users.
+	PartMessages = "messages"
+)
+
 // Options controls the deterministic fixture set.
 type Options struct {
 	// Users is the number of fake users to create.
@@ -36,6 +48,9 @@ type Options struct {
 	AdminEvery int
 	// Prefix namespaces emails, message titles and dict/template keys.
 	Prefix string
+	// Only limits the run to specific parts (users/dict/templates/messages).
+	// Empty means all parts.
+	Only []string
 	// Password is the shared test password (never logged).
 	Password string
 	// BcryptCost keeps local seeding fast; production users use auth.bcrypt_cost.
@@ -69,6 +84,10 @@ func Run(ctx context.Context, db *gorm.DB, opts *Options) (Result, error) {
 	if err := normalizeOptions(opts); err != nil {
 		return Result{}, err
 	}
+	only, err := normalizeOnly(opts.Only)
+	if err != nil {
+		return Result{}, err
+	}
 	now := opts.Now()
 
 	userRepo := user.NewRepository(db)
@@ -76,20 +95,87 @@ func Run(ctx context.Context, db *gorm.DB, opts *Options) (Result, error) {
 	messageRepo := message.NewRepository(db)
 
 	var result Result
-	contacts, err := seedUsers(ctx, userRepo, opts, now, &result)
-	if err != nil {
-		return result, err
+	var contacts []user.User
+	if only[PartUsers] {
+		contacts, err = seedUsers(ctx, userRepo, opts, now, &result)
+		if err != nil {
+			return result, err
+		}
+	} else {
+		contacts, err = loadSeedUsers(ctx, db, opts.Prefix)
+		if err != nil {
+			return result, err
+		}
 	}
-	if err := seedDictionaries(ctx, dictRepo, opts.Prefix, &result); err != nil {
-		return result, err
+	if only[PartDict] {
+		if err := seedDictionaries(ctx, dictRepo, opts.Prefix, &result); err != nil {
+			return result, err
+		}
 	}
-	if err := seedTemplates(ctx, messageRepo, opts.Prefix, &result); err != nil {
-		return result, err
+	if only[PartTemplates] {
+		if err := seedTemplates(ctx, messageRepo, opts.Prefix, &result); err != nil {
+			return result, err
+		}
 	}
-	if err := seedMessages(ctx, db, messageRepo, contacts, opts, now, &result); err != nil {
-		return result, err
+	if only[PartMessages] {
+		if len(contacts) == 0 {
+			return result, fmt.Errorf("messages require seeded users; run `seeding users` first")
+		}
+		if err := seedMessages(ctx, db, messageRepo, contacts, opts, now, &result); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
+}
+
+func normalizeOnly(values []string) (map[string]bool, error) {
+	all := map[string]bool{
+		PartUsers:     true,
+		PartDict:      true,
+		PartTemplates: true,
+		PartMessages:  true,
+	}
+	if len(values) == 0 {
+		return all, nil
+	}
+	out := make(map[string]bool, len(values))
+	for _, raw := range values {
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.ToLower(strings.TrimSpace(part))
+			switch part {
+			case "":
+				continue
+			case "user":
+				part = PartUsers
+			case "dicts", "dictionary", "dictionaries":
+				part = PartDict
+			case "template":
+				part = PartTemplates
+			case "message":
+				part = PartMessages
+			}
+			if !all[part] {
+				return nil, fmt.Errorf("unknown seed part %q (want users, dict, templates, messages)", part)
+			}
+			out[part] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no seed parts selected")
+	}
+	return out, nil
+}
+
+func loadSeedUsers(ctx context.Context, db *gorm.DB, prefix string) ([]user.User, error) {
+	var contacts []user.User
+	like := prefix + "-user-%"
+	if err := db.WithContext(ctx).Model(&user.User{}).
+		Where("email LIKE ?", like).
+		Order("id ASC").
+		Find(&contacts).Error; err != nil {
+		return nil, fmt.Errorf("load seed users: %w", err)
+	}
+	return contacts, nil
 }
 
 func normalizeOptions(opts *Options) error {

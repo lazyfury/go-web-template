@@ -19,6 +19,7 @@
 - **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户管理 / 字典管理 / 系统设置 / 消息中心 / 消息管理开箱即用；API 类型由 `docs/openapi.json` 生成
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、golangci-lint、单元测试全绿
+- **CLI**：Cobra 驱动 `cmd/admin`（`seed`/`show`）与 `cmd/seeding`（`users/dicts/templates/messages` 子命令 + `--only`）
 
 ## 快速开始
 
@@ -37,6 +38,13 @@ APP_SEED_PASSWORD='admin-password' make seed-admin EMAIL=admin@example.com
 # 生产环境默认拒绝；测试账号密码由 APP_SEED_PASSWORD 提供
 make seed-demo
 # 自定义规模：USERS=50 MESSAGES=20 PREFIX=demo make seed-demo
+
+# CLI 工具（Cobra）：查看命令与子命令
+go run ./cmd/admin --help
+go run ./cmd/admin show --email admin@example.com
+go run ./cmd/seeding --help
+go run ./cmd/seeding users --users 5 --prefix demo
+go run ./cmd/seeding --only dict,templates --prefix demo
 
 # 3. 验证
 curl http://localhost:8080/healthz        # {"status":"ok"}
@@ -117,8 +125,8 @@ curl -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/js
 ```
 go-web-template/
 ├── cmd/server/            # 进程入口（main），只做装配
-├── cmd/admin/             # CLI：bootstrap/重置管理员（无公开注册）
-├── cmd/seeding/           # CLI：批量创建本地测试假数据（用户/字典/模板/站内信）
+├── cmd/admin/             # CLI（Cobra）：seed 建/重置管理员、show 查看账号
+├── cmd/seeding/           # CLI（Cobra）：批量创建测试数据；子命令 + --only
 ├── internal/
 │   ├── app/               # 组合根：装配、生命周期、全链路集成测试
 │   ├── platform/          # 叶子包（无业务，可独立单测）
@@ -135,6 +143,7 @@ go-web-template/
 │   ├── user/              # 用户域：entity → repository → service → handler → routes
 │   ├── dict/              # 字典/配置域：group + items、Store 快捷方法、CRUD 路由
 │   ├── message/           # 消息/通知域：收件箱、模板、投递 outbox、worker、sender
+│   ├── cli/               # CLI 公共启动（config/logger/db/signal）
 │   ├── seed/              # 假数据生成逻辑（可 SQLite 单测）
 │   └── testutil/          # 测试共享工具（内存 SQLite，显式传 models）
 ├── migrations/            # golang-migrate SQL 迁移

@@ -1,114 +1,133 @@
 // Command seeding creates deterministic demo data for local development.
 //
 // It is intentionally separate from cmd/server: it opens the database, writes
-// fixtures through the domain repositories, and exits. It never starts the HTTP
-// server or the message worker.
+// fixtures through the domain repositories, and exits. It never starts HTTP or
+// the message worker.
 //
-// Usage:
+// Examples:
 //
-//	go run ./cmd/seeding -users 20 -messages 10
-//	APP_SEED_PASSWORD='seed-password' go run ./cmd/seeding -prefix seed
+//	go run ./cmd/seeding --users 20 --messages 10
+//	go run ./cmd/seeding users --users 5
+//	go run ./cmd/seeding --only dict,templates
 //
-// The command refuses to run with app.env=production unless -allow-production
+// The command refuses to run with app.env=production unless --allow-production
 // is passed explicitly.
 package main
 
 import (
 	"context"
-	"flag"
+	"fmt"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 
+	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/example/go-web-template/internal/platform/config"
-	"github.com/example/go-web-template/internal/platform/dbx"
-	"github.com/example/go-web-template/internal/platform/logx"
+	"github.com/example/go-web-template/internal/cli"
 	"github.com/example/go-web-template/internal/seed"
 )
 
 const defaultSeedPassword = "seed-password-123"
 
+type seedingCommand struct {
+	config          cli.ConfigOptions
+	options         seed.Options
+	only            []string
+	allowProduction bool
+}
+
 func main() {
-	var (
-		configFile    = flag.String("config", "", "path to config file (default: configs/config.yaml)")
-		envPrefix     = flag.String("env-prefix", "APP", "environment variable prefix for config overrides")
-		users         = flag.Int("users", 20, "number of fake users to create")
-		messages      = flag.Int("messages", 10, "number of inbox messages to create")
-		maxRecipients = flag.Int("max-recipients", 5, "max users receiving one seeded message")
-		adminEvery    = flag.Int("admin-every", 0, "promote every Nth seeded user to admin (0 = never)")
-		prefix        = flag.String("prefix", "seed", "namespace for emails, messages, dict and template keys")
-		password      = flag.String("password", "", "shared test password (prefer APP_SEED_PASSWORD)")
-		bcryptCost    = flag.Int("bcrypt-cost", 4, "bcrypt cost for seeded users (test-only; 4-14)")
-		randomSeed    = flag.Int64("random-seed", 42, "deterministic seed for recipient selection")
-		allowProd     = flag.Bool("allow-production", false, "allow seeding when app.env=production (dangerous)")
+	ctx, stop := cli.SignalContext()
+
+	state := &seedingCommand{}
+	root := &cobra.Command{
+		Use:           "seeding",
+		Short:         "Create deterministic demo data for local development",
+		Long:          "Create fake users, dictionaries, templates and inbox messages. Re-running is idempotent.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runSeeding(ctx, state, state.only)
+		},
+	}
+	cli.AddConfigFlags(root, &state.config)
+	root.PersistentFlags().IntVarP(&state.options.Users, "users", "u", 20, "number of fake users to create")
+	root.PersistentFlags().IntVarP(&state.options.Messages, "messages", "m", 10, "number of inbox messages to create")
+	root.PersistentFlags().IntVar(&state.options.MaxRecipients, "max-recipients", 5, "max users receiving one seeded message")
+	root.PersistentFlags().IntVar(&state.options.AdminEvery, "admin-every", 0, "promote every Nth seeded user to admin (0 = never)")
+	root.PersistentFlags().StringVar(&state.options.Prefix, "prefix", "seed", "namespace for emails, messages, dict and template keys")
+	root.PersistentFlags().StringVar(&state.options.Password, "password", "", "shared test password (prefer APP_SEED_PASSWORD)")
+	root.PersistentFlags().IntVar(&state.options.BcryptCost, "bcrypt-cost", 4, "bcrypt cost for seeded users (test-only; 4-14)")
+	root.PersistentFlags().Int64Var(&state.options.RandomSeed, "random-seed", 42, "deterministic seed for recipient selection")
+	root.PersistentFlags().BoolVar(&state.allowProduction, "allow-production", false, "allow seeding when app.env=production (dangerous)")
+	root.Flags().StringSliceVar(&state.only, "only", nil, "seed only these parts: users,dict,templates,messages")
+
+	root.AddCommand(
+		newPartCommand(ctx, state, "users", "Seed users only", []string{seed.PartUsers}),
+		newPartCommand(ctx, state, "dicts", "Seed demo dictionaries only", []string{seed.PartDict}),
+		newPartCommand(ctx, state, "templates", "Seed demo message templates only", []string{seed.PartTemplates}),
+		newPartCommand(ctx, state, "messages", "Seed inbox messages for existing prefixed users", []string{seed.PartMessages}),
 	)
-	flag.Parse()
 
-	passwordValue := *password
-	if passwordValue == "" {
-		passwordValue = os.Getenv("APP_SEED_PASSWORD")
+	executeErr := root.ExecuteContext(ctx)
+	stop()
+	if executeErr != nil {
+		log.Fatal(executeErr)
 	}
-	if passwordValue == "" {
-		passwordValue = defaultSeedPassword
-	}
+}
 
-	cfg, err := config.Load(*configFile, *envPrefix)
+func newPartCommand(ctx context.Context, state *seedingCommand, use, short string, only []string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runSeeding(ctx, state, only)
+		},
+	}
+}
+
+func runSeeding(ctx context.Context, state *seedingCommand, only []string) error {
+	opts := state.options
+	opts.Only = only
+	opts.Password = resolvePassword(opts.Password)
+
+	cfg, err := cli.LoadConfig(state.config)
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
-	if cfg.IsProduction() && !*allowProd {
-		log.Fatalf("refusing to seed app.env=production; pass -allow-production only for a disposable environment")
+	if cfg.IsProduction() && !state.allowProduction {
+		return fmt.Errorf("refusing to seed app.env=production; pass --allow-production only for a disposable environment")
 	}
 
-	logger, err := logx.New(cfg.Log.Level, cfg.Log.Format)
+	logger, err := cli.NewLogger(cfg)
 	if err != nil {
-		log.Fatalf("init logger: %v", err)
+		return fmt.Errorf("init logger: %w", err)
 	}
 	defer logger.Sync() //nolint:errcheck // best-effort flush
 
-	if *adminEvery > 0 {
-		logger.Warn("seeding admin users with a known shared password",
-			zap.Int("admin_every", *adminEvery),
-		)
+	if opts.AdminEvery > 0 {
+		logger.Warn("seeding admin users with a known shared password", zap.Int("admin_every", opts.AdminEvery))
 	}
-	if passwordValue == defaultSeedPassword {
+	if opts.Password == defaultSeedPassword {
 		logger.Warn("using the default seed password; set APP_SEED_PASSWORD for anything shared")
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	db, err := dbx.New(&cfg.Database, logger)
+	db, closeDB, err := cli.OpenDB(cfg, logger)
 	if err != nil {
-		logger.Fatal("open database", zap.Error(err))
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		logger.Fatal("access sql.DB", zap.Error(err))
+		return fmt.Errorf("connect database: %w", err)
 	}
 	defer func() {
-		if err := sqlDB.Close(); err != nil {
+		if err := closeDB(); err != nil {
 			logger.Warn("close database", zap.Error(err))
 		}
 	}()
 
-	result, err := seed.Run(ctx, db, &seed.Options{
-		Users:         *users,
-		Messages:      *messages,
-		MaxRecipients: *maxRecipients,
-		AdminEvery:    *adminEvery,
-		Prefix:        *prefix,
-		Password:      passwordValue,
-		BcryptCost:    *bcryptCost,
-		RandomSeed:    *randomSeed,
-	})
+	result, err := seed.Run(ctx, db, &opts)
 	if err != nil {
-		logger.Fatal("seed fixtures", zap.Error(err))
+		return fmt.Errorf("seed fixtures: %w", err)
 	}
-
 	logger.Info("seeding finished",
 		zap.Int("users_created", result.UsersCreated),
 		zap.Int("users_skipped", result.UsersSkipped),
@@ -123,4 +142,15 @@ func main() {
 		zap.Int("recipients_created", result.RecipientsCreated),
 		zap.Int("recipients_read", result.RecipientsRead),
 	)
+	return nil
+}
+
+func resolvePassword(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if env := os.Getenv("APP_SEED_PASSWORD"); env != "" {
+		return env
+	}
+	return defaultSeedPassword
 }

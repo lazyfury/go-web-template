@@ -65,7 +65,7 @@ start() { # $1.. = 额外 env 覆盖
 }
 
 seed() { # $1 = email
-	APP_SEED_PASSWORD="$PW" "$ADMIN_BIN" -config configs/config.yaml -email "$1" -name "Verify Auth" >/dev/null \
+	APP_SEED_PASSWORD="$PW" "$ADMIN_BIN" seed --config configs/config.yaml --email "$1" --name "Verify Auth" >/dev/null \
 		|| fail "seed 用户失败"
 }
 

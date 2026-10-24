@@ -32,7 +32,7 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 WORKDIR /app
 COPY --from=builder /out/server /usr/local/bin/server
-# admin 用于容器内 bootstrap 管理员：docker compose exec app /usr/local/bin/admin -email ... 
+# admin 用于容器内 bootstrap 管理员：docker compose exec app /usr/local/bin/admin seed --email ...
 COPY --from=builder /out/admin /usr/local/bin/admin
 COPY configs/config.yaml /app/configs/config.yaml
 

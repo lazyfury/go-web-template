@@ -68,8 +68,8 @@ fi
 
 # 4) seed 管理员 + 登录（需要 schema 已迁移）
 echo "==> seeding administrator"
-APP_SEED_PASSWORD="$SMOKE_PASSWORD" "$ADMIN_BIN" -config configs/config.yaml \
-  -email "$SMOKE_EMAIL" -name "Smoke Admin" >/dev/null \
+APP_SEED_PASSWORD="$SMOKE_PASSWORD" "$ADMIN_BIN" seed --config configs/config.yaml \
+  --email "$SMOKE_EMAIL" --name "Smoke Admin" >/dev/null \
   || fail "seed 管理员失败（多半是未执行迁移：make migrate-up）"
 
 # JSON 载荷先用变量拼好再用 -d "$VAR" 传入：避免在 "$( )" 里嵌套转义引号

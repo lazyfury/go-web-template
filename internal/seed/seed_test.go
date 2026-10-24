@@ -102,6 +102,54 @@ func TestRunCreatesAndSkipsFixtures(t *testing.T) {
 	}
 }
 
+func TestRunOnlyParts(t *testing.T) {
+	db := newSeedDB(t)
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	base := Options{
+		Users:         2,
+		Messages:      1,
+		MaxRecipients: 1,
+		Prefix:        "parts",
+		Password:      "seed-password",
+		BcryptCost:    4,
+		RandomSeed:    1,
+		Now:           func() time.Time { return now },
+		Only:          []string{PartUsers},
+	}
+	result, err := Run(context.Background(), db, &base)
+	if err != nil {
+		t.Fatalf("users only: %v", err)
+	}
+	if result.UsersCreated != 2 || result.DictGroupsCreated != 0 || result.TemplatesCreated != 0 || result.MessagesCreated != 0 {
+		t.Errorf("users only result = %+v", result)
+	}
+
+	base.Users = 0
+	base.Only = []string{PartMessages}
+	result, err = Run(context.Background(), db, &base)
+	if err != nil {
+		t.Fatalf("messages only: %v", err)
+	}
+	if result.UsersCreated != 0 || result.MessagesCreated != 1 {
+		t.Errorf("messages only result = %+v", result)
+	}
+
+	base.Messages = 0
+	base.Only = []string{PartDict, PartTemplates}
+	result, err = Run(context.Background(), db, &base)
+	if err != nil {
+		t.Fatalf("dict/templates only: %v", err)
+	}
+	if result.DictGroupsCreated != 3 || result.TemplatesCreated != 4 {
+		t.Errorf("dict/templates only result = %+v", result)
+	}
+
+	base.Only = []string{"unknown"}
+	if _, err := Run(context.Background(), db, &base); err == nil {
+		t.Error("unknown part should fail")
+	}
+}
+
 func TestRunValidation(t *testing.T) {
 	db := newSeedDB(t)
 	valid := Options{Users: 1, Password: "seed-password", BcryptCost: 4}
