@@ -29,7 +29,7 @@ MIGRATE_VERSION       ?= v4.20.1
 
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
-        check gate openapi tidy-check vuln smoke seed-admin db-up \
+        check gate openapi tidy-check vuln audit smoke seed-admin db-up \
         migrate-up migrate-down migrate-create \
         docker-build docker-up docker-down docker-logs clean
 
@@ -148,6 +148,9 @@ tidy-check: ## 校验 go.mod/go.sum 已 tidy（未 tidy 时自动整理并提示
 vuln: ## 依赖漏洞扫描
 	@./scripts/check-tools.sh govulncheck
 	$(GOVULNCHECK) ./...
+
+audit: ## 安全/SQL 静态审计 + 鉴权矩阵回归（auth/迁移改动、发布前跑）
+	@./scripts/audit.sh
 
 ## ---- 数据库迁移（优先 docker；无 docker 用本地 migrate 二进制） ------------
 

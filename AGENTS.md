@@ -49,6 +49,27 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 - 改了路由/`routekit.Op` 元数据 → `make openapi` 并提交 `docs/openapi.json`（`make check` 的黄金测试会检出漂移）。
 - 只改 Go 代码时，最快闭环是 `make test`：测试用内存 SQLite，**不需要 postgres/docker**。
 - **禁止未运行就声称通过**：结论要有真实输出支撑。
+- **附加门 `make audit`**（不并入 `make check`：含 govulncheck，慢且要网络）：改动涉及 **auth/JWT/鉴权/迁移 SQL** 或**发布前**必须跑。它只覆盖机械可判定部分（密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、依赖漏洞）。
+
+## 子 agent 使用边界（默认不拆）
+
+拆不拆只看一条：**这个任务是否真的需要「独立上下文 + 独立视角」？** 不需要就一律在主会话做完。
+
+| 场景 | 做法 |
+|---|---|
+| 计划 | 主会话（读 `context.md` + 对应 skill）。计划要与实现上下文连续，隔离后容易做偏 |
+| 开发 | 主会话。并发写同一仓库 = 冲突 + 主会话不知道改了什么 |
+| 测试验证 | 主会话跑 `make test` / `make check`。**结论只认脚本输出**，不接受任何 agent 自述“已跑过” |
+| SQL 审核 | 机械部分 `make audit`；判断部分走 `sql-review` skill；只有非平凡迁移（大表 DDL、数据回填、不可逆 down）才另开**只读**子 agent 复核 |
+| 安全审计 | 值得拆：全仓扫描上下文大，且必须独立于实现者视角。跑 `security-review` skill 的清单 |
+| 黑盒攻防测试 | 用例矩阵先固化成断言（`scripts/smoke.sh` / `make audit`）保证可回归；子 agent 只负责「还能怎么打」的发散与结果解读 |
+
+用子 agent 时的硬约束（违反 = 打回）：
+
+1. **只读**：只输出 `file:line` + 复现命令 + 严重度 + 建议；不改代码、不跑迁移、不提交。改代码回主会话。
+2. **规则写在文档里，不写在 agent 提示词里**：`agents/*.md` 只写角色与输出格式，要遵守的规则引用本文件与对应 skill，避免第四个真相源。
+3. **触发点有限**：auth/鉴权改动、迁移改动、发布前；不是每次提交。
+4. **算清成本**：pi 的子 agent 是独立 `pi` 进程（`examples/extensions/subagent`，需自行安装），token 与耗时翻倍且不共享缓存。单次 `make check` 能覆盖的事不要付这份钱。
 
 ## 标准改动流程
 
@@ -72,7 +93,7 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 最终回复必须包含：
 
 1. **变更文件清单**（按层：model / repository / service / handler / router / docs）。
-2. **`make check` 的真实输出摘要**（贴最后几行，不要只写"已通过"）。
+2. **`make check` 的真实输出摘要**（贴最后几行，不要只写"已通过"）；改动涉及 auth/鉴权/迁移 → 附 `make audit` 输出。
 3. **未验证项与风险**（例如"本机无 docker，未跑 compose e2e；已用 `./scripts/smoke.sh` 验证 liveness 路径"）。
 
 ## 技能索引
@@ -82,3 +103,5 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 | `add-domain` | 新增领域模块（迁移→repo→service→handler→routekit 路由→测试→OpenAPI） |
 | `docker-ops` | 容器编排 + 本地端到端调试（也可用 `make smoke` 一条命令覆盖） |
 | `database-migrations` | 迁移新建/执行/回滚 + GORM model 同步 checklist |
+| `sql-review` | 迁移/DDL 评审（锁与时长、可逆性、约束与软删、索引与查询匹配）+ 验证命令 |
+| `security-review` | 机械安全门（`make audit`）+ 攻击面清单 + 黑盒攻防 curl 矩阵 |
