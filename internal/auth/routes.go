@@ -25,7 +25,9 @@ func RegisterRoutes(rg *routekit.Group, h *Handler, loginGuards ...gin.HandlerFu
 			routekit.Header[string](RefreshTransportHeader, `set to "body" for non-browser clients (refresh token in the response body instead of a cookie)`, false),
 		},
 		Responses: []routekit.Response{routekit.OK[LoginResponse]("authenticated")},
-		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeUnauthorized, apperr.CodeForbidden},
+		// No 403: locked and disabled accounts answer like invalid credentials
+		// (401) so the endpoint cannot be used to enumerate addresses.
+		Errors: []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeUnauthorized},
 	}, h.Login)
 
 	authGroup.POST("/refresh", &routekit.Op{

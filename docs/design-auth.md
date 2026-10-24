@@ -149,9 +149,12 @@ type Verifier interface {
 ```
 POST /api/v1/auth/login      {"email":"admin@example.com","password":"…"}
 200 {"code":0,"message":"ok","data":{"access_token":"…","token_type":"Bearer","expires_in":900,"user":{"id":1,"name":"Admin","email":"…","role":"admin","permissions":["users:read","users:write","users:delete"]}}}
-401 {"code":40100,"message":"invalid credentials","data":null,"request_id":"…"}   # 不区分"用户不存在/密码错"
-423? → 复用 40300 + message "account locked, retry after …"（避免为锁定新增码）
+401 {"code":40100,"message":"invalid credentials","data":null,"request_id":"…"}   # 不区分"用户不存在/密码错/锁定/禁用"
 ```
+
+登录失败只有一种对外形态（`40100 invalid credentials`）：锁定与禁用也走这条，并且同样跑一次 bcrypt
+（`BurnTiming`）。否则「403 + retry in 15m」既暴露邮箱是否存在，也把锁定当成可远程触发的 DoS 开关
+（5 个匿名请求锁 15 分钟）。原因只进日志（`reason=locked|disabled|unknown_email|bad_password`）。
 
 ## 6. 密码与登录安全
 
@@ -159,8 +162,8 @@ POST /api/v1/auth/login      {"email":"admin@example.com","password":"…"}
 |---|---|
 | 哈希 | bcrypt cost 12（`golang.org/x/crypto/bcrypt`）；后续可切 argon2id（`auth.algo` 配置预留） |
 | 密码长度 | 8–72 字节（bcrypt 截断上限，超过 72 直接 400，避免静默截断） |
-| 用户枚举 | 未知邮箱也执行一次 bcrypt（对固定 dummy hash），响应与耗时不区分；错误消息统一 `invalid credentials` |
-| 锁定 | 连续 5 次失败 → `locked_until = now()+15m`；成功登录清零；锁定期间直接 40300（不跑 bcrypt） |
+| 用户枚举 | 未知邮箱 / 密码错 / 锁定 / 禁用 全部执行一次 bcrypt（`BurnTiming`），响应码、消息、耗时不区分；错误消息统一 `invalid credentials` |
+| 锁定 | 连续 5 次失败 → `locked_until = now()+15m`；成功登录清零；锁定期间仍返回 `401 invalid credentials` 并 `BurnTiming`。**已知取舍**：锁定本身仍可被用来短时踢掉已知账号（15m，不可续期、不延长），属于「可用性换爆破成本」，运维可用 `make seed-admin` 清零 |
 | 登录限流 | 独立令牌桶（IP + email 维度，如 5/min），复用 `web` 的 limiter 实现并在 `/auth/login` 路由组上挂 |
 | 审计 | `last_login_at`、`failed_login_attempts`；登录成功/失败写结构化日志（**不含密码/token**） |
 | 禁用账号 | `users.status=0` → 登录拒绝，且 `VerifyAccess` 直接 401（token 立即失效） |

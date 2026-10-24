@@ -68,12 +68,12 @@
 | `docker compose up` 后 app 容器反复重启，日志 `auth.jwt_secret must be at least 32 bytes in production` | compose 不再提供默认密钥（默认密钥=公开密钥）：用 `make docker-up`（自动生成 `.local/jwt-secret`），或自己 `export APP_AUTH_JWT_SECRET=$(openssl rand -base64 48)` |
 | 所有 `/api/v1/*` 都 401，但确实带了 token | 先确认 header 形如 `Authorization: Bearer <jwt>`；再确认 `APP_AUTH_ACCESS_TTL` 未过期、用户未被禁用/改密（`users.token_version` 已变） |
 | `POST /auth/login` 返回 **403 且响应体为空**（无 `{code,message}` 信封） | 不是凭证问题，是 **CORS 预检被拒**：浏览器来源不在 `cors.allowed_origins` 里。跨域 + refresh cookie 还必须 `allow_credentials=true`（`APP_CORS_ALLOW_CREDENTIALS`），且来源不能用 `*`。本地开发推荐走 vite 代理（同源，无需 CORS）；直连时把 `http://localhost:5173` 加进 `APP_CORS_ALLOWED_ORIGINS` |
-| `POST /auth/login` 返回 403 且 `code=40300` | 账号被锁定（`account temporarily locked, retry in …`）或已禁用（`account disabled`）。锁定 = 连续失败达到 `auth.login_max_attempts`；解锁最省事是 `make seed-admin`（会重置密码、清零失败计数、吊销会话） |
-| 401 与 403 分不清 | 40100 = 未认证（没带/无效/过期 token、登录凭证错）；40300 = 已认证但角色权限不足、账号禁用/锁定、管理员自删 |
+| 登录一直返回 `401 invalid credentials`，但密码确认没错 | 账号可能被**锁定**（连续失败达到 `auth.login_max_attempts`，默认 5 次 / 15 分钟）或已**禁用**：响应刻意与密码错同形（防枚举），看服务日志的 `reason=locked` / `reason=disabled` 区分。解锁最省事是 `make seed-admin`（重置密码 + 清零失败计数 + 吊销会话） |
+| 401 与 403 分不清 | 40100 = 未认证（没带/无效/过期 token、登录凭证错、账号锁定/禁用）；40300 = 已认证但角色权限不足、管理员自删 |
 | 反向代理后所有人共用一个限流桶（或全站 429） | 客户端 IP 取的是 TCP 对端 = 代理 IP。把代理网段填进 `APP_HTTP_TRUSTED_PROXIES`（如 `10.0.0.0/8`）；只有来自这些网段的请求，`X-Forwarded-For` 才会被采信 |
 | 客户端伪造 `X-Forwarded-For` 还能换限流桶 / 日志里出现假 IP | 说明 `APP_HTTP_TRUSTED_PROXIES` 被配成了过宽网段（或历史上默认信任全部）。默认值是「不信任任何代理」，正确做法是只填真实代理的网段 |
 | 登录总是 `invalid credentials` | 账号可能没有凭证（`password_hash=''`，仅老数据）：用 `make seed-admin EMAIL=… APP_SEED_PASSWORD=…` 重置；或用管理员 `PATCH /users/:id` 设密码 |
-| 连续输错后 `account temporarily locked` | `auth.login_max_attempts`（默认 5）+ `auth.login_lockout`（默认 15m）；等待或用 seed-admin 重置（会清空锁定计数） |
+| 连续输错后登录一直失败（日志 `reason=locked`） | `auth.login_max_attempts`（默认 5）+ `auth.login_lockout`（默认 15m）；响应与密码错同形，不提示剩余时间；等待或用 seed-admin 重置（会清空锁定计数） |
 | refresh 一直失败 / 刷新页面就掉线 | refresh cookie 是 `Secure` 而当前是 http：本地置 `APP_AUTH_COOKIE_SECURE=false`（`make smoke` 已自动处理）；跨域部署还需 `allow_credentials=true` 且不能 `*` origin |
 | 前端偶发登出 | 多个并发 401 触发多次 refresh 会把轮换令牌用掉：前端已做 single-flight，服务端另有 `auth.refresh_reuse_interval`（30s）兜底多标签页竞态。若仍频繁掉线，检查是否被**跨站**（SameSite=Strict 不发送）或 cookie 被清 |
 | 改密后旧 access token 仍能用 | 只有走 `PATCH /auth/password` 或管理员改密/禁用才会 `token_version++`；直接把 hash 写库不会触发失效 |

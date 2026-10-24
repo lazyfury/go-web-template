@@ -234,9 +234,13 @@ func TestLoginLocksAfterMaxAttempts(t *testing.T) {
 		t.Fatal("account should be locked after max attempts")
 	}
 
+	// 锁定态必须和「密码错」完全同形：否则 5 个匿名请求就能判定邮箱是否存在。
 	_, err := h.svc.Login(context.Background(), LoginInput{Email: u.Email, Password: testPassword})
-	if !errors.Is(err, apperr.ErrForbidden) {
-		t.Fatalf("locked account should be forbidden even with the right password, got %v", err)
+	if !errors.Is(err, apperr.ErrUnauthorized) {
+		t.Fatalf("locked account must answer like invalid credentials, got %v", err)
+	}
+	if err.Error() != invalidCredentials().Error() {
+		t.Errorf("locked message = %q, want %q", err.Error(), invalidCredentials().Error())
 	}
 
 	// After the lockout window the correct password works again.
@@ -249,8 +253,45 @@ func TestLoginLocksAfterMaxAttempts(t *testing.T) {
 func TestLoginDisabledAccount(t *testing.T) {
 	h := newHarness(t)
 	u := h.seedUser(t, "off@example.com", authkit.RoleMember, user.StatusDisabled)
-	if _, err := h.svc.Login(context.Background(), LoginInput{Email: u.Email, Password: testPassword}); !errors.Is(err, apperr.ErrForbidden) {
-		t.Errorf("disabled account should be forbidden, got %v", err)
+	_, err := h.svc.Login(context.Background(), LoginInput{Email: u.Email, Password: testPassword})
+	// 与「邮箱不存在 / 密码错」同形，不泄露账号状态。
+	if !errors.Is(err, apperr.ErrUnauthorized) {
+		t.Errorf("disabled account must answer like invalid credentials, got %v", err)
+	}
+	if err.Error() != invalidCredentials().Error() {
+		t.Errorf("disabled message = %q, want %q", err.Error(), invalidCredentials().Error())
+	}
+}
+
+// TestLoginFailuresAreIndistinguishable 是 F3 的回归钉子：未知邮箱 / 密码错 /
+// 已锁定 / 已禁用 四种失败必须返回同一个错误（同 code 同 message），否则匿名
+// 调用方可以按 5 次/候选 的速度枚举邮箱，并把锁定提示当作存在性信号。
+func TestLoginFailuresAreIndistinguishable(t *testing.T) {
+	h := newHarness(t)
+	h.seedUser(t, "active@example.com", authkit.RoleMember, user.StatusActive)
+	h.seedUser(t, "off@example.com", authkit.RoleMember, user.StatusDisabled)
+	locked := h.seedUser(t, "locked@example.com", authkit.RoleMember, user.StatusActive)
+	until := h.now.Add(10 * time.Minute)
+	locked.LockedUntil = &until
+
+	cases := map[string]LoginInput{
+		"unknown email":  {Email: "nobody@example.com", Password: testPassword},
+		"wrong password": {Email: "active@example.com", Password: "wrong-password"},
+		"locked account": {Email: "locked@example.com", Password: testPassword},
+		"disabled":       {Email: "off@example.com", Password: testPassword},
+	}
+	want := invalidCredentials().Error()
+	for name, in := range cases {
+		_, err := h.svc.Login(context.Background(), in)
+		if err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
+		if !errors.Is(err, apperr.ErrUnauthorized) {
+			t.Errorf("%s: code = %v, want unauthorized", name, err)
+		}
+		if err.Error() != want {
+			t.Errorf("%s: message = %q, want %q", name, err.Error(), want)
+		}
 	}
 }
 

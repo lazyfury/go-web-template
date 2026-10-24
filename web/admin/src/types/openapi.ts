@@ -953,7 +953,6 @@ export interface operations {
             };
             400: components["responses"]["Error400"];
             401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];

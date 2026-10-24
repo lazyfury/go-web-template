@@ -171,7 +171,7 @@ message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
 
 统一信封：`{"code": <int>, "message": <string>, "data": <any|omitempty>}`；`code=0` 成功。
 
-业务错误码（`internal/platform/apperr`）：`0` 成功；`40000` 参数错误；`40100` 未认证（缺失/无效/过期 token、凭证错误）；`40300` 无权限（角色不足、账号禁用/锁定、管理员自删）；`40400` 不存在；`40900` 冲突；`41300` 请求体过大；`42900` 限流；`50000` 内部错误；`50001` 数据库错误。已知码精确映射到 HTTP 状态，未知码按 `[HTTP][类别][序号]` 布局回退。
+业务错误码（`internal/platform/apperr`）：`0` 成功；`40000` 参数错误；`40100` 未认证（缺失/无效/过期 token、凭证错误）；`40300` 无权限（角色不足、管理员自删；**登录失败一律 40100**，含锁定/禁用）；`40400` 不存在；`40900` 冲突；`41300` 请求体过大；`42900` 限流；`50000` 内部错误；`50001` 数据库错误。已知码精确映射到 HTTP 状态，未知码按 `[HTTP][类别][序号]` 布局回退。
 
 错误响应额外带 `request_id`（与 `X-Request-ID` 一致，便于客户端关联日志）。OpenAPI 文档由 `routekit.Op` 元数据生成，响应的 `data` 使用真实 DTO 类型（不是 `any`）。
 
@@ -182,7 +182,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 
 | 端点 | 方法 | 登录 | 权限 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|---|---|
-| `/api/v1/auth/login` | POST | 否 | — | `{email,password}`；按 IP 限流 + 账号锁定；失败统一 `401 invalid credentials`（不泄露用户是否存在） | 200 `{access_token,token_type,expires_in,user}` + cookie | 400/401/403 |
+| `/api/v1/auth/login` | POST | 否 | — | `{email,password}`；按 IP 限流 + 账号锁定；失败统一 `401 invalid credentials`（未知邮箱/密码错/锁定/禁用同形，均跑 bcrypt 消除时序差） | 200 `{access_token,token_type,expires_in,user}` + cookie | 400/401 |
 | `/api/v1/auth/refresh` | POST | 否（cookie 或 `X-Refresh-Token`） | — | 轮换 + 滑动续期；30s 内重放旧 token 容忍（并清理兄弟 token）；超窗重用 → 吊销全部会话；超 90 天绝对上限 → 401 | 200 同上 | 401 |
 | `/api/v1/auth/logout` | POST | 是 | — | 吊销当前 refresh 会话（幂等，立即生效、不受宽限期影响） | 204 | 401 |
 | `/api/v1/auth/me` | GET | 是 | — | 当前用户 + 角色 + 权限列表 | 200 `UserView` | 401 |

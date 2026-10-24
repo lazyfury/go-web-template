@@ -94,9 +94,6 @@
           "401": {
             "$ref": "#/components/responses/Error401"
           },
-          "403": {
-            "$ref": "#/components/responses/Error403"
-          },
           "413": {
             "$ref": "#/components/responses/Error413"
           },

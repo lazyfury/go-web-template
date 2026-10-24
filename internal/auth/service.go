@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -126,15 +125,22 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		return nil, err
 	}
 
+	// Locked and disabled accounts must answer exactly like a wrong password:
+	// a distinct 403 (with the remaining lock time) told an anonymous caller
+	// which addresses exist — five requests per candidate — and advertised the
+	// lockout as a way to knock a known account offline. The reason stays in
+	// the log, never in the response. BurnTiming keeps the cost identical too,
+	// otherwise a locked account would answer measurably faster than an
+	// unknown one and leak the same fact.
 	if account.LockedUntil != nil && s.now().Before(*account.LockedUntil) {
-		remaining := account.LockedUntil.Sub(s.now()).Round(time.Second)
+		s.hasher.BurnTiming(in.Password)
 		s.logger.Warn("login failed", zap.String("reason", "locked"), zap.Uint64("user_id", account.ID))
-		return nil, apperr.New(apperr.CodeForbidden,
-			fmt.Sprintf("account temporarily locked, retry in %s", remaining))
+		return nil, invalidCredentials()
 	}
 	if !account.IsActive() {
+		s.hasher.BurnTiming(in.Password)
 		s.logger.Warn("login failed", zap.String("reason", "disabled"), zap.Uint64("user_id", account.ID))
-		return nil, apperr.New(apperr.CodeForbidden, "account disabled")
+		return nil, invalidCredentials()
 	}
 	if !s.hasher.Verify(account.PasswordHash, in.Password) {
 		s.recordFailure(ctx, account)
