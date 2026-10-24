@@ -12,6 +12,7 @@
 | [`subagents.md`](subagents.md) | 什么时候拆子 agent、只读约束、输出格式、成本 | 考虑拆分独立审查时 |
 | [`destructive-operations.md`](destructive-operations.md) | 必须先问人的操作、回滚/备份要求、安全替代 | 动迁移/数据/历史/密钥前 |
 | [`commit-and-dod.md`](commit-and-dod.md) | commit 规范、原子提交、DoD 模板、最终回复格式 | 准备提交、写最终回复时 |
+| [`../security-review-2026-10.md`](../security-review-2026-10.md) | 上一次黑盒演练的发现/复现/修复记录与残留风险 | 改 auth/限流/部署配置时对照 |
 
 ## 默认阅读顺序
 

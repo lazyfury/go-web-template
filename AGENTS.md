@@ -17,6 +17,7 @@
 | `docs/agents/commit-and-dod.md` | commit 规范、DoD 模板、最终回复格式 | 准备提交 / 写最终回复 |
 | `docs/troubleshooting.md` | 报错 → 处理（环境、迁移、lint、前端、容器） | 遇到报错 |
 | `docs/design-*.md` | 单模块设计与分期计划 | 设计/实现对应模块 |
+| `docs/security-review-2026-10.md` | 黑盒演练记录：发现、复现命令、修复 commit、残留风险 | 改 auth/限流/部署配置、发布前复核 |
 | `skills/<name>/SKILL.md` | 可执行配方（命令 + 断言）；`.agents/skills/<name>` 是相对 symlink | 任务匹配时加载 1 个 |
 | `Makefile` | **命令唯一权威** | `make help` |
 | `docs/openapi.json` | 生成的 OpenAPI 黄金文件 | 不要手改；用 `make openapi` |

@@ -96,6 +96,7 @@ message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
 - `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
 - 显式 `-config` 缺失 → 启动失败；默认路径缺失 → 用默认值 + env。
+- 安全演练与已知取舍：见 `docs/security-review-2026-10.md`（F1–F12 的发现、复现命令与修复 commit）。
 - 生产建议：密钥走环境变量/密钥管理；`APP_DEBUG=false`、CORS 收紧、`APP_LOG_FORMAT=json`；反代终止 TLS（此时 `SecurityHeaders` 会带 HSTS）。
 - `deploy/docker-compose.yml` 是生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地看文档用 `APP_SWAGGER_ENABLED=true make docker-up`。
 
