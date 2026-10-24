@@ -121,9 +121,17 @@ jobs:
           # Validation and body-limit contracts.
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/api/v1/users \
             -H 'Content-Type: application/json' -d '{"name":"","email":"nope"}')" = "400"
-          big=$(head -c 2000000 /dev/zero | tr '\0' 'a')
+          # Stream the oversized body from a file: passing 2 MB via argv
+          # exceeds ARG_MAX on some runners ("Argument list too long").
+          body=$(mktemp)
+          trap 'rm -f "$body"' EXIT
+          {
+            printf '{"name":"'
+            head -c 2000000 /dev/zero | tr '\0' 'a'
+            printf '","email":"ci@example.com"}'
+          } > "$body"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/api/v1/users \
-            -H 'Content-Type: application/json' -d "{\"name\":\"$big\",\"email\":\"ci@example.com\"}")" = "413"
+            -H 'Content-Type: application/json' --data-binary "@$body")" = "413"
 
       - name: App logs
         if: failure()
