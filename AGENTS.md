@@ -1,117 +1,124 @@
-# AGENTS.md — AI 协作约定与操作手册
+# AGENTS.md — Agent 入口
 
-> 适用于任何在本仓库工作的 agent（也适用于人类协作者）。
-> **从仓库根启动会话**：项目技能通过 `.agents/skills/` 暴露，会话目录不在仓库根时不会被发现。
+> 从仓库根启动会话（否则 `.agents/skills/` 不会被发现）。
+> 本文件只放：**强约束、工作流、文件导航、渐进式披露**。细节按需加载，不要一次读完。
 
-## 事实来源分工（避免同一规则写三遍）
+## 0. 文件导航（事实来源 + 何时读）
 
-| 文件 | 只放什么 |
-|---|---|
-| `AGENTS.md`（本文件） | **规则、流程、完成定义**；不抄命令、不抄操作细节 |
-| `context.md` | **架构、数据模型、API 契约、配置、ADR**（就地更新事实，不写排错） |
-| `skills/` | **可执行配方**（命令 + 断言），按任务加载。内容只能住在这里；`.agents/skills/<name>` 是**指向它的相对 symlink**（pi 只从 `.agents/skills/` 发现技能，不要在那里放过真实文件） |
-| `docs/troubleshooting.md` | **踩坑 → 处理**（报错速查、环境陷阱） |
-| `Makefile` | **命令的唯一权威**（看 `make help`；README/AGENTS 不复写） |
-| `.agents/local.md` | 本机环境差异（gitignored；存在则先读） |
+| 文件 / 目录 | 只放什么 | 何时读 |
+|---|---|---|
+| `.agents/local.md` | 本机环境差异（gitignored） | 每次会话先看是否存在 |
+| `context.md` | 架构、包职责、数据模型、API 契约、配置、ADR | 开工时读任务相关章节 |
+| `docs/agents/README.md` | agent 分册索引 | 需要 workflow/验证/子 agent 细节时 |
+| `docs/agents/workflow.md` | 开工、标准改动、文档同步、提交拆分、推送 | 开始任务 / 准备提交 |
+| `docs/agents/verification.md` | 三层质量门、命令、证据要求 | 每次提交前、发布前 |
+| `docs/agents/subagents.md` | 子 agent 触发点、只读约束、输出格式、成本 | 考虑拆分独立审查 |
+| `docs/agents/destructive-operations.md` | 必须先问人的操作、备份/回滚、安全替代 | 动迁移/数据/历史/密钥前 |
+| `docs/agents/commit-and-dod.md` | commit 规范、DoD 模板、最终回复格式 | 准备提交 / 写最终回复 |
+| `docs/troubleshooting.md` | 报错 → 处理（环境、迁移、lint、前端、容器） | 遇到报错 |
+| `docs/design-*.md` | 单模块设计与分期计划 | 设计/实现对应模块 |
+| `skills/<name>/SKILL.md` | 可执行配方（命令 + 断言）；`.agents/skills/<name>` 是相对 symlink | 任务匹配时加载 1 个 |
+| `Makefile` | **命令唯一权威** | `make help` |
+| `docs/openapi.json` | 生成的 OpenAPI 黄金文件 | 不要手改；用 `make openapi` |
+| `scripts/` | smoke / verify-auth / audit 脚本 | 质量门需要真实进程时 |
 
-## 项目一句话
+渐进式披露的默认路径：
 
-Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，JWT 登录 + RBAC，内置 Docker / OpenAPI（routekit 生成）/ Prometheus。
+1. 每次会话：`AGENTS.md` → `.agents/local.md`（存在时）→ `git status --short`。
+2. 开工：`context.md` 相关章节 + **一个**匹配的 skill。
+3. 提交前：`docs/agents/verification.md` → `docs/agents/commit-and-dod.md`。
+4. 表里其他文件只在对应场景加载；不要预读所有 skill/design doc。
 
-## 开工顺序
+## 1. 项目一句话
 
-1. 读 `context.md` 的相关章节（§2 架构、§3 包职责、§5 数据模型、§6 API 契约）。
-2. 任务匹配技能就加载对应 `skills/<name>/SKILL.md`（索引见文末）。
-3. `make help` 查命令；工具缺失先 `make tools`。
+Go Web 单体模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，JWT + RBAC，内置 Docker / routekit OpenAPI / Prometheus；业务域含 user/auth/dict/message。
 
-## 硬性规则（违反 = 打回）
+## 2. 硬约束（违反 = 打回）
 
-1. **分层与依赖方向**：业务包内 `handler → service → repository`（同一包内按文件分层）；包级方向 `cmd → app → {web, auth, user, platform/*}`，`platform/*` 是叶子包。`auth → user` 只允许单向（经包内 `UserStore` 接口）。禁止反向 import；service 不得 import gin；`web` 不得 import 业务域（域用 `RegisterRoutes` 自己挂载）；`internal/` 不得被外部非 main 包 import。
-2. **错误处理**：业务错误一律 `internal/platform/apperr`（`apperr.Wrap/New` + 稳定 Code）；handler 用 `httpx.Fail(c, err)` 输出 `{code,message,data}`，不返回裸 error、不自造 JSON。
+1. **分层与依赖方向**：业务包内 `handler → service → repository`；包级 `cmd → app → {web, auth, user, dict, message, platform/*}`，`platform/*` 是叶子；`auth → user` 仅单向（`UserStore` 接口）。禁止反向 import；service 不 import gin；`web` 不 import 业务域；`internal/` 不得被外部非 main 包 import。
+2. **错误处理**：业务错误一律 `internal/platform/apperr`（`Wrap/New` + 稳定 Code）；handler 用 `httpx.Fail(c, err)` 输出 `{code,message,data}`，不返回裸 error、不自造 JSON。
 3. **校验**：请求 DTO 用 gin binding tag；`ShouldBindJSON` 失败 → `apperr.CodeInvalidArgument`。
-4. **日志**：只用 zap（`logx.New` 构建）；访问日志由中间件产出，业务代码不 print。
-5. **上下文**：service/repository 方法首参必须是 `context.Context`，透传 `c.Request.Context()`；DB 查询 `WithContext(ctx)`。
-6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。受保护端点要覆盖匿名 401、越权 403、正常路径；用 `app.SeedAdmin` + `loginAsAdmin` 取 token。auth/会话行为改动必须同步 `scripts/verify-auth.sh` 的断言（真实进程 + 真实 PG，不靠 SQLite 背书）
+4. **日志**：只用 zap（`logx.New`）；访问日志由中间件产出；业务代码不 print，不记录密码/token/密钥。
+5. **上下文**：service/repository 首参必须是 `context.Context`，透传 `c.Request.Context()`；DB 查询 `WithContext(ctx)`。
+6. **测试**：新领域必须有 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL；受保护端点覆盖匿名 401、越权 403、正常路径。auth/会话行为改动必须同步 `scripts/verify-auth.sh` 断言（真实进程 + 真实 PG）。
 7. **依赖**：新增依赖后 `go mod tidy`；sqlite 只允许出现在测试路径（`internal/testutil`）。
-8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
-9. **OpenAPI 代码优先**：路由必须通过 `routekit.Group` 注册并带 `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`（改完运行 `make openapi` 并提交）。API 契约变化后同步前端类型（`cd web/admin && pnpm gen:api`）。新增端点漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
-10. **鉴权默认拒绝**：`/api/v1` 下除 `/auth/login`、`/auth/refresh` 外一律挂在 `protected` 组（`Security(bearerAuth)` + `authkit.Authenticate`）。新增端点必须显式声明权限（`authkit.RequirePermission`）并在 `Op.Errors` 里带 `CodeForbidden`；**401（未认证）与 403（无权限）不得混用**。资源归属校验放 service（`actor` 显式入参），不要只靠中间件。禁止把密码/token 写日志或放进 DTO。
-11. **凭证与密钥**：密码只存 bcrypt 摘要；access token 无状态（`users.token_version` 控失效）；refresh token 只存 SHA-256、必须轮换 + **滑动续期**，并用 `session_started_at` 封顶整个会话；`refresh_reuse_interval`（默认 30s）只容忍 `revoked_reason=rotated` 的重放（多标签页竞态），登出/改密/禁用/超窗重用一律立即吊销全部会话。生产必须注入 `APP_AUTH_JWT_SECRET`（≥32 字节、非占位值）。
-12. **后台任务与 goroutine**：**根 goroutine 只在 `cmd/server` 启动/回收**（`signal.NotifyContext` → `errgroup`/WaitGroup；HTTP 监听等由被调用的 `Run(ctx)` 封装）。`internal/app` 只负责构造并暴露 worker，禁止在 `app`、service、handler、repository 里起 fire-and-forget `go func()`。后台任务必须：`Run(ctx) error`、响应取消、可注入 clock/ticker、退出前等待在途任务、失败能取消 HTTP 并让进程非零退出；确需并发时用 Worker 内部有界 pool，由 `Run` 统一等待。禁止裸 `go func()` 无回收、禁止用 `time.Sleep` 代替 ctx select。详见 `context.md` ADR 14 与 `docs/design-message.md`。
+8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`）；测试库是 SQLite。
+9. **OpenAPI 代码优先**：路由必须走 `routekit.Group` + `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`；改完运行 `make openapi` 并提交。API 契约变化后 `cd web/admin && pnpm gen:api`。漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
+10. **鉴权默认拒绝**：`/api/v1` 除 `/auth/login`、`/auth/refresh` 外一律挂 `protected`（`Security(bearerAuth)` + `authkit.Authenticate`）。新增端点显式声明权限（`RequirePermission`）并在 `Op.Errors` 带 `CodeForbidden`；**401（未认证）与 403（无权限）不得混用**。资源归属校验放 service（`actor` 显式入参）。
+11. **凭证与密钥**：密码只存 bcrypt；access token 无状态（`users.token_version` 控失效）；refresh token 只存 SHA-256、必须轮换 + 滑动续期，`session_started_at` 封顶会话；`refresh_reuse_interval` 只容忍 `revoked_reason=rotated` 的重放；登出/改密/禁用/超窗重用立即吊销全部会话。生产必须注入 `APP_AUTH_JWT_SECRET`（≥32 字节、非占位值）。细节见 `docs/design-auth.md`。
+12. **后台任务与 goroutine**：**根 goroutine 只在 `cmd/server` 启动/回收**（`signal.NotifyContext` → `errgroup`/WaitGroup）。`internal/app` 只构造并暴露 worker，禁止在 app/service/handler/repository 起 fire-and-forget `go func()`。worker 必须 `Run(ctx) error`、可取消、clock/ticker 可注入、退出前等待在途任务、失败能取消 HTTP 并让进程非零退出；禁止裸 `go func()` 无回收、禁止 `time.Sleep` 代替 ctx select。细节见 `context.md` ADR 14 + `docs/design-message.md`。
 
-## 质量门与验证（三层，别混用）
+规则细节入口：分层/依赖 `context.md` §2–§3；错误/校验 `apperr`/`httpx`；测试/质量门 `docs/agents/verification.md`；鉴权 `docs/design-auth.md`；goroutine `context.md` ADR 14。
 
-```bash
-make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
-```
+## 3. 工作流
 
-- 质量门全部在本地执行（仓库不配置远端 CI）：提交前必须自己跑 `make check`；前端改动再跑 `pnpm api:check` 与 `pnpm build`。
-- 工具缺失 → `make tools`（版本 pin 在 `Makefile` 顶部，**不要 `@latest`**）。
-- 改了路由/`routekit.Op` 元数据 → `make openapi` 并提交 `docs/openapi.json`（`make check` 的黄金测试会检出漂移）。
-- 只改 Go 代码时，最快闭环是 `make test`：测试用内存 SQLite，**不需要 postgres/docker**。
-- **禁止未运行就声称通过**：结论要有真实输出支撑（贴脚本的最后几行，不接受“已跑过”）。
-- **三层门的边界**（不要混为一谈）：
-  | 门 | 何时跑 | 覆盖什么 |
-  |---|---|---|
-  | `make check` | **每次提交前（必跑）** | 编译、lint、vet、race 测试、OpenAPI 黄金文件、依赖 tidy |
-  | `make audit` | auth/JWT/鉴权/迁移 SQL 改动、发布前 | 机械可判定部分：密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、govulncheck（慢且要网络，所以不并入 `make check`） |
-  | `make smoke` / `make verify-auth` | 有 postgres 时；改认证/会话后必跑 verify-auth | 真实进程 + 真实 PG 的端到端行为（宽限期、登出即时、会话上限、CRUD 全链路） |
+### 3.1 开工
 
-## 子 agent 使用边界（默认不拆）
+1. `git status --short` 确认工作树；读 `.agents/local.md`（存在时）。
+2. 读 `context.md` 相关章节 + 一个匹配的 `skills/<name>/SKILL.md`。
+3. `make help` 查命令；缺工具 `make tools`（版本 pin 在 Makefile，禁止 `@latest`）。
 
-拆不拆只看一条：**这个任务是否真的需要「独立上下文 + 独立视角」？** 不需要就一律在主会话做完。
+### 3.2 标准改动
 
-| 场景 | 做法 |
-|---|---|
-| 计划 | 主会话（读 `context.md` + 对应 skill）。计划要与实现上下文连续，隔离后容易做偏 |
-| 开发 | 主会话。并发写同一仓库 = 冲突 + 主会话不知道改了什么 |
-| 测试验证 | 主会话跑 `make test` / `make check`。**结论只认脚本输出**，不接受任何 agent 自述“已跑过” |
-| SQL 审核 | 机械部分 `make audit`；判断部分走 `sql-review` skill；只有非平凡迁移（大表 DDL、数据回填、不可逆 down）才另开**只读**子 agent 复核 |
-| 安全审计 | 值得拆：全仓扫描上下文大，且必须独立于实现者视角。跑 `security-review` skill 的清单 |
-| 黑盒攻防测试 | 用例矩阵先固化成断言（`scripts/smoke.sh` / `make audit`）保证可回归；子 agent 只负责「还能怎么打」的发散与结果解读 |
+1. **定位**：context 相关章节 + skill。
+2. **改代码**：遵守分层与命名；新增领域走 `add-domain`。
+3. **补测试**：单测 + 集成测试；受保护端点覆盖 401/403/正常路径。
+4. **验证**：`make check` 全绿；前端再跑 `pnpm api:check` + `pnpm build`。
+5. **同步文档**：架构/契约/配置 → `context.md`；坑 → `docs/troubleshooting.md`；用户可见 → `README.md`；API → `make openapi` + `pnpm gen:api`。
+6. **提交**：每次任务完成就提交，不攒工作树；按路径 `git add`，语义化 message。
 
-用子 agent 时的硬约束（违反 = 打回）：
+更细的文档矩阵、提交拆分与推送规则：`docs/agents/workflow.md`。
 
-1. **只读**：只输出 `file:line` + 复现命令 + 严重度 + 建议；不改代码、不跑迁移、不提交。改代码回主会话。
-2. **规则写在文档里，不写在 agent 提示词里**：`~/.pi/agent/agents/*.md` 只写角色与输出格式，要遵守的规则引用本文件与对应 skill，避免第四个真相源。
-3. **触发点有限**：auth/鉴权改动、迁移改动、发布前；不是每次提交。
-4. **算清成本**：pi 的子 agent 是独立 `pi` 进程（`examples/extensions/subagent`，需自行安装），token 与耗时翻倍且不共享缓存。单次 `make check` 能覆盖的事不要付这份钱。
+### 3.3 质量门
 
-## 标准改动流程
+| 门 | 何时跑 | 覆盖什么 |
+|---|---|---|
+| `make check` | **每次提交前（必跑）** | lint、gofmt、vet、race、build、OpenAPI 黄金文件、tidy |
+| `make audit` | auth/JWT/鉴权/迁移 SQL、发布前 | 密钥/日志卫生、可移植 SQL、迁移配对、401/403 回归、govulncheck |
+| `make smoke` / `make verify-auth` | 有 postgres 时；auth 改动必跑 `verify-auth` | 真实进程 + 真实 PG 端到端 |
 
-1. 定位：读 `context.md` 相关章节 + 加载相关 skill。
-2. 改代码：遵循分层与命名（`context.md` §3/§10）；新增领域走 `add-domain` skill。
-3. 补/改测试。
-4. `make check` 全绿。
-5. 同步文档：架构/契约/配置变化 → `context.md`；新踩的坑 → `docs/troubleshooting.md`；用户可见 → `README.md`。
-6. 提交（**每次任务完成都要做，不攒工作树**）：先 `git status --short` 复核，再**按文件路径** `git add <paths>`（**不要 `git add -A`**），语义化 message（`feat/fix/chore/docs/test(scope): ...`）。
-   - 一个任务一个提交；同时存在「功能」与「配置/文档同步」时分开提交（后者能用前者独立站住为佳，必要时用 `git worktree` 验证中间提交仍绿）。
-   - 有远端且用户要求同步时 `git push`（推送前先确认工作树里没有别人的在制品：只提交自己的路径，不要顺手带上）。
-   - 提交后回复里给出哈希；不要声称“已提交/已推送”而不粘 `git log --oneline -1` 与 `git status -sb` 的结果。
+- **禁止未运行就声称通过**：贴真实输出最后几行。
+- 前端改动：`pnpm typecheck` / `pnpm build` / `pnpm api:check`。
+- 详细边界、证据要求、子集验证：`docs/agents/verification.md`。
 
-## 必须先问人（破坏性 / 不可逆）
+### 3.4 子 agent（默认不拆）
 
-- `git push --force`、改写已推送历史、删除或重写**已应用**的迁移文件。
-- `make migrate-down` 作用在共享/预发/生产库。
+拆不拆只看：**这个任务是否真的需要「独立上下文 + 独立视角」？** 不需要就在主会话做完。
+
+- 只在 auth/鉴权改动、非平凡迁移、发布前安全审计等触发点拆。
+- 子 agent **只读**：输出 `file:line` + 复现命令 + 严重度 + 建议；不改代码、不跑迁移、不提交。
+- 规则写在文档里，不写在 agent 提示词里；提示词只写角色与输出格式。
+- 成本要算清：独立进程，token/耗时翻倍且不共享缓存。
+
+详见 `docs/agents/subagents.md`。
+
+### 3.5 必须先问人（破坏性 / 不可逆）
+
+- `git push --force`、改写已推送历史、删除远端分支。
+- 删除/重写**已应用**的迁移文件；共享/预发/生产库 `make migrate-down`。
 - `docker compose down -v`、删除数据卷、`rm -rf` 非构建产物。
-- 提交密钥/`.env`、修改仓库权限或分支保护。
-- 改动超出任务范围的重构（先确认再动）。
+- 提交密钥/`.env`、改仓库权限/分支保护。
+- 超出任务范围的重构。
 
-## 完成定义（DoD）
+细节与安全替代：`docs/agents/destructive-operations.md`。
+
+### 3.6 完成定义（DoD）
 
 最终回复必须包含：
 
-1. **变更文件清单**（按层：model / repository / service / handler / router / docs）。
-2. **`make check` 的真实输出摘要**（贴最后几行，不要只写"已通过"）；改动涉及 auth/鉴权/迁移 → 附 `make audit` 输出。
-3. **未验证项与风险**（例如"本机无 docker，未跑 compose e2e；已用 `./scripts/smoke.sh` 验证 liveness 路径"）。
-4. **提交记录**：提交哈希 + `git status -sb` 结果（是否已推送）；未提交时必须说明原因（例如"等你确认依赖升级"）。
+1. **变更文件清单**（按层：migration / entity / repo / service / handler / router / docs / frontend）。
+2. **验证输出摘要**：`make check` 最后几行；auth/鉴权/迁移附 `make audit`；有 PG 附 `make smoke`/`verify-auth`；前端附 typecheck/build/api:check。
+3. **未验证项与风险**：没环境/没跑的门明确写出来。
+4. **提交记录**：`git log --oneline -1` + `git status -sb`（是否已推送）。
 
-## 技能索引
+模板与反例：`docs/agents/commit-and-dod.md`。
+
+## 4. 技能索引
 
 | skill | 用途 |
 |---|---|
 | `add-domain` | 新增领域模块（迁移→repo→service→handler→routekit 路由→测试→OpenAPI） |
-| `docker-ops` | 容器编排 + 本地端到端调试（也可用 `make smoke` 一条命令覆盖） |
+| `docker-ops` | 容器编排 + 本地端到端调试（也可用 `make smoke`） |
 | `database-migrations` | 迁移新建/执行/回滚 + GORM model 同步 checklist |
 | `sql-review` | 迁移/DDL 评审（锁与时长、可逆性、约束与软删、索引与查询匹配）+ 验证命令 |
 | `security-review` | 机械安全门（`make audit`）+ 攻击面清单 + 黑盒攻防 curl 矩阵 |

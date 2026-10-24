@@ -70,4 +70,4 @@ docker compose -f deploy/docker-compose.yml exec postgres \
 改法: 具体 SQL 片段或拆分成哪几个迁移
 ```
 
-**边界**：评审阶段只读；`make migrate-down` 只在本地库跑；改写或删除**已应用**的迁移必须先问人（`AGENTS.md`「必须先问人」）。
+**边界**：评审阶段只读；`make migrate-down` 只在本地库跑；改写或删除**已应用**的迁移必须先问人（`docs/agents/destructive-operations.md`，`AGENTS.md` 有摘要）。

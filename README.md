@@ -243,7 +243,8 @@ make docker-down
 
 本仓库为 AI 代理（及人类协作者）准备了上下文与可复用配方，确保后续改动可靠、风格一致：
 
-- **[AGENTS.md](AGENTS.md)** — 协作规则：硬性规则（分层、错误处理、测试）、质量门（`make check`）、标准流程、破坏性操作边界、完成定义（DoD）。
+- **[AGENTS.md](AGENTS.md)** — Agent 入口：强约束、工作流、文件导航、渐进式披露。
+- **[docs/agents/](docs/agents/README.md)** — Agent 分册：workflow / verification / subagents / destructive-operations / commit-and-dod。
 - **[context.md](context.md)** — 项目上下文：架构总览、包职责、配置模型、数据模型、API 契约、设计决策（ADR）、扩展指南。
 - **[docs/troubleshooting.md](docs/troubleshooting.md)** — 排错速查：环境/配置/迁移/代码结构/linter/前端/容器/鉴权。
 - **[docs/design-auth.md](docs/design-auth.md)** — 认证与权限的设计取舍（JWT/refresh/RBAC/威胁模型）。
