@@ -516,3 +516,33 @@ func TestSeedAdminCreatesAndResets(t *testing.T) {
 		t.Errorf("invalid role should be rejected, got %v", err)
 	}
 }
+
+// TestLogoutRevokesEverySession 钉住 F4：登出是「结束该账号所有会话」，不只是
+// 当前浏览器（design-auth §2 / AGENTS.md 硬约束 11）。此前只吊销被出示的那个
+// refresh token，被盗会话在用户点了登出之后仍然活着。
+func TestLogoutRevokesEverySession(t *testing.T) {
+	h := newHarness(t)
+	h.seedUser(t, "member@example.com", authkit.RoleMember, user.StatusActive)
+
+	phone, err := h.svc.Login(context.Background(), LoginInput{Email: "member@example.com", Password: testPassword})
+	if err != nil {
+		t.Fatalf("login phone: %v", err)
+	}
+	laptop, err := h.svc.Login(context.Background(), LoginInput{Email: "member@example.com", Password: testPassword})
+	if err != nil {
+		t.Fatalf("login laptop: %v", err)
+	}
+	if got := h.tokens.activeCount(); got != 2 {
+		t.Fatalf("active tokens = %d, want 2", got)
+	}
+
+	if err := h.svc.Logout(context.Background(), phone.RefreshToken); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+	if got := h.tokens.activeCount(); got != 0 {
+		t.Errorf("active tokens after logout = %d, want 0 (all sessions revoked)", got)
+	}
+	if _, err := h.svc.Refresh(context.Background(), laptop.RefreshToken, ClientMeta{}); !errors.Is(err, apperr.ErrUnauthorized) {
+		t.Errorf("sibling session must be dead after logout, got %v", err)
+	}
+}

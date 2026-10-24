@@ -1358,3 +1358,22 @@ func (e *testEnv) seedMemberForRateLimitTest(t *testing.T, h http.Handler, admin
 		t.Fatalf("other user's first attempt = %d, want 401 (own bucket)", w.Code)
 	}
 }
+
+// TestLogoutRevokesSiblingSessions 是 F4 的对外断言：登出必须结束该账号所有会话，
+// 不只是发起登出的那个浏览器（否则用户以为已经"退出登录"，别的设备仍在续期）。
+func TestLogoutRevokesSiblingSessions(t *testing.T) {
+	env := newTestEnv(t, false)
+	// seedAdmin 每次都会重置密码并 bump token_version，只 seed 一次，否则先登录
+	// 的那个会话会被后一次 seed 顶掉。
+	env.seedAdmin(t)
+	phone := env.login(t, adminEmail, adminPassword, http.StatusOK)
+	laptop := env.login(t, adminEmail, adminPassword, http.StatusOK)
+
+	if w := doJSONWith(t, env.handler, http.MethodPost, "/api/v1/auth/logout", nil, phone.accessToken,
+		[]*http.Cookie{phone.refresh}); w.Code != http.StatusNoContent {
+		t.Fatalf("logout = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONWith(t, env.handler, http.MethodPost, "/api/v1/auth/refresh", nil, "", []*http.Cookie{laptop.refresh}); w.Code != http.StatusUnauthorized {
+		t.Errorf("sibling session refresh after logout = %d, want 401", w.Code)
+	}
+}

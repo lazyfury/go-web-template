@@ -63,6 +63,7 @@
 - 每次 `/auth/refresh` **轮换**：旧 token 置 `revoked_at` + `revoked_reason=rotated`，新 token 返回。
 - 复用宽限：`revoked_reason=rotated` 且吊销在 30s 内 → 容忍（多标签页共享 cookie jar），发新 token 并清理兄弟 token，保持仅 1 个活跃 token。
 - 重用检测：超窗重放、或登出/改密等非轮换吊销 → **吊销该用户全部 refresh token** 并返回 401（登出立即生效，不被宽限期复活）。
+- 登出语义：`POST /auth/logout` = 结束该账号**所有** refresh 会话（不只当前浏览器）；access token 无状态，最多再用到自然过期（≤ `auth.access_ttl`，默认 15m）——要立刻让 access token 失效需改密/禁用（`token_version++`）。
 
 ## 3. 数据模型（迁移 + entity 双同步）
 

@@ -287,6 +287,15 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if _, err := s.tokens.RevokeIfActive(ctx, stored.ID, s.now(), RevokeLogout); err != nil {
 		return err
 	}
+	// Logging out means "end every session of this account", not just the
+	// browser that asked (AGENTS.md §2.11 / design-auth §2). Revoking only the
+	// presented token left a stolen session alive after the user pressed
+	// logout, which is exactly what the user was trying to stop. The reason is
+	// RevokeLogout (not RevokeRotated), so the reuse grace window never
+	// resurrects any of them.
+	if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, s.now(), RevokeLogout); err != nil {
+		return err
+	}
 	return nil
 }
 
