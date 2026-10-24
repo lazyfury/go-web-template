@@ -36,6 +36,10 @@ const (
 	PermUsersReadSelf Permission = "users:read:self"
 	// PermUsersWriteSelf allows updating the caller's own profile.
 	PermUsersWriteSelf Permission = "users:write:self"
+	// PermDictsRead allows reading enabled dictionary groups/items.
+	PermDictsRead Permission = "dicts:read"
+	// PermDictsWrite allows managing dictionary groups/items.
+	PermDictsWrite Permission = "dicts:write"
 )
 
 // Principal is the authenticated caller extracted from a valid access token.

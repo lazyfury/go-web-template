@@ -51,7 +51,11 @@ func TestOpenAPIDocument(t *testing.T) {
 			t.Errorf("missing path %q", path)
 		}
 	}
-	for _, schema := range []string{"CreateRequest", "UpdateRequest", "UserDTO", "ListResponse"} {
+	for _, schema := range []string{
+		"CreateRequest", "UpdateRequest", "UserDTO", "ListResponse",
+		"CreateGroupRequest", "UpdateGroupRequest", "GroupDTO", "GroupListResponse",
+		"CreateItemRequest", "UpdateItemRequest", "ItemDTO",
+	} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Errorf("missing component schema %q", schema)
 		}
@@ -205,7 +209,7 @@ func TestOpenAPISecurity(t *testing.T) {
 	// Every user operation is protected, documents 401/403 and the caller's
 	// permission failure mode.
 	for path, item := range doc.Paths {
-		if !strings.HasPrefix(path, "/users") {
+		if !isProtectedDomainPath(path) {
 			continue
 		}
 		for method, op := range item {
@@ -236,6 +240,15 @@ func TestOpenAPISecurity(t *testing.T) {
 			t.Errorf("missing component schema %q", schema)
 		}
 	}
+}
+
+func isProtectedDomainPath(path string) bool {
+	for _, prefix := range []string{"/users", "/dicts", "/dict-groups", "/dict-items"} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasBearer(security []map[string][]string) bool {

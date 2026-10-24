@@ -34,7 +34,7 @@
 - **入口**：`cmd/server/main.go` 只做 flag 解析 → `config.Load` → `logx.New` → `app.New` → `App.Run`（`defer App.Close`）。
 - **装配（组合根）**：`internal/app` 手工依赖注入（DB→repo→service→handler→web→server）。`NewWithDB(cfg, logger, db)` 是测试缝：集成测试用同一套生产装配跑内存 SQLite。
 - **请求生命周期**：中间件链 → handler 校验 DTO → service 业务规则（依赖 repo 接口）→ repository 执行 SQL → 统一 `httpx.Body` 输出。
-- **依赖方向**（禁止反向）：`cmd → app → {web, auth, user, platform/*}`；`auth → user`（仅单向：auth 通过包内 `UserStore` 接口消费用户数据）；`user/auth → platform/*`；`web → platform/*`。`platform/*` 是叶子包；`web` 不得 import 业务域（域通过 `RegisterRoutes` 自己挂载）。`routekit` 只依赖 `httpx/apperr/gin`，不依赖任何业务域。
+- **依赖方向**（禁止反向）：`cmd → app → {web, auth, user, dict, platform/*}`；`auth → user`（仅单向：auth 通过包内 `UserStore` 接口消费用户数据）；`user/auth/dict → platform/*`；`web → platform/*`。`platform/*` 是叶子包；`web` 不得 import 业务域（域通过 `RegisterRoutes` 自己挂载）。`routekit` 只依赖 `httpx/apperr/gin`，不依赖任何业务域。
 - **鉴权装配在组合根**：`app` 用 `api.Group("", routekit.Security("bearerAuth"), routekit.Middleware(authkit.Authenticate(authService)))` 建受保护组，域内再用 `routekit.Middleware(authkit.RequirePermission(...))` 子组声明权限；路由元数据与运行时守卫写在同一次注册里。
 
 ## 3. 包职责速查
@@ -53,10 +53,11 @@
 | `internal/web` | 紧凑 HTTP 层：engine/中间件/探针/优雅停机/文档挂载（无业务） | `router.go`, `docs.go`, `middleware_*.go`, `health.go`, `server.go` |
 | `internal/user` | 用户域：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/auth` | 认证域：登录、access token 签发、refresh 轮换/吊销、改密、bootstrap 管理员 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
+| `internal/dict` | 字典/配置域：group=setting，items=dict array；含其他模块用的 `Store` 快捷方法（Set/Update/GetInto） | `entity.go`, `repository.go`, `service.go`, `values.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/platform/authkit` | 叶子包：JWT 签发/校验（HS256 钉死）、Principal、RBAC 表、gin 中间件 | `token.go`, `principal.go`, `rbac.go`, `middleware.go` |
 | `internal/platform/passwd` | 叶子包：bcrypt 哈希/校验 + 防枚举的 dummy 比较 | `passwd.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
-| `migrations/` | golang-migrate SQL（版本化） | `000001_create_users_table.*`, `000002_add_auth_fields_to_users.*`, `000003_create_refresh_tokens.*` |
+| `migrations/` | golang-migrate SQL（版本化） | `000001`–`000004`（users/auth），`000005_create_dict_tables.*`（dict） |
 | `docs/` | 生成的 OpenAPI 契约 + 手写排错文档 | `openapi.json`, `troubleshooting.md` |
 
 ## 4. 配置模型
@@ -119,6 +120,24 @@ auth:     {jwt_secret, issuer, access_ttl: 15m,
 
 轮换时旧行置 `revoked_at=now()` + `reason=rotated`；宽限期外重放按盗用处理并吊销该用户全部会话。
 
+`dict_groups` + `dict_items` 表（`migrations/000005_create_dict_tables.*`）：
+
+| 表 / 列 | 类型 | 说明 |
+|---|---|---|
+| `dict_groups.id` | BIGSERIAL PK | |
+| `group_key` | varchar(64) NOT NULL | **机器码，创建后不可变**；部分唯一索引 `WHERE deleted_at IS NULL` |
+| `name` / `description` | varchar(64) / varchar(255) | 展示名与说明 |
+| `status` | smallint NOT NULL DEFAULT 1 | 1=启用 0=停用；停用组对消费侧表现为 404 |
+| `created_at` / `updated_at` / `deleted_at` | timestamptz | 软删除 |
+| `dict_items.id` | BIGSERIAL PK | |
+| `group_id` | BIGINT NOT NULL FK→dict_groups(ON DELETE CASCADE) | |
+| `item_key` | varchar(64) NOT NULL | 组内唯一（部分唯一索引 `(group_id,item_key) WHERE deleted_at IS NULL`） |
+| `label` | varchar(128) NOT NULL | 展示文案 |
+| `value` | varchar(1024) NOT NULL DEFAULT '' | 可覆盖 key 的值；空值回落 `item_key` |
+| `value_type` | varchar(16) NOT NULL DEFAULT 'string' | `string` / `number` / `boolean` / `json` |
+| `sort_order` / `status` / `remark` | integer / smallint / varchar(255) | 排序、启停、备注 |
+| `created_at` / `updated_at` / `deleted_at` | timestamptz | 软删除 |
+
 - 迁移工具：golang-migrate（SQL 文件），`make migrate-up/down/create`。
 - **GORM model 与迁移 SQL 是两套事实来源**，改表必须两处同步；测试库用 `AutoMigrate`（`internal/testutil.NewSQLiteDB(t, &user.User{})`）自动建表。
 - 新表记住：唯一索引要考虑软删除场景；查询保持 `LOWER()` 可移植写法。
@@ -149,6 +168,19 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/users/:id` | GET | 是 | `users:read` 或 `users:read:self` | 详情；member 仅本人 | 200 | 400/401/403/404 |
 | `/api/v1/users/:id` | PATCH | 是 | `users:write` 或 `users:write:self` | 局部更新；member 仅本人且不能改 role/status/password | 200 | 400/401/403/404/409 |
 | `/api/v1/users/:id` | DELETE | 是 | `users:delete` | 软删除；管理员不能删自己 | 204 | 400/401/403/404 |
+| `/api/v1/dicts/:group` | GET | 是 | `dicts:read` | 消费侧取该 setting 的 dict array（仅启用项，按 sort 排序） | 200 `[ItemDTO]` | 400/401/403/404 |
+| `/api/v1/dict-groups` | GET | 是 | `dicts:write` | 分组分页列表（含停用，带 item_count） | 200 `GroupListResponse` | 401/403 |
+| `/api/v1/dict-groups` | POST | 是 | `dicts:write` | 新建 setting；`key` 创建后不可改 | 201 `GroupDTO` | 400/401/403/409 |
+| `/api/v1/dict-groups/:id` | GET | 是 | `dicts:write` | 分组详情（带 item_count） | 200 `GroupDTO` | 400/401/403/404 |
+| `/api/v1/dict-groups/:id` | PATCH | 是 | `dicts:write` | 改 name/description/status | 200 `GroupDTO` | 400/401/403/404 |
+| `/api/v1/dict-groups/:id` | DELETE | 是 | `dicts:write` | 软删分组并级联软删 items | 204 | 400/401/403/404 |
+| `/api/v1/dict-groups/:id/items` | GET | 是 | `dicts:write` | 组内 items；`include_disabled=true` 含停用项 | 200 `[ItemDTO]` | 400/401/403/404 |
+| `/api/v1/dict-groups/:id/items` | POST | 是 | `dicts:write` | 新建 item；同组 `item_key` 唯一 | 201 `ItemDTO` | 400/401/403/404/409 |
+| `/api/v1/dict-items/:id` | PATCH | 是 | `dicts:write` | 局部更新 item（key/label/value/value_type/sort/status/remark） | 200 `ItemDTO` | 400/401/403/404/409 |
+| `/api/v1/dict-items/:id` | DELETE | 是 | `dicts:write` | 软删除 item | 204 | 400/401/403/404 |
+
+- `dicts:read` 授予 admin + member；`dicts:write` 仅 admin。消费侧只返回启用组/项，管理侧可见停用数据。
+- 业务模块不需要走 HTTP：`dict.Store` 提供 `Get` / `GetInto` / `Set` / `Update`（见 §10）。
 
 | 端点 | 方法 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|
@@ -172,9 +204,9 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 ## 8. 测试策略
 
 - 独立包单测（不依赖 gin/gorm）：`platform/apperr`（码表/`From`/`Unwrap`）、`platform/httpx`（信封与错误映射）、`platform/logx`、`platform/config`（优先级/校验）。
-- 业务单测：`internal/user/service_test.go`（fake `Repository`：角色/归属/禁用撤销 token_version）、`internal/auth/service_test.go`（fake `UserStore`+`Repository`+固定时钟：枚举防护、锁定、轮换、重用检测、改密失效）。
+- 业务单测：`internal/user/service_test.go`（fake `Repository`：角色/归属/禁用撤销 token_version）、`internal/auth/service_test.go`（fake `UserStore`+`Repository`+固定时钟：枚举防护、锁定、轮换、重用检测、改密失效）、`internal/dict/service_test.go`（fake `Repository`：key 校验、停用过滤、Set/Update 整组替换、GetInto 类型解码）。
 - 认证原语：`internal/platform/authkit/authkit_test.go`（HS256 钉死、iss/exp、alg=none、typ 混淆、错误密钥、RBAC 表、中间件 401/403）。
-- 仓储：`internal/user/repository_test.go` 直接对 SQLite 测（软删、唯一冲突、分页）。
+- 仓储：`internal/user/repository_test.go`、`internal/dict/repository_test.go` 直接对 SQLite 测（软删、部分唯一索引、排序、整组替换）。
 - 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/Health，`httptest` 驱动）。
 - 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**：`app.SeedAdmin` → login → bearer → CRUD，覆盖匿名 401、member 403/越权、refresh 轮换与旧 cookie 重用、改密后旧 token 失效。
 - OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、`engine.Routes()` 完整性、禁用时 404、**受保护操作必须带 bearerAuth+401/403，公开端点不得带 security**）。
@@ -195,13 +227,37 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 9. **平台包 + 垂直切片（模块化单体）**：`platform/*` 为无业务叶子包（可独立单测），`web` 为无业务的传输层，每个业务域一个包（`user/`）内部按文件分层。包是**部署/测试边界**，文件是**代码分层**；不再为单个域维护 model/repository/service/handler 四个包。`web` 与域之间通过 `*routekit.Group` + `RegisterRoutes` 组合根挂载，避免循环依赖。
 10. **OpenAPI 代码优先（routekit）**：路由与 `routekit.Op` 元数据在同一次注册中登记，启动时反射生成 OpenAPI 3.0.3；不再使用 swag 注解。`httpx.Body` 的信封与 `apperr.Code` 的 HTTP 映射自动复用，响应 `data` 有真实类型。`docs/openapi.json` 是黄金文件，`TestOpenAPIGolden` 校验漂移；`TestOpenAPICoversAllRoutes` 保证 gin 路由与文档一一对应。选择 3.0.3 是为了兼容 Swagger UI 与主流客户端生成器。
 11. **JWT（HS256）+ 可吊销 refresh token + RBAC**：access token 无状态、15m、带 `ver`（users.token_version），改密/禁用即失效；refresh 为 32B 随机串、只存 SHA-256、每次轮换。**轮换是滑动的**（每次续满 `refresh_ttl`=30d），因此"活跃即长期在线"；`session_started_at` 跨轮换继承，把一次会话硬性封顶在 `refresh_max_lifetime`=90d。`refresh_reuse_interval`=30s 容忍多标签页并发轮换（否则一个标签页刷新会把另一个踢下线），容忍范围仅限 `revoked_reason=rotated`；登出/改密/禁用/重用检测/到期都是立即吊销。签名算法、issuer、过期时间在签发/校验两侧硬编码（`jwt.WithValidMethods`），杜绝 `alg=none`/算法混淆。refresh 放 `HttpOnly+SameSite=Strict` cookie、access 只存内存（前端不落 localStorage），降低 XSS 影响面。RBAC 用代码内静态表（admin/member → 权限字符串）：粗粒度守卫在 `authkit` 中间件，资源归属（本人）在 service，两处职责不重叠。
-12. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
+12. **字典/配置模型（group = setting + items = dict array）**：`dict_groups` 保存 setting 元数据（`group_key` 不可变），`dict_items` 保存有序数组元素（`item_key`、`label`、`value`、`value_type`、`sort_order`）。消费侧 `GET /dicts/:group` 只返回启用项；管理端按 group/item 做 CRUD。其他业务模块通过 `dict.Store` 的 `Set("seo", map)` / `Update("keywords", []any)` 做整组替换（事务内 upsert group + purge/insert items），`GetInto` 按 `value_type` 解码到 map/slice/struct。这样模板既支持"下拉字典"，也支持"对象/数组型 setting"，且不把 JSON blob 塞进单列。
+13. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
 
 ## 10. 扩展指南
 
 **新增领域模块**（详见 `.agents/skills/add-domain/SKILL.md`）：迁移 → `internal/<domain>/entity.go` → `repository.go`（接口+GORM 实现）→ `service.go` → `handler.go`（DTO+校验）→ `routes.go`（`RegisterRoutes(*routekit.Group, *Handler)` + `routekit.Op`）→ `app.NewWithDB` 装配 → 单测 + 集成测试 → `make openapi` → 前端 `cd web/admin && pnpm gen:api`。新增端点必须走 `routekit.Group`，不要直接挂 `*gin.RouterGroup`。
 
 **新增受保护端点**：把域挂到 `app.go` 的 `protected` 组（已带 `Security(bearerAuth)` + `Authenticate`），域内用 `rg.Group("", routekit.Middleware(authkit.RequirePermission(...)))` 声明权限；`Op.Errors` 里补 `CodeForbidden`（401 由 routekit 依据 security 自动补）。handler 用 `authkit.PrincipalFrom(c)` 取调用者，归属校验放 service。新增权限 → `authkit.Permission` 常量 + `rolePermissions` 表 + OpenAPI 测试的白名单/断言。
+
+**使用字典快捷方法**（业务模块依赖 `dict.Store`，由组合根注入 `*dict.Service`）：
+
+```go
+// 对象型 setting：字段 → items（key=字段名，label=字段名，value=字段值）
+_ = store.Set(ctx, "site.seo", map[string]any{"title": "Example", "robots": "index"})
+
+// 数组型 setting：元素按顺序落成 items，sort_order=下标
+_ = store.Update(ctx, "keywords", []any{"go", "gin", "gorm"})
+
+// 读：map / slice / struct 均可（按 value_type 解码；空 value 回落 key）
+var seo struct {
+    Title  string `json:"title"`
+    Robots string `json:"robots"`
+}
+_ = store.GetInto(ctx, "site.seo", &seo)
+
+items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
+```
+
+- `Set/Update` 的组不存在时自动创建（name=group_key，status=启用）；已存在则保留管理端维护的 name/description/status。
+- 整组替换会在同一事务里 purge 旧 items 再插入新 items；需要在同一事务里做业务写入时，把 `dict.Store` 调用放进调用方事务（当前接口未暴露 `*gorm.DB`，跨模块强一致需后续扩展 `Tx`）。
+- 不要绕过 service 直接写 `dict_*` 表；权限（`dicts:read/write`）只在 HTTP 适配层生效，内部调用是可信的。
 
 **新增配置项**：`config.go` 加字段 → `loader.go` `setDefaults` 加默认值 → `config.example.yaml`/`config.yaml` 同步 → 必要时加 Validate 分支。
 

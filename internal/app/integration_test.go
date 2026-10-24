@@ -15,6 +15,7 @@ import (
 
 	"github.com/example/go-web-template/internal/app"
 	"github.com/example/go-web-template/internal/auth"
+	"github.com/example/go-web-template/internal/dict"
 	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/testutil"
@@ -40,7 +41,7 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T, swaggerEnabled bool) *testEnv {
 	t.Helper()
-	db := testutil.NewSQLiteDB(t, &user.User{}, &auth.RefreshToken{})
+	db := testutil.NewSQLiteDB(t, &user.User{}, &auth.RefreshToken{}, &dict.Group{}, &dict.Item{})
 
 	cfg := config.Defaults()
 	cfg.RateLimit.Enabled = false
@@ -292,6 +293,8 @@ func TestAnonymousRequestsAreRejected(t *testing.T) {
 		{http.MethodPost, "/api/v1/users"},
 		{http.MethodGet, "/api/v1/users/1"},
 		{http.MethodGet, "/api/v1/auth/me"},
+		{http.MethodGet, "/api/v1/dicts/user.status"},
+		{http.MethodGet, "/api/v1/dict-groups"},
 	} {
 		w := doJSON(t, h, tc.method, tc.path, nil)
 		if w.Code != http.StatusUnauthorized {
@@ -547,6 +550,213 @@ func TestNoRoute(t *testing.T) {
 	w := doJSON(t, h, http.MethodGet, "/api/v1/nope", nil)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("no-route status = %d, want 404", w.Code)
+	}
+}
+
+func TestDictCRUD(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+
+	// Anonymous access is rejected before the handler runs.
+	if w := doJSON(t, h, http.MethodGet, "/api/v1/dicts/user.status", nil); w.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous dict read = %d, want 401", w.Code)
+	}
+
+	// Create a group (= setting).
+	w := doJSONAuth(t, h, http.MethodPost, "/api/v1/dict-groups", map[string]any{
+		"key": "user.status", "name": "User status", "description": "Account states",
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create group = %d, body=%s", w.Code, w.Body.String())
+	}
+	var group struct {
+		ID      uint64      `json:"id"`
+		Key     string      `json:"key"`
+		Status  dict.Status `json:"status"`
+		ItemCnt int64       `json:"item_count"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &group); err != nil {
+		t.Fatalf("decode group: %v", err)
+	}
+	if group.ID == 0 || group.Key != "user.status" || group.Status != dict.StatusEnabled {
+		t.Fatalf("created group = %+v", group)
+	}
+
+	// Group keys are unique.
+	w = doJSONAuth(t, h, http.MethodPost, "/api/v1/dict-groups", map[string]any{
+		"key": "user.status", "name": "Dup",
+	}, admin.accessToken)
+	if w.Code != http.StatusConflict {
+		t.Errorf("duplicate group = %d, want 409", w.Code)
+	}
+
+	// Create an item in the dict array.
+	w = doJSONAuth(t, h, http.MethodPost, fmt.Sprintf("/api/v1/dict-groups/%d/items", group.ID), map[string]any{
+		"key": "1", "label": "Active", "value": "1", "sort": 10,
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create item = %d, body=%s", w.Code, w.Body.String())
+	}
+	var item struct {
+		ID    uint64 `json:"id"`
+		Key   string `json:"key"`
+		Label string `json:"label"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &item); err != nil {
+		t.Fatalf("decode item: %v", err)
+	}
+	if item.ID == 0 || item.Key != "1" {
+		t.Fatalf("created item = %+v", item)
+	}
+
+	// Same key inside the same group conflicts.
+	w = doJSONAuth(t, h, http.MethodPost, fmt.Sprintf("/api/v1/dict-groups/%d/items", group.ID), map[string]any{
+		"key": "1", "label": "Dup",
+	}, admin.accessToken)
+	if w.Code != http.StatusConflict {
+		t.Errorf("duplicate item = %d, want 409", w.Code)
+	}
+
+	// Consumer read returns the dict array.
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/dicts/user.status", nil, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get dict values = %d, body=%s", w.Code, w.Body.String())
+	}
+	var values []struct {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &values); err != nil {
+		t.Fatalf("decode values: %v", err)
+	}
+	if len(values) != 1 || values[0].Key != "1" || values[0].Label != "Active" || values[0].Value != "1" {
+		t.Fatalf("values = %+v", values)
+	}
+
+	// Update the item.
+	w = doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/dict-items/%d", item.ID), map[string]any{
+		"label": "Enabled", "remark": "login allowed",
+	}, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update item = %d, body=%s", w.Code, w.Body.String())
+	}
+
+	// Disabled items disappear from the consumer array but stay visible to admin.
+	w = doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/dict-items/%d", item.ID), map[string]any{
+		"status": 0,
+	}, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("disable item = %d, body=%s", w.Code, w.Body.String())
+	}
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/dicts/user.status", nil, admin.accessToken)
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &values); err != nil {
+		t.Fatalf("decode values after disable: %v", err)
+	}
+	if len(values) != 0 {
+		t.Errorf("values after disable = %+v, want empty", values)
+	}
+	w = doJSONAuth(t, h, http.MethodGet, fmt.Sprintf("/api/v1/dict-groups/%d/items?include_disabled=true", group.ID), nil, admin.accessToken)
+	var adminItems []struct {
+		ID     uint64      `json:"id"`
+		Status dict.Status `json:"status"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &adminItems); err != nil {
+		t.Fatalf("decode admin items: %v", err)
+	}
+	if len(adminItems) != 1 || adminItems[0].Status != dict.StatusDisabled {
+		t.Errorf("admin items = %+v, want one disabled item", adminItems)
+	}
+
+	// Group detail reports the item count; disabling the group hides it.
+	w = doJSONAuth(t, h, http.MethodGet, fmt.Sprintf("/api/v1/dict-groups/%d", group.ID), nil, admin.accessToken)
+	var detail struct {
+		ItemCount int64 `json:"item_count"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &detail); err != nil {
+		t.Fatalf("decode group detail: %v", err)
+	}
+	if detail.ItemCount != 1 {
+		t.Errorf("item_count = %d, want 1", detail.ItemCount)
+	}
+	w = doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/dict-groups/%d", group.ID), map[string]any{
+		"status": 0,
+	}, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("disable group = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONAuth(t, h, http.MethodGet, "/api/v1/dicts/user.status", nil, admin.accessToken); w.Code != http.StatusNotFound {
+		t.Errorf("disabled group read = %d, want 404", w.Code)
+	}
+
+	// Delete item then group.
+	if w := doJSONAuth(t, h, http.MethodDelete, fmt.Sprintf("/api/v1/dict-items/%d", item.ID), nil, admin.accessToken); w.Code != http.StatusNoContent {
+		t.Errorf("delete item = %d, want 204", w.Code)
+	}
+	if w := doJSONAuth(t, h, http.MethodDelete, fmt.Sprintf("/api/v1/dict-groups/%d", group.ID), nil, admin.accessToken); w.Code != http.StatusNoContent {
+		t.Errorf("delete group = %d, want 204", w.Code)
+	}
+	if w := doJSONAuth(t, h, http.MethodGet, fmt.Sprintf("/api/v1/dict-groups/%d", group.ID), nil, admin.accessToken); w.Code != http.StatusNotFound {
+		t.Errorf("get deleted group = %d, want 404", w.Code)
+	}
+}
+
+func TestDictPermissions(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+
+	w := doJSONAuth(t, h, http.MethodPost, "/api/v1/dict-groups", map[string]any{
+		"key": "user.status", "name": "User status",
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create group = %d, body=%s", w.Code, w.Body.String())
+	}
+	var group struct {
+		ID uint64 `json:"id"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &group); err != nil {
+		t.Fatal(err)
+	}
+	w = doJSONAuth(t, h, http.MethodPost, fmt.Sprintf("/api/v1/dict-groups/%d/items", group.ID), map[string]any{
+		"key": "1", "label": "Active",
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create item = %d, body=%s", w.Code, w.Body.String())
+	}
+	var item struct {
+		ID uint64 `json:"id"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &item); err != nil {
+		t.Fatal(err)
+	}
+
+	// Members can consume dicts but cannot manage them.
+	memberID, _ := createUser(t, h, admin.accessToken, "Mia", memberEmail)
+	w = doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", memberID),
+		map[string]string{"password": memberPass}, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set member password = %d, body=%s", w.Code, w.Body.String())
+	}
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	if w := doJSONAuth(t, h, http.MethodGet, "/api/v1/dicts/user.status", nil, member.accessToken); w.Code != http.StatusOK {
+		t.Errorf("member read dict = %d, want 200", w.Code)
+	}
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/api/v1/dict-groups", nil},
+		{http.MethodPost, "/api/v1/dict-groups", map[string]any{"key": "x.y", "name": "X"}},
+		{http.MethodPatch, fmt.Sprintf("/api/v1/dict-items/%d", item.ID), map[string]any{"label": "Nope"}},
+		{http.MethodDelete, fmt.Sprintf("/api/v1/dict-groups/%d", group.ID), nil},
+	} {
+		if w := doJSONAuth(t, h, tc.method, tc.path, tc.body, member.accessToken); w.Code != http.StatusForbidden {
+			t.Errorf("member %s %s = %d, want 403", tc.method, tc.path, w.Code)
+		}
 	}
 }
 

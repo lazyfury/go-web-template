@@ -9,10 +9,13 @@ var rolePermissions = map[Role][]Permission{
 		PermUsersRead,
 		PermUsersWrite,
 		PermUsersDelete,
+		PermDictsRead,
+		PermDictsWrite,
 	},
 	RoleMember: {
 		PermUsersReadSelf,
 		PermUsersWriteSelf,
+		PermDictsRead,
 	},
 }
 

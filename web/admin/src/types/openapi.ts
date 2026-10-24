@@ -98,6 +98,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dict-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List dict groups with pagination and keyword filter (admin) */
+        get: operations["listDictGroups"];
+        put?: never;
+        /** Create a dict group (admin) */
+        post: operations["createDictGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dict-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a dict group by id (admin) */
+        get: operations["getDictGroup"];
+        put?: never;
+        post?: never;
+        /** Delete a dict group and its items (soft delete, admin) */
+        delete: operations["deleteDictGroup"];
+        options?: never;
+        head?: never;
+        /** Update a dict group's name/description/status (admin) */
+        patch: operations["updateDictGroup"];
+        trace?: never;
+    };
+    "/dict-groups/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all items of a group, including disabled ones (admin) */
+        get: operations["listDictItems"];
+        put?: never;
+        /** Create an item in a group (admin) */
+        post: operations["createDictItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dict-items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a dict item (soft delete, admin) */
+        delete: operations["deleteDictItem"];
+        options?: never;
+        head?: never;
+        /** Update a dict item (admin) */
+        patch: operations["updateDictItem"];
+        trace?: never;
+    };
+    "/dicts/{group}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the enabled dict array of a group */
+        get: operations["getDictValues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -143,6 +233,31 @@ export interface components {
             current_password: string;
             new_password: string;
         };
+        CreateGroupRequest: {
+            description?: string;
+            key: string;
+            name: string;
+            /**
+             * Format: int32
+             * @enum {integer|null}
+             */
+            status?: 0 | 1 | null;
+        };
+        CreateItemRequest: {
+            key: string;
+            label?: string;
+            remark?: string;
+            /** Format: int32 */
+            sort?: number;
+            /**
+             * Format: int32
+             * @enum {integer|null}
+             */
+            status?: 0 | 1 | null;
+            value?: string;
+            /** @enum {string} */
+            value_type?: "string" | "number" | "boolean" | "json";
+        };
         CreateRequest: {
             /** Format: email */
             email: string;
@@ -150,6 +265,56 @@ export interface components {
             password: string;
             /** @enum {string} */
             role?: "admin" | "member";
+        };
+        GroupDTO: {
+            /** Format: date-time */
+            created_at: string;
+            description: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            item_count: number;
+            key: string;
+            name: string;
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            status: 0 | 1;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        GroupListResponse: {
+            items: components["schemas"]["GroupDTO"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+        };
+        ItemDTO: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            group_id: number;
+            /** Format: int64 */
+            id: number;
+            key: string;
+            label: string;
+            remark: string;
+            /** Format: int32 */
+            sort: number;
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            status: 0 | 1;
+            /** Format: date-time */
+            updated_at: string;
+            value: string;
+            /** @enum {string} */
+            value_type: "string" | "number" | "boolean" | "json";
         };
         ListResponse: {
             items: components["schemas"]["UserDTO"][];
@@ -172,6 +337,30 @@ export interface components {
             refresh_token?: string;
             token_type: string;
             user: components["schemas"]["UserView"];
+        };
+        UpdateGroupRequest: {
+            description?: string | null;
+            name?: string | null;
+            /**
+             * Format: int32
+             * @enum {integer|null}
+             */
+            status?: 0 | 1 | null;
+        };
+        UpdateItemRequest: {
+            key?: string | null;
+            label?: string | null;
+            remark?: string | null;
+            /** Format: int32 */
+            sort?: number | null;
+            /**
+             * Format: int32
+             * @enum {integer|null}
+             */
+            status?: 0 | 1 | null;
+            value?: string | null;
+            /** @enum {string|null} */
+            value_type?: "string" | "number" | "boolean" | "json" | null;
         };
         UpdateRequest: {
             /** Format: email */
@@ -509,6 +698,370 @@ export interface operations {
             };
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    listDictGroups: {
+        parameters: {
+            query?: {
+                /** @description Page number (default 1) */
+                page?: number;
+                /** @description Page size (default 20, max 100) */
+                page_size?: number;
+                /** @description Keyword matched against key/name */
+                keyword?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description group page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["GroupListResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    createDictGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description created group */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["GroupDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            409: components["responses"]["Error409"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getDictGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description group */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["GroupDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    deleteDictGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    updateDictGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description updated group */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["GroupDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    listDictItems: {
+        parameters: {
+            query?: {
+                /** @description Include disabled items (default false) */
+                include_disabled?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Group ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description group items */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["ItemDTO"][];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    createDictItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateItemRequest"];
+            };
+        };
+        responses: {
+            /** @description created item */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["ItemDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    deleteDictItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Item ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    updateDictItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Item ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateItemRequest"];
+            };
+        };
+        responses: {
+            /** @description updated item */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["ItemDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getDictValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group key, e.g. user.status */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description dict array ordered by sort */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["ItemDTO"][];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];

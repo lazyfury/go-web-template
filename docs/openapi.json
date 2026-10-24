@@ -17,6 +17,10 @@
       "description": "Authentication: password login, JWT access token, refresh-token rotation"
     },
     {
+      "name": "dicts",
+      "description": "Dictionaries and settings (group = setting, items = dict array)"
+    },
+    {
       "name": "users",
       "description": "User management (authenticated, RBAC)"
     }
@@ -311,6 +315,788 @@
             "$ref": "#/components/responses/Error500"
           }
         }
+      }
+    },
+    "/dict-groups": {
+      "get": {
+        "operationId": "listDictGroups",
+        "summary": "List dict groups with pagination and keyword filter (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (default 1)",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "Page size (default 20, max 100)",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "description": "Keyword matched against key/name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "group page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GroupListResponse"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createDictGroup",
+        "summary": "Create a dict group (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGroupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "created group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GroupDTO"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/dict-groups/{id}": {
+      "get": {
+        "operationId": "getDictGroup",
+        "summary": "Get a dict group by id (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GroupDTO"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "deleteDictGroup",
+        "summary": "Delete a dict group and its items (soft delete, admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updateDictGroup",
+        "summary": "Update a dict group's name/description/status (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGroupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "updated group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GroupDTO"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/dict-groups/{id}/items": {
+      "get": {
+        "operationId": "listDictItems",
+        "summary": "List all items of a group, including disabled ones (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "include_disabled",
+            "in": "query",
+            "description": "Include disabled items (default false)",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "group items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ItemDTO"
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createDictItem",
+        "summary": "Create an item in a group (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "created item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ItemDTO"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/dict-items/{id}": {
+      "delete": {
+        "operationId": "deleteDictItem",
+        "summary": "Delete a dict item (soft delete, admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updateDictItem",
+        "summary": "Update a dict item (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "updated item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ItemDTO"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/dicts/{group}": {
+      "get": {
+        "operationId": "getDictValues",
+        "summary": "Get the enabled dict array of a group",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "Group key, e.g. user.status",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "dict array ordered by sort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ItemDTO"
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/users": {
@@ -717,6 +1503,84 @@
           "new_password"
         ]
       },
+      "CreateGroupRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "key": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ]
+      },
+      "CreateItemRequest": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "remark": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "sort": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ],
+            "nullable": true
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "value_type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "number",
+              "boolean",
+              "json"
+            ]
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
       "CreateRequest": {
         "type": "object",
         "properties": {
@@ -747,6 +1611,153 @@
           "name",
           "email",
           "password"
+        ]
+      },
+      "GroupDTO": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "item_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "description",
+          "status",
+          "item_count",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "GroupListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupDTO"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ]
+      },
+      "ItemDTO": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "group_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "remark": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "value": {
+            "type": "string"
+          },
+          "value_type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "number",
+              "boolean",
+              "json"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "group_id",
+          "key",
+          "label",
+          "value",
+          "value_type",
+          "sort",
+          "status",
+          "remark",
+          "created_at",
+          "updated_at"
         ]
       },
       "ListResponse": {
@@ -823,6 +1834,82 @@
           "expires_in",
           "user"
         ]
+      },
+      "UpdateGroupRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "name": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "UpdateItemRequest": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "label": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "remark": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "sort": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ],
+            "nullable": true
+          },
+          "value": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1024
+          },
+          "value_type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "number",
+              "boolean",
+              "json"
+            ],
+            "nullable": true
+          }
+        }
       },
       "UpdateRequest": {
         "type": "object",
