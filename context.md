@@ -17,7 +17,7 @@
                        ┌──────────────────────────── HTTP :8080 ─────────────────────────────┐
                        │                                                                     │
   cmd/server/main ───► │  internal/web   (engine + 中间件链 + 探针 + 优雅停机)                │
-                       │    │ Recovery → RequestID → Logger → CORS → Metrics                 │
+                       │    │ Recovery → RequestID → Logger → SecurityHeaders → CORS → …      │
                        │    │ /api/v1 组: RateLimit → Timeout(ctx deadline)                  │
                        │    ▼                                                               │
                        │  internal/auth   (登录/JWT/refresh 轮换：同包分文件)      │
@@ -96,7 +96,7 @@ message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
 - `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
 - 显式 `-config` 缺失 → 启动失败；默认路径缺失 → 用默认值 + env。
-- 生产建议：密钥走环境变量/密钥管理；`APP_DEBUG=false`、CORS 收紧、`APP_LOG_FORMAT=json`。
+- 生产建议：密钥走环境变量/密钥管理；`APP_DEBUG=false`、CORS 收紧、`APP_LOG_FORMAT=json`；反代终止 TLS（此时 `SecurityHeaders` 会带 HSTS）。
 - `deploy/docker-compose.yml` 是生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地看文档用 `APP_SWAGGER_ENABLED=true make docker-up`。
 
 ## 5. 数据模型与迁移
@@ -232,7 +232,9 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 
 ## 7. 中间件与可观测性
 
-- 链路：`Recovery → RequestID → Logger → CORS → Metrics → BodyLimit → (v1: RateLimit → Timeout)`；受保护子组再叠加 `Authenticate → RequirePermission`（`authkit`）。`BodyLimit` 按 `http.max_body_bytes`（默认 1 MiB）拒绝过大请求体。
+- 链路：`Recovery → RequestID → Logger → SecurityHeaders → CORS → Metrics → BodyLimit → (v1: NoStore → RateLimit → Timeout)`；受保护子组再叠加 `Authenticate → RequirePermission`（`authkit`）。`BodyLimit` 按 `http.max_body_bytes`（默认 1 MiB）拒绝过大请求体。
+- `SecurityHeaders`：`X-Content-Type-Options: nosniff` + `X-Frame-Options: DENY` + `Referrer-Policy: no-referrer`，`Strict-Transport-Security` 只在 `app.env=production` 发送（假定 TLS 终止在反代）。
+- `NoStore`：`/api/v1/*` 一律 `Cache-Control: no-store`（响应体里有 access token 与用户数据，不得被代理/浏览器缓存）。
 - 访问日志在已认证请求上追加 `user_id`（未认证不输出），便于按用户排查；**不记录** `Authorization`/密码/token。
 - `X-Request-ID`：入站复用或生成 UUID；响应头回写；访问日志与错误响应体（`request_id` 字段）均携带；错误响应统一经 `httpx.Fail`/`httpx.Error` 生成。
 - 指标：`http_requests_total{method,path,status}`、`http_request_duration_seconds{method,path}`、`http_requests_in_flight`；path 用路由模式（`/api/v1/users/:id`），未匹配路由固定记为 `unmatched`（避免扫描器打爆基数）。
@@ -247,7 +249,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 业务单测：`internal/user/service_test.go`（fake `Repository`：角色/归属/禁用撤销 token_version）、`internal/auth/service_test.go`（fake `UserStore`+`Repository`+固定时钟：枚举防护、锁定、轮换、重用检测、改密失效）、`internal/dict/service_test.go`（fake `Repository`：key 校验、停用过滤、Replace 整组替换、GetInto 类型解码）、`internal/message/service_test.go`（fake `Repository`+`Directory`：audience 校验、多 channel 草稿、模板渲染、管理员权限）。
 - 认证原语：`internal/platform/authkit/authkit_test.go`（HS256 钉死、iss/exp、alg=none、typ 混淆、错误密钥、RBAC 表、中间件 401/403）。
 - 仓储：`internal/user/repository_test.go`、`internal/dict/repository_test.go`、`internal/message/repository_test.go` 直接对 SQLite 测（软删、部分唯一索引、排序、收件箱分页、投递租约/重试）。
-- 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/Health，`httptest` 驱动）。
+- 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/SecurityHeaders/NoStore/Health，`httptest` 驱动）；`internal/app` 另有一条接线断言（安全头与 `no-store` 真的挂在 router 上）。
 - 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**：`app.SeedAdmin` → login → bearer → CRUD，覆盖匿名 401、member 403/越权、refresh 轮换与旧 cookie 重用、改密后旧 token 失效、消息收件箱/多 channel 投递/模板渲染。
 - OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、`engine.Routes()` 完整性、禁用时 404、**受保护操作必须带 bearerAuth+401/403，公开端点不得带 security**）。
 - 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移，`pnpm build` 做 vue-tsc + vite 构建。

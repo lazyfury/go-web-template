@@ -1197,3 +1197,38 @@ func containsPermission(perms []authkit.Permission, want authkit.Permission) boo
 	}
 	return false
 }
+
+// TestSecurityHeadersAndNoStoreAreWired 保证中间件真的接在 router 上（单元测试
+// 只覆盖中间件本身，接线漏了照样是 0 保护）。
+func TestSecurityHeadersAndNoStoreAreWired(t *testing.T) {
+	env := newTestEnv(t, false)
+
+	api := doJSON(t, env.handler, http.MethodGet, "/api/v1/auth/me", nil)
+	if api.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous /auth/me = %d, want 401", api.Code)
+	}
+	for name, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "no-referrer",
+		"Cache-Control":          "no-store",
+	} {
+		if got := api.Header().Get(name); got != want {
+			t.Errorf("api %s = %q, want %q", name, got, want)
+		}
+	}
+	if got := api.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("HSTS outside production = %q, want empty", got)
+	}
+
+	ops := doJSON(t, env.handler, http.MethodGet, "/healthz", nil)
+	if ops.Code != http.StatusOK {
+		t.Fatalf("/healthz = %d, want 200", ops.Code)
+	}
+	if got := ops.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("healthz X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := ops.Header().Get("Cache-Control"); got != "" {
+		t.Errorf("healthz Cache-Control = %q, want empty (probes are not API payloads)", got)
+	}
+}

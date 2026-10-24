@@ -48,6 +48,9 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string)
 		Recovery(logger),
 		RequestID(),
 		Logger(logger),
+		// Security headers run before CORS so even a rejected preflight carries
+		// nosniff/XFO; HSTS only when the deployment terminates TLS (production).
+		SecurityHeaders(cfg.IsProduction()),
 		CORS(&cfg.CORS),
 		Metrics(),
 		BodyLimit(cfg.HTTPServer.MaxBodyBytes),
@@ -62,6 +65,8 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string)
 	// API v1. RateLimit stays outermost so abusive clients are rejected before
 	// consuming a request deadline.
 	ginV1 := r.Group("/api/v1",
+		// API payloads carry access tokens and per-user data: never cache them.
+		NoStore(),
 		RateLimit(cfg.RateLimit.Enabled, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
 		Timeout(cfg.HTTPServer.RequestTimeout),
 	)
