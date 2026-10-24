@@ -29,11 +29,11 @@ type Patch struct {
 	Status   *Status
 }
 
-// SessionRevoker revokes every refresh session of a user. It is satisfied by
-// auth.Repository; defining it here keeps the dependency one-way (user does not
-// import auth) and lets tests pass a fake.
+// SessionRevoker revokes every refresh session of a user. The composition root
+// adapts auth.Repository to this one-method interface, keeping the dependency
+// one-way (user does not import auth) and the tests trivial.
 type SessionRevoker interface {
-	RevokeAllForUser(ctx context.Context, userID uint64) error
+	RevokeUserSessions(ctx context.Context, userID uint64) error
 }
 
 // Service implements the user use-cases. It depends on the Repository
@@ -183,7 +183,7 @@ func (s *Service) Update(ctx context.Context, actor authkit.Principal, id uint64
 		// otherwise a stolen refresh token could mint tokens after the change.
 		credentialsOrStatusChanged := patch.Password != nil || patch.Status != nil
 		if credentialsOrStatusChanged && s.revoker != nil {
-			if err := s.revoker.RevokeAllForUser(ctx, user.ID); err != nil {
+			if err := s.revoker.RevokeUserSessions(ctx, user.ID); err != nil {
 				return nil, err
 			}
 		}

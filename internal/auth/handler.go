@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,17 @@ const RefreshCookieName = "gw_refresh"
 
 // refreshCookiePath scopes the cookie to the auth endpoints.
 const refreshCookiePath = "/api/v1/auth"
+
+// Headers used by non-browser clients (CLI, mobile, service-to-service) that
+// cannot rely on cookies. Browsers never send them, so the cookie path stays
+// the default and the refresh token never reaches JavaScript.
+const (
+	// RefreshTokenHeader carries the refresh token on refresh/logout.
+	RefreshTokenHeader = "X-Refresh-Token"
+	// RefreshTransportHeader opts a login into returning refresh_token in the
+	// JSON body (value "body"). Without it the token is cookie-only.
+	RefreshTransportHeader = "X-Refresh-Transport"
+)
 
 // Handler exposes the auth use-cases over HTTP.
 type Handler struct {
@@ -50,14 +62,17 @@ func (h *Handler) Login(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	h.setRefreshCookie(c, session)
-	httpx.OK(c, loginResponse(session))
+	bodyTransport := wantsBodyTransport(c)
+	if !bodyTransport {
+		h.setRefreshCookie(c, session)
+	}
+	httpx.OK(c, loginResponse(session, bodyTransport))
 }
 
 // Refresh handles POST /api/v1/auth/refresh.
 func (h *Handler) Refresh(c *gin.Context) {
-	raw, err := c.Cookie(RefreshCookieName)
-	if err != nil || raw == "" {
+	raw, bodyTransport := refreshTokenFrom(c)
+	if raw == "" {
 		httpx.Fail(c, apperr.New(apperr.CodeUnauthorized, "missing refresh token"))
 		return
 	}
@@ -66,17 +81,22 @@ func (h *Handler) Refresh(c *gin.Context) {
 		IP:        c.ClientIP(),
 	})
 	if err != nil {
-		h.clearRefreshCookie(c)
+		if !bodyTransport {
+			h.clearRefreshCookie(c)
+		}
 		httpx.Fail(c, err)
 		return
 	}
-	h.setRefreshCookie(c, session)
-	httpx.OK(c, loginResponse(session))
+	if !bodyTransport {
+		h.setRefreshCookie(c, session)
+	}
+	httpx.OK(c, loginResponse(session, bodyTransport))
 }
 
 // Logout handles POST /api/v1/auth/logout.
 func (h *Handler) Logout(c *gin.Context) {
-	if raw, err := c.Cookie(RefreshCookieName); err == nil && raw != "" {
+	raw, _ := refreshTokenFrom(c)
+	if raw != "" {
 		if err := h.svc.Logout(c.Request.Context(), raw); err != nil {
 			httpx.Fail(c, err)
 			return
@@ -136,13 +156,37 @@ func (h *Handler) clearRefreshCookie(c *gin.Context) {
 	c.SetCookie(RefreshCookieName, "", -1, refreshCookiePath, "", h.cookieSecure, true)
 }
 
-func loginResponse(session *Session) LoginResponse {
-	return LoginResponse{
+func loginResponse(session *Session, bodyTransport bool) LoginResponse {
+	response := LoginResponse{
 		AccessToken: session.AccessToken,
 		TokenType:   "Bearer",
 		ExpiresIn:   session.AccessExpiresIn,
 		User:        userView(session.User),
 	}
+	if bodyTransport {
+		response.RefreshToken = session.RefreshToken
+	}
+	return response
+}
+
+// wantsBodyTransport reports whether a non-browser client asked for the refresh
+// token in the response body instead of a cookie.
+func wantsBodyTransport(c *gin.Context) bool {
+	return strings.EqualFold(c.GetHeader(RefreshTransportHeader), "body")
+}
+
+// refreshTokenFrom prefers the explicit header (non-browser clients) and falls
+// back to the HttpOnly cookie. The bool reports whether the body transport was
+// used, which decides how the rotated token is returned.
+func refreshTokenFrom(c *gin.Context) (string, bool) {
+	if raw := strings.TrimSpace(c.GetHeader(RefreshTokenHeader)); raw != "" {
+		return raw, true
+	}
+	raw, err := c.Cookie(RefreshCookieName)
+	if err != nil {
+		return "", false
+	}
+	return raw, wantsBodyTransport(c)
 }
 
 func userView(account *user.User) UserView {

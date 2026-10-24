@@ -20,17 +20,25 @@ func RegisterRoutes(rg *routekit.Group, h *Handler, loginGuards ...gin.HandlerFu
 		Summary: "Exchange email and password for a JWT access token",
 		Description: "Sets an HttpOnly refresh cookie and returns the access token. " +
 			"Failures are deliberately uniform (401 invalid credentials) to avoid user enumeration.",
-		Request:   routekit.JSON[LoginRequest](true),
+		Request: routekit.JSON[LoginRequest](true),
+		Params: []routekit.Param{
+			routekit.Header[string](RefreshTransportHeader, `set to "body" for non-browser clients (refresh token in the response body instead of a cookie)`, false),
+		},
 		Responses: []routekit.Response{routekit.OK[LoginResponse]("authenticated")},
 		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeUnauthorized, apperr.CodeForbidden},
 	}, h.Login)
 
 	authGroup.POST("/refresh", &routekit.Op{
-		ID:          "refreshToken",
-		Summary:     "Rotate the refresh cookie and issue a new access token",
-		Description: "The presented refresh token is revoked and replaced. Reusing a revoked token revokes every session of that user.",
-		Responses:   []routekit.Response{routekit.OK[LoginResponse]("rotated session")},
-		Errors:      []apperr.Code{apperr.CodeUnauthorized, apperr.CodeForbidden},
+		ID:      "refreshToken",
+		Summary: "Rotate the refresh cookie and issue a new access token",
+		Description: "The presented refresh token is revoked and replaced. Token rotation is slid: an actively used session never has to sign in again, up to auth.refresh_max_lifetime. " +
+			"A token replayed within auth.refresh_reuse_interval is tolerated (multi-tab race); outside that window it revokes every session. " +
+			"Browsers use the HttpOnly cookie; non-browser clients may send X-Refresh-Token and receive the rotated token in the body.",
+		Params: []routekit.Param{
+			routekit.Header[string](RefreshTokenHeader, "refresh token for non-browser clients (cookie alternative)", false),
+		},
+		Responses: []routekit.Response{routekit.OK[LoginResponse]("rotated session")},
+		Errors:    []apperr.Code{apperr.CodeUnauthorized, apperr.CodeForbidden},
 	}, h.Refresh)
 }
 
@@ -40,8 +48,11 @@ func RegisterProtectedRoutes(rg *routekit.Group, h *Handler) {
 	authGroup := rg.Group("/auth", routekit.Tags("auth"), routekit.Security(routekit.BearerAuth))
 
 	authGroup.POST("/logout", &routekit.Op{
-		ID:        "logout",
-		Summary:   "Revoke the current refresh session",
+		ID:      "logout",
+		Summary: "Revoke the current refresh session (immediate, never tolerated inside the reuse interval)",
+		Params: []routekit.Param{
+			routekit.Header[string](RefreshTokenHeader, "refresh token for non-browser clients (cookie alternative)", false),
+		},
 		Responses: []routekit.Response{routekit.NoContent()},
 	}, h.Logout)
 

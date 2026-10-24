@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -60,7 +61,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.jwt_secret", "")
 	v.SetDefault("auth.issuer", "go-web-template")
 	v.SetDefault("auth.access_ttl", "15m")
-	v.SetDefault("auth.refresh_ttl", "168h")
+	v.SetDefault("auth.refresh_ttl", "720h")
+	v.SetDefault("auth.refresh_max_lifetime", "2160h")
+	v.SetDefault("auth.refresh_reuse_interval", "30s")
 	v.SetDefault("auth.bcrypt_cost", 12)
 	v.SetDefault("auth.login_max_attempts", 5)
 	v.SetDefault("auth.login_lockout", "15m")
@@ -202,6 +205,12 @@ func (c *Config) validateAuth() error {
 	}
 	if c.Auth.RefreshTTL <= c.Auth.AccessTTL {
 		return fmt.Errorf("auth.refresh_ttl must be greater than auth.access_ttl")
+	}
+	if c.Auth.RefreshMaxLifetime < c.Auth.RefreshTTL {
+		return fmt.Errorf("auth.refresh_max_lifetime must be >= auth.refresh_ttl")
+	}
+	if c.Auth.RefreshReuseInterval < 0 || c.Auth.RefreshReuseInterval > time.Minute {
+		return fmt.Errorf("auth.refresh_reuse_interval must be between 0 and 1m")
 	}
 	if c.Auth.BcryptCost < 10 || c.Auth.BcryptCost > 14 {
 		return fmt.Errorf("auth.bcrypt_cost must be between 10 and 14")

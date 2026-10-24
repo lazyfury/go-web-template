@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -30,9 +31,14 @@ type UserStore interface {
 
 // Options tunes the token lifetimes and lockout policy.
 type Options struct {
-	RefreshTTL       time.Duration
-	MaxLoginAttempts int
-	Lockout          time.Duration
+	RefreshTTL time.Duration
+	// RefreshMaxLifetime caps one whole session (from login), regardless of
+	// how often it is rotated.
+	RefreshMaxLifetime time.Duration
+	// RefreshReuseInterval tolerates replay of a just-rotated token.
+	RefreshReuseInterval time.Duration
+	MaxLoginAttempts     int
+	Lockout              time.Duration
 }
 
 // ClientMeta is request context stored with a refresh session for auditing.
@@ -54,21 +60,24 @@ type Session struct {
 	AccessToken      string
 	AccessExpiresIn  int64
 	RefreshToken     string
+	RefreshTokenID   uint64
 	RefreshExpiresAt time.Time
 	User             *user.User
 }
 
 // Service implements authentication and implements authkit.Verifier.
 type Service struct {
-	users       UserStore
-	tokens      Repository
-	issuer      *authkit.TokenIssuer
-	hasher      *passwd.Hasher
-	logger      *zap.Logger
-	refreshTTL  time.Duration
-	maxAttempts int
-	lockout     time.Duration
-	now         func() time.Time
+	users         UserStore
+	tokens        Repository
+	issuer        *authkit.TokenIssuer
+	hasher        *passwd.Hasher
+	logger        *zap.Logger
+	refreshTTL    time.Duration
+	maxLifetime   time.Duration
+	reuseInterval time.Duration
+	maxAttempts   int
+	lockout       time.Duration
+	now           func() time.Time
 }
 
 // NewService wires the auth use-cases.
@@ -84,15 +93,17 @@ func NewService(
 		logger = zap.NewNop()
 	}
 	return &Service{
-		users:       users,
-		tokens:      tokens,
-		issuer:      issuer,
-		hasher:      hasher,
-		logger:      logger,
-		refreshTTL:  options.RefreshTTL,
-		maxAttempts: options.MaxLoginAttempts,
-		lockout:     options.Lockout,
-		now:         time.Now,
+		users:         users,
+		tokens:        tokens,
+		issuer:        issuer,
+		hasher:        hasher,
+		logger:        logger,
+		refreshTTL:    options.RefreshTTL,
+		maxLifetime:   options.RefreshMaxLifetime,
+		reuseInterval: options.RefreshReuseInterval,
+		maxAttempts:   options.MaxLoginAttempts,
+		lockout:       options.Lockout,
+		now:           time.Now,
 	}
 }
 
@@ -116,8 +127,10 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 	}
 
 	if account.LockedUntil != nil && s.now().Before(*account.LockedUntil) {
+		remaining := account.LockedUntil.Sub(s.now()).Round(time.Second)
 		s.logger.Warn("login failed", zap.String("reason", "locked"), zap.Uint64("user_id", account.ID))
-		return nil, apperr.New(apperr.CodeForbidden, "account temporarily locked, try again later")
+		return nil, apperr.New(apperr.CodeForbidden,
+			fmt.Sprintf("account temporarily locked, retry in %s", remaining))
 	}
 	if !account.IsActive() {
 		s.logger.Warn("login failed", zap.String("reason", "disabled"), zap.Uint64("user_id", account.ID))
@@ -136,12 +149,21 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		return nil, err
 	}
 	s.logger.Info("login succeeded", zap.Uint64("user_id", account.ID), zap.String("role", string(account.Role)))
-	return s.startSession(ctx, account, in.ClientMeta)
+	return s.startSession(ctx, account, in.ClientMeta, now)
 }
 
 // Refresh rotates a refresh token: the presented token is revoked and a new
-// one is issued. Reusing an already-revoked token is treated as theft and
-// revokes every session of that user.
+// one is issued. Two security controls sit around that rotation:
+//
+//   - reuse interval: a token rotated away less than RefreshReuseInterval ago
+//     is tolerated (several tabs sharing one cookie jar race on startup). The
+//     replay still gets a fresh token, but every sibling token is revoked so
+//     the number of live tokens stays bounded.
+//   - absolute session cap: SessionStartedAt is carried across rotations, so a
+//     session cannot outlive RefreshMaxLifetime even if it is used constantly.
+//
+// Outside the reuse window an already-revoked token is treated as theft and
+// every session of that user is revoked.
 func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta) (*Session, error) {
 	if rawToken == "" {
 		return nil, apperr.New(apperr.CodeUnauthorized, "missing refresh token")
@@ -154,16 +176,16 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 		return nil, err
 	}
 
-	if stored.RevokedAt != nil {
-		// Reuse detection: the token was already rotated or revoked.
-		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID); err != nil {
+	now := s.now()
+	if !now.Before(stored.ExpiresAt) {
+		return nil, apperr.New(apperr.CodeUnauthorized, "refresh token expired")
+	}
+	if s.sessionExpired(stored, now) {
+		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, now, RevokeSessionCap); err != nil {
 			return nil, err
 		}
-		s.logger.Error("refresh token reuse detected; all sessions revoked", zap.Uint64("user_id", stored.UserID))
-		return nil, apperr.New(apperr.CodeUnauthorized, "invalid refresh token")
-	}
-	if !s.now().Before(stored.ExpiresAt) {
-		return nil, apperr.New(apperr.CodeUnauthorized, "refresh token expired")
+		s.logger.Info("session reached its absolute lifetime", zap.Uint64("user_id", stored.UserID))
+		return nil, apperr.New(apperr.CodeUnauthorized, "session expired, please sign in again")
 	}
 
 	account, err := s.users.FindByID(ctx, stored.UserID)
@@ -177,19 +199,71 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 		return nil, apperr.New(apperr.CodeUnauthorized, "account disabled")
 	}
 
-	revoked, err := s.tokens.RevokeIfActive(ctx, stored.ID)
+	if stored.RevokedAt != nil {
+		if s.withinReuseInterval(stored, now) {
+			return s.toleratedReplay(ctx, account, meta, stored, now)
+		}
+		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, now, RevokeReuse); err != nil {
+			return nil, err
+		}
+		s.logger.Error("refresh token reuse detected; all sessions revoked", zap.Uint64("user_id", stored.UserID))
+		return nil, apperr.New(apperr.CodeUnauthorized, "invalid refresh token")
+	}
+
+	revoked, err := s.tokens.RevokeIfActive(ctx, stored.ID, now, RevokeRotated)
 	if err != nil {
 		return nil, err
 	}
 	if !revoked {
-		// Lost the race against a concurrent refresh: treat as reuse.
-		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID); err != nil {
+		// Lost the race against a concurrent rotate. Re-read the row: if it was
+		// just revoked we are inside the reuse window and can continue.
+		reloaded, findErr := s.tokens.FindByHash(ctx, hashToken(rawToken))
+		if findErr == nil && reloaded.RevokedAt != nil && s.withinReuseInterval(reloaded, now) {
+			return s.toleratedReplay(ctx, account, meta, reloaded, now)
+		}
+		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, now, RevokeReuse); err != nil {
 			return nil, err
 		}
 		s.logger.Error("concurrent refresh token rotation; all sessions revoked", zap.Uint64("user_id", stored.UserID))
 		return nil, apperr.New(apperr.CodeUnauthorized, "invalid refresh token")
 	}
-	return s.startSession(ctx, account, meta)
+	return s.startSession(ctx, account, meta, stored.SessionStartedAt)
+}
+
+// toleratedReplay issues a fresh session for a token replayed inside the reuse
+// window and revokes sibling tokens, keeping exactly one live refresh token.
+func (s *Service) toleratedReplay(ctx context.Context, account *user.User, meta ClientMeta, stored *RefreshToken, now time.Time) (*Session, error) {
+	session, err := s.startSession(ctx, account, meta, stored.SessionStartedAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.tokens.RevokeOthersForUser(ctx, account.ID, session.RefreshTokenID, now, RevokeSuperseded); err != nil {
+		return nil, err
+	}
+	s.logger.Warn("refresh token replay tolerated inside the reuse interval",
+		zap.Uint64("user_id", account.ID), zap.Duration("reuse_interval", s.reuseInterval))
+	return session, nil
+}
+
+// withinReuseInterval only tolerates tokens revoked by a rotation. Logout,
+// password changes, reuse detection and session-cap revocation are immediate:
+// otherwise a just-logged-out token could resurrect the session.
+func (s *Service) withinReuseInterval(token *RefreshToken, now time.Time) bool {
+	if token.RevokedAt == nil || token.RevokedReason != RevokeRotated || s.reuseInterval <= 0 {
+		return false
+	}
+	return now.Sub(*token.RevokedAt) <= s.reuseInterval
+}
+
+func (s *Service) sessionExpired(token *RefreshToken, now time.Time) bool {
+	if s.maxLifetime <= 0 {
+		return false
+	}
+	started := token.SessionStartedAt
+	if started.IsZero() {
+		started = token.CreatedAt
+	}
+	return !now.Before(started.Add(s.maxLifetime))
 }
 
 // Logout revokes the presented refresh token. It is idempotent.
@@ -204,7 +278,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.tokens.RevokeIfActive(ctx, stored.ID); err != nil {
+	if _, err := s.tokens.RevokeIfActive(ctx, stored.ID, s.now(), RevokeLogout); err != nil {
 		return err
 	}
 	return nil
@@ -263,7 +337,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint64, currentPass
 	if err := s.users.SaveAuthState(ctx, account); err != nil {
 		return err
 	}
-	if err := s.tokens.RevokeAllForUser(ctx, account.ID); err != nil {
+	if err := s.tokens.RevokeAllForUser(ctx, account.ID, now, RevokePassword); err != nil {
 		return err
 	}
 	s.logger.Info("password changed", zap.Uint64("user_id", account.ID))
@@ -313,7 +387,7 @@ func (s *Service) SeedAdmin(ctx context.Context, name, email, password string, r
 		return nil, err
 	}
 	// A credential reset must invalidate previous sessions.
-	if err := s.tokens.RevokeAllForUser(ctx, account.ID); err != nil {
+	if err := s.tokens.RevokeAllForUser(ctx, account.ID, now, RevokePassword); err != nil {
 		return nil, err
 	}
 	return account, nil
@@ -337,7 +411,8 @@ func (s *Service) recordFailure(ctx context.Context, account *user.User) {
 }
 
 // startSession issues an access token and persists a refresh session.
-func (s *Service) startSession(ctx context.Context, account *user.User, meta ClientMeta) (*Session, error) {
+// sessionStartedAt is carried over on rotation so the absolute cap holds.
+func (s *Service) startSession(ctx context.Context, account *user.User, meta ClientMeta, sessionStartedAt time.Time) (*Session, error) {
 	accessToken, err := s.issuer.Issue(account.ID, account.Role, account.TokenVersion)
 	if err != nil {
 		return nil, apperr.Wrap(apperr.CodeInternal, "issue access token failed", err)
@@ -347,14 +422,24 @@ func (s *Service) startSession(ctx context.Context, account *user.User, meta Cli
 		return nil, apperr.Wrap(apperr.CodeInternal, "generate refresh token failed", err)
 	}
 	now := s.now()
+	if sessionStartedAt.IsZero() {
+		sessionStartedAt = now
+	}
 	expiresAt := now.Add(s.refreshTTL)
+	if s.maxLifetime > 0 {
+		// Never slide past the absolute session cap.
+		if deadline := sessionStartedAt.Add(s.maxLifetime); deadline.Before(expiresAt) {
+			expiresAt = deadline
+		}
+	}
 	stored := &RefreshToken{
-		UserID:    account.ID,
-		TokenHash: hashToken(rawRefresh),
-		ExpiresAt: expiresAt,
-		UserAgent: truncate(meta.UserAgent, 255),
-		IP:        truncate(meta.IP, 64),
-		CreatedAt: now,
+		UserID:           account.ID,
+		TokenHash:        hashToken(rawRefresh),
+		ExpiresAt:        expiresAt,
+		SessionStartedAt: sessionStartedAt,
+		UserAgent:        truncate(meta.UserAgent, 255),
+		IP:               truncate(meta.IP, 64),
+		CreatedAt:        now,
 	}
 	if err := s.tokens.Create(ctx, stored); err != nil {
 		return nil, err
@@ -363,6 +448,7 @@ func (s *Service) startSession(ctx context.Context, account *user.User, meta Cli
 		AccessToken:      accessToken,
 		AccessExpiresIn:  int64(s.issuer.TTL().Seconds()),
 		RefreshToken:     rawRefresh,
+		RefreshTokenID:   stored.ID,
 		RefreshExpiresAt: expiresAt,
 		User:             account,
 	}, nil

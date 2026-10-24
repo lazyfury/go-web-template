@@ -15,11 +15,16 @@ import (
 type Repository interface {
 	Create(ctx context.Context, token *RefreshToken) error
 	FindByHash(ctx context.Context, hash string) (*RefreshToken, error)
-	// RevokeIfActive revokes a token and reports whether it transitioned from
-	// active to revoked. false means another request already used it, which is
-	// treated as refresh-token reuse.
-	RevokeIfActive(ctx context.Context, id uint64) (bool, error)
-	RevokeAllForUser(ctx context.Context, userID uint64) error
+	// RevokeIfActive revokes a token at the given instant and reports whether it
+	// transitioned from active to revoked. false means another request already
+	// used it, which is handled by the service's reuse interval.
+	RevokeIfActive(ctx context.Context, id uint64, revokedAt time.Time, reason string) (bool, error)
+	RevokeAllForUser(ctx context.Context, userID uint64, revokedAt time.Time, reason string) error
+	// RevokeOthersForUser revokes every active token of userID except keepID.
+	// It is used when a replayed token is tolerated inside the reuse window:
+	// all the racing tabs share one cookie jar, so only the newest token should
+	// survive instead of accumulating orphaned sessions.
+	RevokeOthersForUser(ctx context.Context, userID uint64, keepID uint64, revokedAt time.Time, reason string) error
 }
 
 // gormRepository is the GORM-backed implementation of Repository.
@@ -53,24 +58,33 @@ func (r *gormRepository) FindByHash(ctx context.Context, hash string) (*RefreshT
 	return &token, nil
 }
 
-func (r *gormRepository) RevokeIfActive(ctx context.Context, id uint64) (bool, error) {
-	now := time.Now()
+func (r *gormRepository) RevokeIfActive(ctx context.Context, id uint64, revokedAt time.Time, reason string) (bool, error) {
 	res := r.db.WithContext(ctx).
 		Model(&RefreshToken{}).
 		Where("id = ? AND revoked_at IS NULL", id).
-		Update("revoked_at", now)
+		Updates(map[string]any{"revoked_at": revokedAt, "revoked_reason": reason})
 	if res.Error != nil {
 		return false, apperr.Wrap(apperr.CodeDatabase, "revoke refresh token failed", res.Error)
 	}
 	return res.RowsAffected > 0, nil
 }
 
-func (r *gormRepository) RevokeAllForUser(ctx context.Context, userID uint64) error {
-	now := time.Now()
+func (r *gormRepository) RevokeOthersForUser(ctx context.Context, userID, keepID uint64, revokedAt time.Time, reason string) error {
+	err := r.db.WithContext(ctx).
+		Model(&RefreshToken{}).
+		Where("user_id = ? AND revoked_at IS NULL AND id <> ?", userID, keepID).
+		Updates(map[string]any{"revoked_at": revokedAt, "revoked_reason": reason}).Error
+	if err != nil {
+		return apperr.Wrap(apperr.CodeDatabase, "revoke sibling refresh tokens failed", err)
+	}
+	return nil
+}
+
+func (r *gormRepository) RevokeAllForUser(ctx context.Context, userID uint64, revokedAt time.Time, reason string) error {
 	err := r.db.WithContext(ctx).
 		Model(&RefreshToken{}).
 		Where("user_id = ? AND revoked_at IS NULL", userID).
-		Update("revoked_at", now).Error
+		Updates(map[string]any{"revoked_at": revokedAt, "revoked_reason": reason}).Error
 	if err != nil {
 		return apperr.Wrap(apperr.CodeDatabase, "revoke refresh tokens failed", err)
 	}

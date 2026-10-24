@@ -93,8 +93,17 @@ type Auth struct {
 
 	// AccessTTL bounds the stateless access token lifetime.
 	AccessTTL time.Duration `mapstructure:"access_ttl"`
-	// RefreshTTL bounds the refresh token lifetime (rotated on every use).
+	// RefreshTTL bounds the refresh token lifetime. Rotation slides it, so an
+	// actively used client never has to sign in again.
 	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
+	// RefreshMaxLifetime is the absolute cap for one session: after this long
+	// (measured from the first login) the user must sign in again even if the
+	// token keeps being rotated.
+	RefreshMaxLifetime time.Duration `mapstructure:"refresh_max_lifetime"`
+	// RefreshReuseInterval tolerates a rotated-away refresh token for a short
+	// window (multiple tabs racing, browser retries). Outside the window a
+	// reused token is treated as theft and revokes every session.
+	RefreshReuseInterval time.Duration `mapstructure:"refresh_reuse_interval"`
 
 	// BcryptCost is the password hashing cost (10-14).
 	BcryptCost int `mapstructure:"bcrypt_cost"`

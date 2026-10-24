@@ -60,10 +60,12 @@ func (f *fakeUsers) SaveAuthState(_ context.Context, u *user.User) error {
 type fakeTokens struct {
 	tokens map[string]*RefreshToken
 	nextID uint64
+	// now mirrors the service clock so grace-window comparisons are deterministic.
+	now func() time.Time
 }
 
 func newFakeTokens() *fakeTokens {
-	return &fakeTokens{tokens: make(map[string]*RefreshToken), nextID: 1}
+	return &fakeTokens{tokens: make(map[string]*RefreshToken), nextID: 1, now: time.Now}
 }
 
 func (f *fakeTokens) Create(_ context.Context, token *RefreshToken) error {
@@ -83,23 +85,36 @@ func (f *fakeTokens) FindByHash(_ context.Context, hash string) (*RefreshToken, 
 	return &cp, nil
 }
 
-func (f *fakeTokens) RevokeIfActive(_ context.Context, id uint64) (bool, error) {
+func (f *fakeTokens) RevokeIfActive(_ context.Context, id uint64, revokedAt time.Time, reason string) (bool, error) {
 	for _, token := range f.tokens {
 		if token.ID != id || token.RevokedAt != nil {
 			continue
 		}
-		now := time.Now()
-		token.RevokedAt = &now
+		at := revokedAt
+		token.RevokedAt = &at
+		token.RevokedReason = reason
 		return true, nil
 	}
 	return false, nil
 }
 
-func (f *fakeTokens) RevokeAllForUser(_ context.Context, userID uint64) error {
-	now := time.Now()
+func (f *fakeTokens) RevokeOthersForUser(_ context.Context, userID, keepID uint64, revokedAt time.Time, reason string) error {
+	for _, token := range f.tokens {
+		if token.UserID == userID && token.ID != keepID && token.RevokedAt == nil {
+			at := revokedAt
+			token.RevokedAt = &at
+			token.RevokedReason = reason
+		}
+	}
+	return nil
+}
+
+func (f *fakeTokens) RevokeAllForUser(_ context.Context, userID uint64, revokedAt time.Time, reason string) error {
 	for _, token := range f.tokens {
 		if token.UserID == userID && token.RevokedAt == nil {
-			token.RevokedAt = &now
+			at := revokedAt
+			token.RevokedAt = &at
+			token.RevokedReason = reason
 		}
 	}
 	return nil
@@ -129,12 +144,15 @@ func newHarness(t *testing.T) *harness {
 	tokens := newFakeTokens()
 	issuer := authkit.NewTokenIssuer(testSecret, "go-web-template-test", 15*time.Minute)
 	svc := NewService(users, tokens, issuer, passwd.NewHasher(4), Options{
-		RefreshTTL:       7 * 24 * time.Hour,
-		MaxLoginAttempts: 3,
-		Lockout:          15 * time.Minute,
+		RefreshTTL:           30 * 24 * time.Hour,
+		RefreshMaxLifetime:   90 * 24 * time.Hour,
+		RefreshReuseInterval: 30 * time.Second,
+		MaxLoginAttempts:     3,
+		Lockout:              15 * time.Minute,
 	}, zap.NewNop())
 	h := &harness{svc: svc, users: users, tokens: tokens, now: time.Unix(1_700_000_000, 0).UTC(), issuer: issuer}
 	svc.now = func() time.Time { return h.now }
+	tokens.now = func() time.Time { return h.now }
 	return h
 }
 
@@ -236,7 +254,7 @@ func TestLoginDisabledAccount(t *testing.T) {
 	}
 }
 
-func TestRefreshRotatesAndDetectsReuse(t *testing.T) {
+func TestRefreshRotatesWithinReuseInterval(t *testing.T) {
 	h := newHarness(t)
 	h.seedUser(t, "member@example.com", authkit.RoleMember, user.StatusActive)
 	session, err := h.svc.Login(context.Background(), LoginInput{Email: "member@example.com", Password: testPassword})
@@ -251,19 +269,77 @@ func TestRefreshRotatesAndDetectsReuse(t *testing.T) {
 	if rotated.RefreshToken == session.RefreshToken {
 		t.Error("refresh must rotate the token")
 	}
+
+	// A second tab racing with the same cookie is tolerated inside the reuse
+	// window: it gets a fresh session and only one token stays live.
+	replayed, err := h.svc.Refresh(context.Background(), session.RefreshToken, ClientMeta{})
+	if err != nil {
+		t.Fatalf("replay inside the reuse interval should be tolerated: %v", err)
+	}
+	if replayed.RefreshToken == "" {
+		t.Fatal("tolerated replay must return a rotated token")
+	}
 	if got := h.tokens.activeCount(); got != 1 {
-		t.Errorf("active refresh tokens = %d, want 1 after rotation", got)
+		t.Errorf("active refresh tokens = %d, want exactly 1 after tolerated replay", got)
+	}
+	// The newest token keeps working.
+	if _, err := h.svc.Refresh(context.Background(), replayed.RefreshToken, ClientMeta{}); err != nil {
+		t.Errorf("newest token should refresh: %v", err)
+	}
+}
+
+func TestRefreshReuseOutsideIntervalRevokesAll(t *testing.T) {
+	h := newHarness(t)
+	h.seedUser(t, "member@example.com", authkit.RoleMember, user.StatusActive)
+	session, _ := h.svc.Login(context.Background(), LoginInput{Email: "member@example.com", Password: testPassword})
+
+	rotated, err := h.svc.Refresh(context.Background(), session.RefreshToken, ClientMeta{})
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
 	}
 
-	// Replaying the old token is reuse: every session must be revoked.
+	// Outside the reuse window the replay is treated as theft.
+	h.now = h.now.Add(31 * time.Second)
 	if _, err := h.svc.Refresh(context.Background(), session.RefreshToken, ClientMeta{}); !errors.Is(err, apperr.ErrUnauthorized) {
-		t.Fatalf("reuse should be unauthorized, got %v", err)
+		t.Fatalf("reuse outside the window should be unauthorized, got %v", err)
 	}
 	if got := h.tokens.activeCount(); got != 0 {
 		t.Errorf("active refresh tokens = %d, want 0 after reuse detection", got)
 	}
 	if _, err := h.svc.Refresh(context.Background(), rotated.RefreshToken, ClientMeta{}); !errors.Is(err, apperr.ErrUnauthorized) {
-		t.Errorf("rotated token must be revoked too, got %v", err)
+		t.Errorf("the rotated token must be revoked too, got %v", err)
+	}
+}
+
+func TestRefreshSlidesUntilAbsoluteCap(t *testing.T) {
+	h := newHarness(t)
+	h.seedUser(t, "member@example.com", authkit.RoleMember, user.StatusActive)
+	session, _ := h.svc.Login(context.Background(), LoginInput{Email: "member@example.com", Password: testPassword})
+	started := session.RefreshExpiresAt.Add(-30 * 24 * time.Hour)
+
+	// Rotating every 20 days keeps the session alive (sliding) ...
+	h.now = h.now.Add(20 * 24 * time.Hour)
+	rotated, err := h.svc.Refresh(context.Background(), session.RefreshToken, ClientMeta{})
+	if err != nil {
+		t.Fatalf("slide 1: %v", err)
+	}
+	h.now = h.now.Add(20 * 24 * time.Hour)
+	rotated, err = h.svc.Refresh(context.Background(), rotated.RefreshToken, ClientMeta{})
+	if err != nil {
+		t.Fatalf("slide 2: %v", err)
+	}
+
+	// ... but the session cannot outlive the absolute cap (90 days here).
+	h.now = h.now.Add(51 * 24 * time.Hour) // 91 days after login
+	stored, err := h.tokens.FindByHash(context.Background(), hashToken(rotated.RefreshToken))
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	if !stored.SessionStartedAt.Equal(started.UTC().Truncate(time.Second)) {
+		t.Errorf("session_started_at = %v, want %v (carried across rotations)", stored.SessionStartedAt, started)
+	}
+	if _, err := h.svc.Refresh(context.Background(), rotated.RefreshToken, ClientMeta{}); !errors.Is(err, apperr.ErrUnauthorized) {
+		t.Errorf("session past its absolute cap should be unauthorized, got %v", err)
 	}
 }
 
@@ -276,7 +352,8 @@ func TestRefreshRejectsExpiredAndUnknown(t *testing.T) {
 		t.Errorf("unknown token should be unauthorized, got %v", err)
 	}
 
-	h.now = h.now.Add(8 * 24 * time.Hour)
+	// refresh_ttl is 30 days: just before the absolute cap the token is expired.
+	h.now = h.now.Add(31 * 24 * time.Hour)
 	if _, err := h.svc.Refresh(context.Background(), session.RefreshToken, ClientMeta{}); !errors.Is(err, apperr.ErrUnauthorized) {
 		t.Errorf("expired token should be unauthorized, got %v", err)
 	}

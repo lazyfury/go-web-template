@@ -97,7 +97,7 @@ func (m *mockUserRepo) Delete(_ context.Context, id uint64) error {
 
 type fakeRevoker struct{ revoked []uint64 }
 
-func (f *fakeRevoker) RevokeAllForUser(_ context.Context, userID uint64) error {
+func (f *fakeRevoker) RevokeUserSessions(_ context.Context, userID uint64) error {
 	f.revoked = append(f.revoked, userID)
 	return nil
 }

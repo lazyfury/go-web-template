@@ -30,6 +30,16 @@
         "tags": [
           "auth"
         ],
+        "parameters": [
+          {
+            "name": "X-Refresh-Transport",
+            "in": "header",
+            "description": "set to \"body\" for non-browser clients (refresh token in the response body instead of a cookie)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -94,9 +104,19 @@
     "/auth/logout": {
       "post": {
         "operationId": "logout",
-        "summary": "Revoke the current refresh session",
+        "summary": "Revoke the current refresh session (immediate, never tolerated inside the reuse interval)",
         "tags": [
           "auth"
+        ],
+        "parameters": [
+          {
+            "name": "X-Refresh-Token",
+            "in": "header",
+            "description": "refresh token for non-browser clients (cookie alternative)",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "204": {
@@ -231,9 +251,19 @@
       "post": {
         "operationId": "refreshToken",
         "summary": "Rotate the refresh cookie and issue a new access token",
-        "description": "The presented refresh token is revoked and replaced. Reusing a revoked token revokes every session of that user.",
+        "description": "The presented refresh token is revoked and replaced. Token rotation is slid: an actively used session never has to sign in again, up to auth.refresh_max_lifetime. A token replayed within auth.refresh_reuse_interval is tolerated (multi-tab race); outside that window it revokes every session. Browsers use the HttpOnly cookie; non-browser clients may send X-Refresh-Token and receive the rotated token in the body.",
         "tags": [
           "auth"
+        ],
+        "parameters": [
+          {
+            "name": "X-Refresh-Token",
+            "in": "header",
+            "description": "refresh token for non-browser clients (cookie alternative)",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -776,6 +806,9 @@
           "expires_in": {
             "type": "integer",
             "format": "int64"
+          },
+          "refresh_token": {
+            "type": "string"
           },
           "token_type": {
             "type": "string"

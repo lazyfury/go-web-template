@@ -33,7 +33,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revoke the current refresh session */
+        /** Revoke the current refresh session (immediate, never tolerated inside the reuse interval) */
         post: operations["logout"];
         delete?: never;
         options?: never;
@@ -89,7 +89,7 @@ export interface paths {
         put?: never;
         /**
          * Rotate the refresh cookie and issue a new access token
-         * @description The presented refresh token is revoked and replaced. Reusing a revoked token revokes every session of that user.
+         * @description The presented refresh token is revoked and replaced. Token rotation is slid: an actively used session never has to sign in again, up to auth.refresh_max_lifetime. A token replayed within auth.refresh_reuse_interval is tolerated (multi-tab race); outside that window it revokes every session. Browsers use the HttpOnly cookie; non-browser clients may send X-Refresh-Token and receive the rotated token in the body.
          */
         post: operations["refreshToken"];
         delete?: never;
@@ -169,6 +169,7 @@ export interface components {
             access_token: string;
             /** Format: int64 */
             expires_in: number;
+            refresh_token?: string;
             token_type: string;
             user: components["schemas"]["UserView"];
         };
@@ -360,7 +361,10 @@ export interface operations {
     login: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description set to "body" for non-browser clients (refresh token in the response body instead of a cookie) */
+                "X-Refresh-Transport"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -396,7 +400,10 @@ export interface operations {
     logout: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description refresh token for non-browser clients (cookie alternative) */
+                "X-Refresh-Token"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -476,7 +483,10 @@ export interface operations {
     refreshToken: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description refresh token for non-browser clients (cookie alternative) */
+                "X-Refresh-Token"?: string;
+            };
             path?: never;
             cookie?: never;
         };

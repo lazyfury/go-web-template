@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -78,7 +79,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 
 	userRepo := user.NewRepository(db)
 	authRepo := auth.NewRepository(db)
-	userService := user.NewService(userRepo, hasher, authRepo)
+	userService := user.NewService(userRepo, hasher, sessionRevoker{repo: authRepo})
 	userHandler := user.NewHandler(userService)
 
 	issuer := authkit.NewTokenIssuer(cfg.Auth.JWTSecret, cfg.Auth.Issuer, cfg.Auth.AccessTTL)
@@ -88,9 +89,11 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		issuer,
 		hasher,
 		auth.Options{
-			RefreshTTL:       cfg.Auth.RefreshTTL,
-			MaxLoginAttempts: cfg.Auth.LoginMaxAttempts,
-			Lockout:          cfg.Auth.LoginLockout,
+			RefreshTTL:           cfg.Auth.RefreshTTL,
+			RefreshMaxLifetime:   cfg.Auth.RefreshMaxLifetime,
+			RefreshReuseInterval: cfg.Auth.RefreshReuseInterval,
+			MaxLoginAttempts:     cfg.Auth.LoginMaxAttempts,
+			Lockout:              cfg.Auth.LoginLockout,
 		},
 		logger,
 	)
@@ -125,6 +128,16 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	}, nil
 }
 
+// sessionRevoker adapts auth.Repository to user.SessionRevoker without making
+// the user domain import auth (or leak revocation reasons into it).
+type sessionRevoker struct {
+	repo auth.Repository
+}
+
+func (r sessionRevoker) RevokeUserSessions(ctx context.Context, userID uint64) error {
+	return r.repo.RevokeAllForUser(ctx, userID, time.Now(), auth.RevokeAdmin)
+}
+
 // SeedOptions configures the bootstrap administrator created by cmd/admin.
 type SeedOptions struct {
 	Name     string
@@ -147,9 +160,11 @@ func SeedAdmin(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts SeedOpt
 		issuer,
 		hasher,
 		auth.Options{
-			RefreshTTL:       cfg.Auth.RefreshTTL,
-			MaxLoginAttempts: cfg.Auth.LoginMaxAttempts,
-			Lockout:          cfg.Auth.LoginLockout,
+			RefreshTTL:           cfg.Auth.RefreshTTL,
+			RefreshMaxLifetime:   cfg.Auth.RefreshMaxLifetime,
+			RefreshReuseInterval: cfg.Auth.RefreshReuseInterval,
+			MaxLoginAttempts:     cfg.Auth.LoginMaxAttempts,
+			Lockout:              cfg.Auth.LoginLockout,
 		},
 		logger,
 	)

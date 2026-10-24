@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -387,16 +388,88 @@ func TestRefreshFlow(t *testing.T) {
 		t.Fatal("refresh must return a new access token")
 	}
 
-	// The old refresh cookie is now revoked (reuse detection revokes everything).
+	// Reusing the rotated-away cookie right away is tolerated (reuse interval):
+	// several tabs share one cookie jar and would otherwise log the user out.
 	w = doJSONWith(t, env.handler, http.MethodPost, "/api/v1/auth/refresh", nil, "", []*http.Cookie{sess.refresh})
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("refresh with the rotated-away cookie = %d, want 401", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("refresh inside the reuse interval = %d, want 200", w.Code)
 	}
 
 	// The new access token still works for /auth/me.
 	w = doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/auth/me", nil, rotated.AccessToken)
 	if w.Code != http.StatusOK {
 		t.Errorf("me with refreshed token = %d, want 200", w.Code)
+	}
+}
+
+func TestRefreshTokenHeaderTransportForAPIClients(t *testing.T) {
+	env := newTestEnv(t, false)
+
+	// Login with the body transport: no cookie, refresh token in the body.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"email":"`+adminEmail+`","password":"`+adminPassword+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.RefreshTransportHeader, "body")
+	env.seedAdmin(t)
+	w := httptest.NewRecorder()
+	env.handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login body transport = %d, body=%s", w.Code, w.Body.String())
+	}
+	var login struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	body := decodeEnvelope(t, w)
+	if err := json.Unmarshal(body.Data, &login); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+	if login.RefreshToken == "" {
+		t.Fatal("body transport must return refresh_token")
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Error("body transport must not set the refresh cookie")
+	}
+
+	// Refresh with the header: rotated token comes back in the body too.
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/refresh", http.NoBody)
+	req.Header.Set(auth.RefreshTokenHeader, login.RefreshToken)
+	w = httptest.NewRecorder()
+	env.handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("header refresh = %d, body=%s", w.Code, w.Body.String())
+	}
+	var rotated struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	body = decodeEnvelope(t, w)
+	if err := json.Unmarshal(body.Data, &rotated); err != nil {
+		t.Fatalf("decode refresh: %v", err)
+	}
+	if rotated.RefreshToken == "" || rotated.RefreshToken == login.RefreshToken {
+		t.Error("header refresh must rotate and return a new refresh_token")
+	}
+
+	// Access token from the header flow works like any other.
+	w = doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/users", nil, login.AccessToken)
+	if w.Code != http.StatusOK {
+		t.Errorf("header-flow access token = %d, want 200", w.Code)
+	}
+}
+
+func TestLogoutIsImmediateEvenInsideReuseInterval(t *testing.T) {
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+
+	// Logout needs the cookie too: the refresh session is identified by it.
+	if w := doJSONWith(t, env.handler, http.MethodPost, "/api/v1/auth/logout", nil, admin.accessToken,
+		[]*http.Cookie{admin.refresh}); w.Code != http.StatusNoContent {
+		t.Fatalf("logout = %d, body=%s", w.Code, w.Body.String())
+	}
+	// The revoked cookie must not be resurrected by the reuse interval.
+	w := doJSONWith(t, env.handler, http.MethodPost, "/api/v1/auth/refresh", nil, "", []*http.Cookie{admin.refresh})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("refresh after logout = %d, want 401 (logout must be immediate)", w.Code)
 	}
 }
 

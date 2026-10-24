@@ -25,11 +25,16 @@ type UserView struct {
 	Permissions []authkit.Permission `json:"permissions"`
 }
 
-// LoginResponse is returned by login and refresh. The refresh token itself is
-// delivered as an HttpOnly cookie, never in the body.
+// LoginResponse is returned by login and refresh.
+//
+// Browsers receive the refresh token as an HttpOnly cookie and never see it in
+// the body. Non-browser clients opt in to the body transport with
+// "X-Refresh-Transport: body" (login) or by sending "X-Refresh-Token" (refresh);
+// only then is refresh_token populated.
 type LoginResponse struct {
-	AccessToken string   `json:"access_token"`
-	TokenType   string   `json:"token_type"`
-	ExpiresIn   int64    `json:"expires_in"`
-	User        UserView `json:"user"`
+	AccessToken  string   `json:"access_token"`
+	TokenType    string   `json:"token_type"`
+	ExpiresIn    int64    `json:"expires_in"`
+	RefreshToken string   `json:"refresh_token,omitempty"`
+	User         UserView `json:"user"`
 }
