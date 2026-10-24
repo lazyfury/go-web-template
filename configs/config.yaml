@@ -119,3 +119,14 @@ message:
     endpoint: ""
   default_locale: zh-CN
   max_attempts: 5
+
+retention:
+  # 保留期清理 worker（housekeeping）：cmd/server 启动，按窗口硬删除过期行。
+  # 关闭后表会无界增长；窗口都从「可清理时刻」起算（token/消息=过期时间，
+  # 终态投递=最后更新时间），所以再过一段宽限期才真正删除。
+  enabled: true
+  interval: 1h
+  timeout: 1m                  # 单个任务的上限，避免大 DELETE 长时间占用
+  refresh_token_retention: 168h   # 过期后再留 7 天（重放判定仍有明确答案）
+  delivery_retention: 720h        # sent/dead/canceled 保留 30 天；pending/可重试永不删
+  message_retention: 2160h        # 消息自身 expires_at 之后再留 90 天；无 expires_at 永不删

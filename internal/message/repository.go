@@ -66,6 +66,15 @@ type Repository interface {
 	ListTemplates(ctx context.Context, offset, limit int, channel *Channel, status *Status) ([]Template, int64, error)
 	UpdateTemplate(ctx context.Context, template *Template) error
 	DeleteTemplate(ctx context.Context, id uint64) error
+
+	// PurgeTerminalDeliveries hard-deletes deliveries that reached a terminal
+	// state (sent/dead/canceled) before the cutoff. Pending, sending and
+	// retryable rows are never touched: they are still work to do.
+	PurgeTerminalDeliveries(ctx context.Context, before time.Time) (int64, error)
+	// PurgeExpiredMessages hard-deletes messages whose own expires_at passed
+	// before the cutoff, together with their inbox rows and deliveries.
+	// Messages without expires_at never expire and are always kept.
+	PurgeExpiredMessages(ctx context.Context, before time.Time) (int64, error)
 }
 
 type gormRepository struct {
@@ -436,6 +445,53 @@ func (r *gormRepository) RetryDelivery(ctx context.Context, id uint64, now time.
 		return apperr.Wrap(apperr.CodeDatabase, "retry delivery failed", err)
 	}
 	return nil
+}
+
+func (r *gormRepository) PurgeTerminalDeliveries(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("status IN ? AND updated_at < ?", []DeliveryStatus{DeliverySent, DeliveryDead, DeliveryCanceled}, before).
+		Delete(&Delivery{})
+	if res.Error != nil {
+		return 0, apperr.Wrap(apperr.CodeDatabase, "purge terminal deliveries failed", res.Error)
+	}
+	return res.RowsAffected, nil
+}
+
+// purgeBatchSize bounds how many messages one retention pass hard-deletes, so a
+// long-neglected table cannot turn into one huge transaction (and one long lock)
+// on the first run. The janitor simply catches up on its next tick.
+const purgeBatchSize = 1000
+
+func (r *gormRepository) PurgeExpiredMessages(ctx context.Context, before time.Time) (int64, error) {
+	var deleted int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Unscoped throughout: soft-deleted rows and their children are exactly
+		// what a retention job must also clean up. Children go first so the
+		// delete order is valid on PostgreSQL even without ON DELETE CASCADE.
+		batch := func() *gorm.DB {
+			return tx.Unscoped().Model(&Message{}).
+				Select("id").
+				Where("expires_at IS NOT NULL AND expires_at < ?", before).
+				Order("id").
+				Limit(purgeBatchSize)
+		}
+		if err := tx.Unscoped().Where("message_id IN (?)", batch()).Delete(&Delivery{}).Error; err != nil {
+			return apperr.Wrap(apperr.CodeDatabase, "purge expired message deliveries failed", err)
+		}
+		if err := tx.Unscoped().Where("message_id IN (?)", batch()).Delete(&Recipient{}).Error; err != nil {
+			return apperr.Wrap(apperr.CodeDatabase, "purge expired message recipients failed", err)
+		}
+		res := tx.Unscoped().Where("id IN (?)", batch()).Delete(&Message{})
+		if res.Error != nil {
+			return apperr.Wrap(apperr.CodeDatabase, "purge expired messages failed", res.Error)
+		}
+		deleted = res.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return deleted, nil
 }
 
 func (r *gormRepository) CreateTemplate(ctx context.Context, template *Template) error {

@@ -102,6 +102,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("message.sms.endpoint", "")
 	v.SetDefault("message.default_locale", "zh-CN")
 	v.SetDefault("message.max_attempts", 5)
+
+	// 保留期清理：默认开启，但都留了宽限期（过期后再留一段），避免刚过期的数据
+	// 立刻消失，排查/对账还有窗口。关闭后表会无界增长。
+	v.SetDefault("retention.enabled", true)
+	v.SetDefault("retention.interval", "1h")
+	v.SetDefault("retention.timeout", "1m")
+	v.SetDefault("retention.refresh_token_retention", "168h")
+	v.SetDefault("retention.delivery_retention", "720h")
+	v.SetDefault("retention.message_retention", "2160h")
 }
 
 // Defaults returns the built-in default configuration.
@@ -239,6 +248,17 @@ func (c *Config) Validate() error {
 	}
 	if c.Message.Mail.Host != "" && c.Message.Mail.From == "" {
 		return fmt.Errorf("message.mail.from is required when mail.host is set")
+	}
+	if c.Retention.Enabled {
+		if c.Retention.Interval <= 0 {
+			return fmt.Errorf("retention.interval must be positive")
+		}
+		if c.Retention.Timeout <= 0 {
+			return fmt.Errorf("retention.timeout must be positive")
+		}
+		if c.Retention.RefreshTokenRetention < 0 || c.Retention.DeliveryRetention < 0 || c.Retention.MessageRetention < 0 {
+			return fmt.Errorf("retention windows must not be negative")
+		}
 	}
 	return c.validateAuth()
 }

@@ -360,3 +360,135 @@ func isCode(err error, code apperr.Code) bool {
 	}
 	return false
 }
+
+func TestPurgeTerminalDeliveriesKeepsUnfinishedWork(t *testing.T) {
+	db := testutil.NewSQLiteDB(t, &Message{}, &Recipient{}, &Delivery{}, &Template{})
+	repo := NewRepository(db)
+	ctx := context.Background()
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	message := &Message{Title: "Retention", Body: "body", Type: TypeSystem, Level: LevelInfo, Audience: AudienceUsers}
+	drafts := []DeliveryDraft{
+		{RecipientIndex: -1, Channel: ChannelEmail, Target: "sent@example.com", Payload: "{}", DedupeKey: "m:email"},
+		{RecipientIndex: -1, Channel: ChannelSMS, Target: "+10000000000", Payload: "{}", DedupeKey: "m:sms"},
+		{RecipientIndex: -1, Channel: ChannelWebhook, Target: "https://example.com/h", Payload: "{}", DedupeKey: "m:webhook"},
+	}
+	if err := repo.CreateMessage(ctx, message, nil, drafts, now); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+
+	deliveries, _, err := repo.ListDeliveries(ctx, 0, 10, nil, nil)
+	if err != nil {
+		t.Fatalf("ListDeliveries: %v", err)
+	}
+	if len(deliveries) != 3 {
+		t.Fatalf("deliveries = %d, want 3", len(deliveries))
+	}
+	byDedupe := make(map[string]Delivery, len(deliveries))
+	for _, delivery := range deliveries {
+		byDedupe[delivery.DedupeKey] = delivery
+	}
+	if err := repo.MarkDeliverySent(ctx, byDedupe["m:email"].ID, "provider-1", now); err != nil {
+		t.Fatalf("MarkDeliverySent: %v", err)
+	}
+	if err := repo.MarkDeliveryFailed(ctx, byDedupe["m:sms"].ID, "boom", now.Add(time.Hour), true, now); err != nil {
+		t.Fatalf("MarkDeliveryFailed: %v", err)
+	}
+	// The dead row was just updated; the sent row is old enough to prune.
+	old := now.Add(-45 * 24 * time.Hour)
+	if err := db.Model(&Delivery{}).Where("id = ?", byDedupe["m:email"].ID).Update("updated_at", old).Error; err != nil {
+		t.Fatalf("backdate delivery: %v", err)
+	}
+
+	deleted, err := repo.PurgeTerminalDeliveries(ctx, now.Add(-30*24*time.Hour))
+	if err != nil {
+		t.Fatalf("PurgeTerminalDeliveries: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1 (only the old sent row)", deleted)
+	}
+
+	remaining, total, err := repo.ListDeliveries(ctx, 0, 10, nil, nil)
+	if err != nil {
+		t.Fatalf("ListDeliveries: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("remaining deliveries = %d, want 2 (dead + pending)", total)
+	}
+	for _, delivery := range remaining {
+		if delivery.DedupeKey == "m:email" {
+			t.Error("sent delivery survived the purge")
+		}
+	}
+}
+
+func TestPurgeExpiredMessagesCascadesOnlyExpiredOnes(t *testing.T) {
+	db := testutil.NewSQLiteDB(t, &Message{}, &Recipient{}, &Delivery{}, &Template{})
+	repo := NewRepository(db)
+	ctx := context.Background()
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	expired := now.Add(-100 * 24 * time.Hour)
+	create := func(title string, expiresAt *time.Time, recipients []Recipient, drafts []DeliveryDraft) *Message {
+		t.Helper()
+		message := &Message{
+			Title:     title,
+			Body:      "body",
+			Type:      TypeSystem,
+			Level:     LevelInfo,
+			Audience:  AudienceUsers,
+			ExpiresAt: expiresAt,
+		}
+		if err := repo.CreateMessage(ctx, message, recipients, drafts, now); err != nil {
+			t.Fatalf("CreateMessage(%s): %v", title, err)
+		}
+		return message
+	}
+
+	oldMessage := create("old", &expired,
+		[]Recipient{{UserID: 1}},
+		[]DeliveryDraft{{RecipientIndex: 0, Channel: ChannelEmail, Target: "a@example.com", Payload: "{}", DedupeKey: "old:email"}},
+	)
+	liveMessage := create("live", ptrTime(now.Add(24*time.Hour)), []Recipient{{UserID: 1}}, nil)
+	foreverMessage := create("forever", nil, []Recipient{{UserID: 2}}, nil)
+
+	// A soft-deleted message past its expiry must be pruned as well: retention is
+	// about the data, not about the UI flag.
+	removed := create("removed", &expired, []Recipient{{UserID: 2}}, nil)
+	if err := db.Delete(&Message{}, removed.ID).Error; err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	deleted, err := repo.PurgeExpiredMessages(ctx, now.Add(-90*24*time.Hour))
+	if err != nil {
+		t.Fatalf("PurgeExpiredMessages: %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("deleted = %d, want 2 (expired + soft-deleted expired)", deleted)
+	}
+
+	var messages, recipients, deliveries int64
+	db.Model(&Message{}).Count(&messages)
+	db.Model(&Recipient{}).Count(&recipients)
+	db.Model(&Delivery{}).Count(&deliveries)
+	if messages != 2 {
+		t.Errorf("messages = %d, want 2 (live + never-expiring)", messages)
+	}
+	if recipients != 2 {
+		t.Errorf("recipients = %d, want 2 (only the surviving messages' inbox rows)", recipients)
+	}
+	if deliveries != 0 {
+		t.Errorf("deliveries = %d, want 0 (the expired message's delivery)", deliveries)
+	}
+
+	for _, id := range []uint64{liveMessage.ID, foreverMessage.ID} {
+		if _, err := repo.FindMessageByID(ctx, id); err != nil {
+			t.Errorf("FindMessageByID(%d) = %v, want it kept", id, err)
+		}
+	}
+	if _, err := repo.FindMessageByID(ctx, oldMessage.ID); err == nil {
+		t.Error("expired message survived the purge")
+	}
+}
+
+func ptrTime(v time.Time) *time.Time { return &v }

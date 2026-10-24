@@ -69,6 +69,9 @@ func main() {
 	if worker := application.MessageWorker(); worker != nil {
 		group.Go(func() error { return worker.Run(groupCtx) })
 	}
+	if keeper := application.Housekeeper(); keeper != nil {
+		group.Go(func() error { return keeper.Run(groupCtx) })
+	}
 	if limiters := application.Limiters(); limiters != nil && limiters.Len() > 0 {
 		group.Go(func() error { return limiters.Run(groupCtx) })
 	}

@@ -109,6 +109,17 @@ func (f *fakeTokens) RevokeOthersForUser(_ context.Context, userID, keepID uint6
 	return nil
 }
 
+func (f *fakeTokens) PurgeExpired(_ context.Context, before time.Time) (int64, error) {
+	var deleted int64
+	for hash, token := range f.tokens {
+		if token.ExpiresAt.Before(before) {
+			delete(f.tokens, hash)
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
 func (f *fakeTokens) RevokeAllForUser(_ context.Context, userID uint64, revokedAt time.Time, reason string) error {
 	for _, token := range f.tokens {
 		if token.UserID == userID && token.RevokedAt == nil {

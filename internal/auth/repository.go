@@ -32,6 +32,11 @@ type Repository interface {
 	// replayable immediately — otherwise a token rotated seconds before the
 	// logout would still mint a fresh session afterwards.
 	RetireRotatedForUser(ctx context.Context, userID uint64, reason string) error
+	// PurgeExpired hard-deletes tokens that expired before the cutoff. Expiry is
+	// already enforced by Active(), so these rows can no longer mint a session;
+	// keeping them only grows the table and the digest list. The housekeeping
+	// worker calls it so the retention policy stays out of the service layer.
+	PurgeExpired(ctx context.Context, before time.Time) (int64, error)
 }
 
 // gormRepository is the GORM-backed implementation of Repository.
@@ -107,4 +112,17 @@ func (r *gormRepository) RevokeAllForUser(ctx context.Context, userID uint64, re
 		return apperr.Wrap(apperr.CodeDatabase, "revoke refresh tokens failed", err)
 	}
 	return nil
+}
+
+// PurgeExpired deletes rows by expiry, not by revocation: a revoked session is
+// kept until it would have expired anyway, so a replay attempt still gets the
+// documented "revoked, not unknown" answer inside its lifetime.
+func (r *gormRepository) PurgeExpired(ctx context.Context, before time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("expires_at < ?", before).
+		Delete(&RefreshToken{})
+	if res.Error != nil {
+		return 0, apperr.Wrap(apperr.CodeDatabase, "purge expired refresh tokens failed", res.Error)
+	}
+	return res.RowsAffected, nil
 }

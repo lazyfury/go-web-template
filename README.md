@@ -20,6 +20,7 @@
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户管理 / 字典管理 / 系统设置 / 消息中心 / 消息管理开箱即用；API 类型由 `docs/openapi.json` 生成
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、golangci-lint、单元测试全绿
 - **CLI**：Cobra 驱动 `cmd/admin`（`seed`/`show`）与 `cmd/seeding`（`users/dicts/templates/messages` 子命令 + `--only`）
+- **数据保留**：`internal/housekeeping` 由 `cmd/server` 启动，按窗口硬删除过期 refresh token / 终态投递记录 / 过期消息（`retention.*` 可配，任务级超时与失败可见）
 
 ## 快速开始
 

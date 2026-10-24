@@ -106,7 +106,7 @@ ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS revoked_reason VARCHAR(32);
 ```
 
 - 现有用户 `password_hash = ''` → **无法登录**（等价于无凭证）；上线需 §12 P1 的 bootstrap 管理员。
-- 定期清理：`DELETE FROM refresh_tokens WHERE expires_at < now() - interval '7 days'`（放 `cmd/` 的 cron 或后续 job）。
+- 定期清理：`DELETE FROM refresh_tokens WHERE expires_at < now() - interval '7 days'` 已落地为 `housekeeping` 任务 `refresh_tokens`（`repo.PurgeExpired`，由 `cmd/server` 启动的 janitor 按 `retention.refresh_token_retention` 执行）。按 `expires_at` 而非 `revoked_at` 删除：被吊销的会话在有效期内仍要回答「revoked」而不是「unknown」。
 - 迁移 SQL 与 GORM entity 同步（`context.md` §5 双事实来源）；测试库 `AutoMigrate` 需显式加新 model。
 
 ## 4. 包结构与依赖方向

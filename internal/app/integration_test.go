@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -1375,5 +1376,87 @@ func TestLogoutRevokesSiblingSessions(t *testing.T) {
 	}
 	if w := doJSONWith(t, env.handler, http.MethodPost, "/api/v1/auth/refresh", nil, "", []*http.Cookie{laptop.refresh}); w.Code != http.StatusUnauthorized {
 		t.Errorf("sibling session refresh after logout = %d, want 401", w.Code)
+	}
+}
+
+// TestHousekeepingIsWiredAndPurgesExpiredRows 走真实组合根：retention.enabled 时
+// App 必须暴露 janitor，且三个任务都能按自己的窗口删除过期行（token / 终态投递 /
+// 过期消息），不依赖任何环境变量或后台 goroutine。
+func TestHousekeepingIsWiredAndPurgesExpiredRows(t *testing.T) {
+	env := newTestEnv(t, false)
+	now := time.Now().UTC()
+
+	expired := &auth.RefreshToken{
+		UserID:           1,
+		TokenHash:        "expired-digest",
+		ExpiresAt:        now.Add(-30 * 24 * time.Hour),
+		SessionStartedAt: now.Add(-60 * 24 * time.Hour),
+		CreatedAt:        now.Add(-30 * 24 * time.Hour),
+	}
+	if err := env.db.Create(expired).Error; err != nil {
+		t.Fatalf("create refresh token: %v", err)
+	}
+
+	expiresAt := now.Add(-100 * 24 * time.Hour)
+	expiredMessage := &message.Message{
+		Title:     "gone",
+		Body:      "body",
+		Type:      message.TypeSystem,
+		Level:     message.LevelInfo,
+		Audience:  message.AudienceUsers,
+		ExpiresAt: &expiresAt,
+	}
+	if err := env.db.Create(expiredMessage).Error; err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	if err := env.db.Create(&message.Recipient{
+		MessageID: expiredMessage.ID,
+		UserID:    1,
+	}).Error; err != nil {
+		t.Fatalf("create recipient: %v", err)
+	}
+	delivery := &message.Delivery{
+		MessageID:     expiredMessage.ID,
+		Channel:       message.ChannelEmail,
+		Target:        "a@example.com",
+		Payload:       "{}",
+		Status:        message.DeliverySent,
+		NextAttemptAt: now,
+		DedupeKey:     "expired:email",
+		CreatedAt:     now,
+		UpdatedAt:     now.Add(-60 * 24 * time.Hour),
+	}
+	if err := env.db.Create(delivery).Error; err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	keeper := env.app.Housekeeper()
+	if keeper == nil {
+		t.Fatal("Housekeeper() is nil while retention.enabled is true")
+	}
+	if got := keeper.Tasks(); got != 3 {
+		t.Fatalf("tasks = %d, want 3 (refresh tokens, deliveries, messages)", got)
+	}
+	if err := keeper.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	var tokens, messages, recipients, deliveries int64
+	env.db.Model(&auth.RefreshToken{}).Count(&tokens)
+	env.db.Model(&message.Message{}).Count(&messages)
+	env.db.Model(&message.Recipient{}).Count(&recipients)
+	env.db.Model(&message.Delivery{}).Count(&deliveries)
+	if tokens != 0 || messages != 0 || recipients != 0 || deliveries != 0 {
+		t.Fatalf("leftovers tokens=%d messages=%d recipients=%d deliveries=%d, want all 0",
+			tokens, messages, recipients, deliveries)
+	}
+}
+
+// TestHousekeepingCanBeDisabled 钉住开关：关闭后 App 不暴露 janitor，cmd/server
+// 也就不会启动它（否则配置形同虚设）。
+func TestHousekeepingCanBeDisabled(t *testing.T) {
+	env := newTestEnvWithConfig(t, func(cfg *config.Config) { cfg.Retention.Enabled = false })
+	if keeper := env.app.Housekeeper(); keeper != nil {
+		t.Fatalf("Housekeeper() = %+v, want nil when retention.enabled is false", keeper)
 	}
 }

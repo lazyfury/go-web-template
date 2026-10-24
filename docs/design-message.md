@@ -392,7 +392,7 @@ message:
 
 ### Phase 5：可选增强
 
-- [ ] 保留期限清理 worker
+- [x] 保留期限清理 worker（`internal/housekeeping`：过期消息 + 终态投递记录，窗口可配）
 - [ ] Prometheus 指标（投递成功/失败/延迟）
 - [ ] SSE 实时红点（多实例时 Redis Pub/Sub）
 - [ ] 跨域事件：`outbox_events` + dispatcher（仅在有 3+ 生产者时）

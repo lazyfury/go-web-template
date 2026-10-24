@@ -16,6 +16,7 @@ import (
 
 	"github.com/example/go-web-template/internal/auth"
 	"github.com/example/go-web-template/internal/dict"
+	"github.com/example/go-web-template/internal/housekeeping"
 	"github.com/example/go-web-template/internal/message"
 	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/config"
@@ -49,6 +50,7 @@ type App struct {
 	server        *web.Server
 	openapi       *routekit.Registry
 	messageWorker *message.Worker
+	housekeeper   *housekeeping.Worker
 	limiters      *web.Limiters
 }
 
@@ -132,6 +134,34 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		})
 	}
 
+	// Retention janitor: the repositories own the DELETE statements, this
+	// scheduler only decides when and with which window. Tasks are independent,
+	// so one broken table does not stop the others from being pruned.
+	var housekeeper *housekeeping.Worker
+	if cfg.Retention.Enabled {
+		housekeeper = housekeeping.NewWorker([]housekeeping.Task{
+			{
+				Name:      "refresh_tokens",
+				Retention: cfg.Retention.RefreshTokenRetention,
+				Purge:     authRepo.PurgeExpired,
+			},
+			{
+				Name:      "message_deliveries",
+				Retention: cfg.Retention.DeliveryRetention,
+				Purge:     messageRepo.PurgeTerminalDeliveries,
+			},
+			{
+				Name:      "messages",
+				Retention: cfg.Retention.MessageRetention,
+				Purge:     messageRepo.PurgeExpiredMessages,
+			},
+		}, housekeeping.Options{
+			Interval: cfg.Retention.Interval,
+			Timeout:  cfg.Retention.Timeout,
+			Logger:   logger,
+		})
+	}
+
 	// Transport layer. web knows nothing about domains; the composition root
 	// mounts each module on the versioned API group and then builds the
 	// OpenAPI document from the registered metadata.
@@ -177,6 +207,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		server:        web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
 		openapi:       api.Registry(),
 		messageWorker: messageWorker,
+		housekeeper:   housekeeper,
 		limiters:      limiters,
 	}, nil
 }
@@ -243,6 +274,10 @@ func (a *App) MessageWorker() *message.Worker { return a.messageWorker }
 // Limiters exposes the rate-limiter registry so cmd/server can run the idle
 // bucket sweeper. App never starts goroutines itself.
 func (a *App) Limiters() *web.Limiters { return a.limiters }
+
+// Housekeeper exposes the retention worker for cmd/server to start. It returns
+// nil when retention.enabled is false. App never starts goroutines itself.
+func (a *App) Housekeeper() *housekeeping.Worker { return a.housekeeper }
 
 // Run blocks until ctx is canceled, then drains connections gracefully.
 func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }

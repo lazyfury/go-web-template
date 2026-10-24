@@ -59,6 +59,7 @@
 | `internal/auth` | 认证域：登录、access token 签发、refresh 轮换/吊销、改密、bootstrap 管理员 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/dict` | 字典/配置域：group=setting，items=dict array；含其他模块用的 `Store` 快捷方法（Replace/Get/GetInto） | `entity.go`, `repository.go`, `service.go`, `values.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/message` | 消息/通知域：内容、站内信、投递 outbox、模板、HTTP、worker、SMTP/Twilio/Webhook sender | `entity.go`, `repository.go`, `service.go`, `sender.go`, `worker.go`, `handler.go`, `dto.go`, `routes.go` |
+| `internal/housekeeping` | 保留期清理 worker：按任务调度 repo 的硬删除，不认识任何业务域 | `worker.go` |
 | `internal/platform/authkit` | 叶子包：JWT 签发/校验（HS256 钉死）、Principal、RBAC 表、gin 中间件 | `token.go`, `principal.go`, `rbac.go`, `middleware.go` |
 | `internal/platform/passwd` | 叶子包：bcrypt 哈希/校验 + 防枚举的 dummy 比较 | `passwd.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
@@ -89,9 +90,13 @@ message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
           mail: {host, port: 587, username, password, from},
           sms:  {provider: twilio, account_sid, auth_token, from, endpoint},
           default_locale: zh-CN, max_attempts: 5}
+retention:{enabled: true, interval: 1h, timeout: 1m,
+           refresh_token_retention: 168h,   # 过期 refresh token 再留 7 天
+           delivery_retention: 720h,        # 终态投递记录保留 30 天（pending 永不删）
+           message_retention: 2160h}        # 过期消息再留 90 天（无 expires_at 永不删）
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
@@ -309,7 +314,7 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 
 **新增中间件**：写 `internal/web/middleware_<name>.go`（`package web`，gin.HandlerFunc）→ `internal/web/router.go` 挂链（顺序：Recovery 最外、RequestID 先于 Logger）+ 补 `httptest` 单测。需要按 key 限流时用 `limiters.Middleware(enabled, keyFn, rps, burst)`（组合根创建 registry），不要在中间件/构造函数里起 goroutine。
 
-**新增后台任务/worker**：worker 实现放业务包（如 `internal/message/worker.go`），只暴露 `NewWorker(...)` + `Run(ctx) error`；在 `internal/app` 构造并通过 `App` 暴露，由 `cmd/server` 用 `errgroup` 启动。不得在 `app.New`/`app.Run` 里 `go`；需要周期任务用 `time.Ticker` + `select ctx.Done()`，需要并发时用有界 pool 并在 `Run` 返回前 `Wait`。详细设计见 `docs/design-message.md`。
+**新增后台任务/worker**：worker 实现放业务包（如 `internal/message/worker.go`、`internal/housekeeping/worker.go`），只暴露 `NewWorker(...)` + `Run(ctx) error`；在 `internal/app` 构造并通过 `App` 暴露，由 `cmd/server` 用 `errgroup` 启动。不得在 `app.New`/`app.Run` 里 `go`；需要周期任务用 `time.Ticker` + `select ctx.Done()`，需要并发时用有界 pool 并在 `Run` 返回前 `Wait`。详细设计见 `docs/design-message.md`。
 
 **新增运维端点**：放 `internal/web/router.go` 顶层组（豁免限流）；探针逻辑在 `internal/web/health.go`。
 
@@ -327,6 +332,7 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 - `Timeout` 只注入 ctx deadline：handler 若不检查 ctx，响应仍会返回成功；需要保证中断的路径必须显式处理 `ctx.Err()`。
 - 测试库为每测试独立的命名内存 SQLite（`internal/testutil`），可并行；但仍需避免依赖真实 PostgreSQL 特性。
 - OpenAPI 反射只覆盖明确子集：query 数组/对象参数、`*any` 通配路径、自定义 `MarshalJSON`、复杂 `oneof` 尚未支持；不支持的类型会让启动失败，需调整 DTO 或后续扩展显式 schema 覆盖。
+- 保留期清理只在 `retention.enabled=true` 时运行，且是**硬删除**：窗口内需要取证的记录请调大窗口或关闭该任务；多副本同时跑 janitor 是幂等的（DELETE 按条件），但会产生重复的空扫描。
 - `docs/openapi.json` 由 `make openapi` 更新；手工修改会在 `make check` 的黄金测试中失败。
 
 > 报错速查、环境陷阱、linter/前端/容器排错：见 **[docs/troubleshooting.md](docs/troubleshooting.md)**（易变内容不写在本文件）。

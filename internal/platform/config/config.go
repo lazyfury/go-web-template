@@ -20,6 +20,7 @@ type Config struct {
 	Metrics    Metrics    `mapstructure:"metrics"`
 	Auth       Auth       `mapstructure:"auth"`
 	Message    Message    `mapstructure:"message"`
+	Retention  Retention  `mapstructure:"retention"`
 }
 
 // App holds generic application metadata.
@@ -176,6 +177,32 @@ type Message struct {
 	DefaultLocale string `mapstructure:"default_locale"`
 	// MaxAttempts is the default retry budget for external deliveries.
 	MaxAttempts int `mapstructure:"max_attempts"`
+}
+
+// Retention controls the housekeeping janitor: the worker that hard-deletes
+// rows which outlived their window (expired refresh tokens, terminal delivery
+// records, expired messages). Retention is measured from the moment a row
+// becomes prunable — expiry for tokens and messages, last update for terminal
+// deliveries — not from creation, so a grace period after expiry is easy to
+// reason about.
+type Retention struct {
+	// Enabled starts the janitor from cmd/server. When disabled nothing is ever
+	// deleted automatically; the tables then grow unbounded.
+	Enabled bool `mapstructure:"enabled"`
+	// Interval is how often every task runs.
+	Interval time.Duration `mapstructure:"interval"`
+	// Timeout bounds one task so a slow DELETE cannot hold the tick.
+	Timeout time.Duration `mapstructure:"timeout"`
+	// RefreshTokenRetention keeps expired refresh tokens this long. A revoked or
+	// expired token answers "revoked" instead of "unknown" while it exists, which
+	// is what the reuse detection relies on for older sessions.
+	RefreshTokenRetention time.Duration `mapstructure:"refresh_token_retention"`
+	// DeliveryRetention keeps terminal (sent/dead/canceled) delivery rows this
+	// long after their last update. Pending and retryable rows are never pruned.
+	DeliveryRetention time.Duration `mapstructure:"delivery_retention"`
+	// MessageRetention keeps messages this long after their own expires_at.
+	// Messages without expires_at never expire and are never pruned.
+	MessageRetention time.Duration `mapstructure:"message_retention"`
 }
 
 // MessageMail configures the SMTP sender. Empty Host disables email delivery.
