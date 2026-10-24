@@ -236,3 +236,41 @@ func TestRequirePermissionMiddleware(t *testing.T) {
 		t.Errorf("code = %d, want %d", body.Code, apperr.CodeForbidden)
 	}
 }
+
+// TestTokenRejectsNonCanonicalSubject 钉住 F10：subject 必须是用户 id 的规范十进制
+// 形式，`1 or 1=1` / ` 1` / `01` 这类宽松解析过的值一律拒绝。
+func TestTokenRejectsNonCanonicalSubject(t *testing.T) {
+	t.Parallel()
+	issuer := newIssuer(15 * time.Minute)
+
+	for _, subject := range []string{"1 or 1=1", " 1", "1 ", "01", "+1", "1e3", "0", "", "-1"} {
+		claims := Claims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    "go-web-template-test",
+				Subject:   subject,
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+			},
+			Role:         RoleAdmin,
+			TokenVersion: 0,
+			Type:         TokenTypeAccess,
+		}
+		raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecret))
+		if err != nil {
+			t.Fatalf("sign subject %q: %v", subject, err)
+		}
+		if _, err := issuer.Parse(raw); err == nil {
+			t.Errorf("subject %q must be rejected", subject)
+		}
+	}
+
+	// 规范形式仍然可用。
+	raw, err := issuer.Issue(42, RoleAdmin, 0)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	principal, err := issuer.Parse(raw)
+	if err != nil || principal.UserID != 42 {
+		t.Fatalf("canonical subject rejected: %v %+v", err, principal)
+	}
+}

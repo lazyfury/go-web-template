@@ -3,6 +3,7 @@ package authkit
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -120,9 +121,12 @@ func (i *TokenIssuer) Parse(raw string) (*Principal, error) {
 	return &Principal{UserID: id, Role: claims.Role, TokenVersion: claims.TokenVersion}, nil
 }
 
+// parseUserID requires the subject to be the canonical decimal form of a
+// non-zero user id. Sscanf-style parsing accepted trailing garbage ("1 or 1=1"
+// → 1), which silently widened the set of tokens that resolve to a real user.
 func parseUserID(subject string) (uint64, error) {
-	var id uint64
-	if _, err := fmt.Sscanf(subject, "%d", &id); err != nil || id == 0 {
+	id, err := strconv.ParseUint(subject, 10, 64)
+	if err != nil || id == 0 || strconv.FormatUint(id, 10) != subject {
 		return 0, fmt.Errorf("invalid subject %q", subject)
 	}
 	return id, nil
