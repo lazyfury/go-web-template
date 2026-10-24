@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -147,5 +149,83 @@ func TestLoadEnvOverridesAppSection(t *testing.T) {
 	}
 	if cfg.App.Debug {
 		t.Error("debug = true, want env override false")
+	}
+}
+
+func TestValidateRejectsPublicSecretsInProduction(t *testing.T) {
+	// 下面每个字面量都曾出现在本仓库里（compose 默认值 / configs / .env.example），
+	// 拿到仓库的人就能用它自签 admin token——生产必须拒绝。
+	secrets := []string{
+		"local-compose-default-jwt-secret-32b",      // 旧 deploy/docker-compose.yml 默认值
+		"dev-only-insecure-secret-change-me-32b",    // configs/config.yaml
+		"CHANGE_ME_use_a_random_32+_byte_secret",    // configs/config.example.yaml
+		"replace-with-a-random-32-plus-byte-secret", // .env.example
+		"please_use_your-secret_here_32bytes_ok",    // your-secret 标记
+	}
+	for _, secret := range secrets {
+		cfg := Defaults()
+		cfg.App.Env = "production"
+		cfg.Auth.JWTSecret = secret
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("production accepted public secret %q", secret)
+		}
+	}
+}
+
+func TestValidateAcceptsRandomSecretInProduction(t *testing.T) {
+	cfg := Defaults()
+	cfg.App.Env = "production"
+	cfg.Auth.JWTSecret = "Qk3f9vT2zR7pLmW1sXc8nB4hYd6gJa0eUq5rItOy"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("random secret rejected in production: %v", err)
+	}
+}
+
+func TestValidateAllowsPublicSecretOutsideProduction(t *testing.T) {
+	// 本地开发依赖 configs/config.yaml 的固定密钥（否则每次重启掉线），
+	// 只在 production 强制注入。
+	cfg := Defaults()
+	cfg.Auth.JWTSecret = "dev-only-insecure-secret-change-me-32b"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("dev secret rejected outside production: %v", err)
+	}
+}
+
+// TestRepoConfigSecretsAreRejected 是「仓库自带可用密钥」这一类问题的回归钉子：
+// 任何配置文件里的 jwt_secret 字面量都必须被生产校验拒绝，否则它就是一个公开
+// 可用的签名密钥。新增配置示例时请用明显的占位值（CHANGE_ME_…）或 ${VAR}。
+func TestRepoConfigSecretsAreRejected(t *testing.T) {
+	files := []string{
+		"../../../configs/config.yaml",
+		"../../../configs/config.example.yaml",
+		"../../../.env.example",
+		"../../../deploy/docker-compose.yml",
+	}
+	// 两种形态都要抓：`jwt_secret: <literal>` 与 `${APP_AUTH_JWT_SECRET:-<literal>}`
+	// （compose 的内置默认值就是后一种，它同样是公开可用的密钥）。
+	re := regexp.MustCompile(`(?i)(?:APP_AUTH_JWT_SECRET|jwt_secret)[^\n:]*[:=]\s*["']?([A-Za-z0-9+/=_.-]{8,})`)
+	reDefault := regexp.MustCompile(`\$\{APP_AUTH_JWT_SECRET:-([^}]+)\}`)
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for i, line := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue // 注释里的示例值不会被加载
+			}
+			var value string
+			// 先试 ${VAR:-default}：否则上面的通用正则会把 ":-" 的 "-" 当成值的一部分。
+			if m := reDefault.FindStringSubmatch(line); m != nil {
+				value = m[1]
+			} else if m := re.FindStringSubmatch(line); m != nil {
+				value = m[1]
+			} else {
+				continue
+			}
+			if !isPlaceholderSecret(value) {
+				t.Errorf("%s:%d 携带可用 jwt 密钥 %q；请改成明显占位值（CHANGE_ME_…）或 ${APP_AUTH_JWT_SECRET}", path, i+1, value)
+			}
+		}
 	}
 }

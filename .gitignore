@@ -22,3 +22,6 @@ coverage.out
 
 # 本机环境差异（不入库）
 .agents/local.md
+
+# 本地编排密钥（make docker-up 生成；删除即轮换）
+.local/

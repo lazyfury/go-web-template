@@ -212,13 +212,35 @@ func (c *Config) Validate() error {
 	return c.validateAuth()
 }
 
-// isPlaceholderSecret rejects the example secrets shipped with the template so
-// a copy-pasted config cannot silently sign production tokens.
+// placeholderSecretMarkers lists the families of non-secrets that show up in
+// templates, docs and local compose files. Anything matching one of them is
+// public knowledge by definition, so signing production tokens with it is the
+// same as having no authentication at all: anyone who can read the repo can
+// mint an admin token.
+var placeholderSecretMarkers = []string{
+	"change_me", "change-me", "changeme",
+	"insecure",
+	"placeholder",
+	"example",
+	"local-compose-default",
+	"dev-only",
+	"replace-with",
+	"your-secret",
+}
+
+// isPlaceholderSecret rejects secrets that are public knowledge: any literal
+// shipped inside this repository (configs/config.yaml, .env.example and the
+// default that used to live in deploy/docker-compose.yml) or an obvious
+// template marker. A production secret must be random and injected from
+// outside the repository.
 func isPlaceholderSecret(secret string) bool {
 	lower := strings.ToLower(secret)
-	return strings.HasPrefix(lower, "change_me") ||
-		strings.Contains(lower, "insecure") ||
-		strings.Contains(lower, "changeme")
+	for _, marker := range placeholderSecretMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateAuth enforces the non-negotiable authentication invariants: a strong

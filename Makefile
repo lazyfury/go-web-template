@@ -31,7 +31,7 @@ MIGRATE_VERSION       ?= v4.20.1
         build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
         migrate-up migrate-down migrate-create \
-        docker-build docker-up docker-down docker-logs clean
+        docker-build jwt-secret docker-up docker-down docker-logs clean
 
 help: ## 显示所有命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -203,11 +203,19 @@ migrate-create: ## 新建迁移: make migrate-create NAME=add_posts_table
 
 ## ---- 容器 ----------------------------------------------------------------
 
+# 本地编排用的 JWT 密钥：首次生成、之后复用；删除文件即轮换（所有 token 失效）。
+# 不在仓库里写死默认值：仓库自带的默认密钥 = 公开密钥，等于没有认证。
+JWT_SECRET_FILE ?= .local/jwt-secret
+
+jwt-secret: ## 生成/复用本地编排的 JWT 密钥（.local/jwt-secret，gitignored）
+	@mkdir -p $(dir $(JWT_SECRET_FILE))
+	@test -s $(JWT_SECRET_FILE) || { umask 077; openssl rand -base64 48 | tr -d '\n' > $(JWT_SECRET_FILE); echo "已生成 $(JWT_SECRET_FILE)（本地编排用，勿提交；删除即轮换）"; }
+
 docker-build: ## 构建镜像
 	docker build -t $(APP_NAME):$(VERSION) .
 
-docker-up: ## 一键启动 postgres + migrate + app
-	docker compose -f deploy/docker-compose.yml up -d --build
+docker-up: jwt-secret ## 一键启动 postgres + migrate + app（自动注入 JWT 密钥）
+	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" docker compose -f deploy/docker-compose.yml up -d --build
 
 docker-down: ## 停止并移除容器（保留数据卷）
 	docker compose -f deploy/docker-compose.yml down

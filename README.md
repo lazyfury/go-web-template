@@ -27,6 +27,7 @@
 
 ```bash
 # 1. 一键起 postgres + 迁移 + 应用（compose 按生产式默认关闭文档端点）
+#    首次会生成 .local/jwt-secret（gitignored）并自动注入 APP_AUTH_JWT_SECRET
 make docker-up
 # 本地想看 Swagger UI 时（会重建 app 容器）：
 # APP_SWAGGER_ENABLED=true make docker-up
@@ -177,7 +178,7 @@ go-web-template/
 | `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔；**跨域带 cookie 时不能用 `*`**） | `*` |
 | `APP_CORS_ALLOW_CREDENTIALS` | 是否允许跨域携带凭据（refresh cookie 必需，需配合具体来源） | `false` |
 | `APP_SWAGGER_ENABLED` | 是否暴露 `/openapi.json` 与 Swagger UI | `true` |
-| `APP_AUTH_JWT_SECRET` | JWT 签名密钥（HS256，≥32 字节；生产必填且不得是占位值） | 空（启动失败） |
+| `APP_AUTH_JWT_SECRET` | JWT 签名密钥（HS256，≥32 字节；**生产必填**，且拒绝仓库自带的任何默认值/占位值） | 空（启动失败）；`make docker-up` 自动注入 `.local/jwt-secret` |
 | `APP_AUTH_ACCESS_TTL` | access token 有效期 | `15m` |
 | `APP_AUTH_REFRESH_TTL` | refresh 滑动有效期（每次刷新重置） | `720h`（30 天） |
 | `APP_AUTH_REFRESH_MAX_LIFETIME` | 会话绝对上限（从首次登录算，到点强制重登） | `2160h`（90 天） |
@@ -242,9 +243,16 @@ make check                              # golangci-lint + gofmt + vet + race + b
 Docker 端到端：
 
 ```bash
-make docker-up                      # 默认关闭 /openapi.json 与 Swagger
+make docker-up                      # 默认关闭 /openapi.json 与 Swagger；自动注入 JWT 密钥
 APP_SWAGGER_ENABLED=true make docker-up   # 本地需要文档时
 make docker-down
+```
+
+直接用 `docker compose` 时 JWT 密钥必须自己注入（compose 里**没有**可用默认值，留空则应用启动即失败）：
+
+```bash
+export APP_AUTH_JWT_SECRET="$(openssl rand -base64 48)"
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 ## 从模板开始你的项目
