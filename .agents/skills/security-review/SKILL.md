@@ -58,7 +58,7 @@ make audit        # 6 项：密钥泄露 / 日志卫生 / 可移植 SQL / 迁移
 
 ## 3. 黑盒攻防矩阵（需 DB；`make db-up && make migrate-up`）
 
-起服务自测用 `make smoke`（自起自停 + 401 断言）。手工打点用下面的矩阵，`BASE` 指向本机端口：
+起服务自测用 `make smoke`（自起自停 + 401 断言）；auth 改动后再跑 `make verify-auth`（真实进程 + 真实 PG：复用宽限期、登出即时、body 传输、会话绝对上限）。手工发散用下面的矩阵，`BASE` 指向本机端口：
 
 ```bash
 BASE=http://127.0.0.1:18080        # curl 必须 --noproxy '*'（本机 all_proxy 会挂住）

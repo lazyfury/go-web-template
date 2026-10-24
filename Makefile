@@ -29,7 +29,7 @@ MIGRATE_VERSION       ?= v4.20.1
 
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
-        check gate openapi tidy-check vuln audit smoke seed-admin db-up \
+        check gate openapi tidy-check vuln audit smoke verify-auth seed-admin db-up \
         migrate-up migrate-down migrate-create \
         docker-build docker-up docker-down docker-logs clean
 
@@ -73,6 +73,9 @@ dev: ## 开发模式：air 热重载
 
 smoke: ## 本地冒烟：自起自停服务，验证探针 + 登录 + CRUD（DB 不可用时只验 liveness）
 	@./scripts/smoke.sh
+
+verify-auth: ## 认证端到端验证：宽限期/登出即时/body 传输/会话上限（需 postgres）
+	@./scripts/verify-auth.sh
 
 seed-admin: ## 建/重置管理员: EMAIL=admin@example.com APP_SEED_PASSWORD='...' make seed-admin
 	@test -n "$(EMAIL)" || { echo "用法: EMAIL=admin@example.com APP_SEED_PASSWORD='...' make seed-admin"; exit 1; }
