@@ -16,7 +16,7 @@
 
 ## 项目一句话
 
-Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，内置 Docker / CI / Swagger / Prometheus。
+Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，内置 Docker / CI / OpenAPI（routekit 生成）/ Prometheus。
 
 ## 开工顺序
 
@@ -34,16 +34,17 @@ Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler 
 6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。
 7. **依赖**：新增依赖后 `go mod tidy`；sqlite 只允许出现在测试路径（`internal/testutil`）。
 8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
+9. **OpenAPI 代码优先**：路由必须通过 `routekit.Group` 注册并带 `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`（改完运行 `make openapi` 并提交）。新增端点漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
 
 ## 质量门（唯一入口）
 
 ```bash
-make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + docs/依赖 同步
+make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
 ```
 
 - CI 跑同一套（`make gate` + golangci-lint job + web typecheck/build + docker build）。
 - 工具缺失 → `make tools`（版本 pin 在 `Makefile` 顶部，**不要 `@latest`**）。
-- 改了 Swagger 注解 → `make swagger` 并提交 `docs/`（`make check` 会检出漂移）。
+- 改了路由/`routekit.Op` 元数据 → `make openapi` 并提交 `docs/openapi.json`（`make check` 的黄金测试会检出漂移）。
 - 只改 Go 代码时，最快闭环是 `make test`：测试用内存 SQLite，**不需要 postgres/docker**。
 - **禁止未运行就声称通过**：结论要有真实输出支撑。
 
@@ -76,6 +77,6 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + d
 
 | skill | 用途 |
 |---|---|
-| `add-domain` | 新增领域模块（model→迁移→repo→service→handler→路由→测试→Swagger） |
+| `add-domain` | 新增领域模块（迁移→repo→service→handler→routekit 路由→测试→OpenAPI） |
 | `docker-ops` | 容器编排 + 本地端到端调试（也可用 `make smoke` 一条命令覆盖） |
 | `database-migrations` | 迁移新建/执行/回滚 + GORM model 同步 checklist |

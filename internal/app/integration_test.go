@@ -17,23 +17,29 @@ import (
 	"github.com/example/go-web-template/internal/user"
 )
 
-// newTestHandler exercises the real composition root against an in-memory
-// SQLite database: router → middleware → handler → service → repository.
-// Because it calls app.NewWithDB, a wiring mistake in app.go fails here too.
-func newTestHandler(t *testing.T) http.Handler {
+// newTestApplication exercises the real composition root against an
+// in-memory SQLite database: router → middleware → handler → service →
+// repository. Because it calls app.NewWithDB, a wiring mistake in app.go
+// fails here too.
+func newTestApplication(t *testing.T, swaggerEnabled bool) *app.App {
 	t.Helper()
 	db := testutil.NewSQLiteDB(t, &user.User{})
 
 	cfg := config.Defaults()
 	cfg.RateLimit.Enabled = false
-	cfg.Swagger.Enabled = false
+	cfg.Swagger.Enabled = swaggerEnabled
 
 	application, err := app.NewWithDB(cfg, zap.NewNop(), db)
 	if err != nil {
 		t.Fatalf("assemble app: %v", err)
 	}
 	t.Cleanup(func() { _ = application.Close() })
-	return application.Handler()
+	return application
+}
+
+func newTestHandler(t *testing.T) http.Handler {
+	t.Helper()
+	return newTestApplication(t, false).Handler()
 }
 
 func doJSON(t *testing.T, h http.Handler, method, path string, body any) *httptest.ResponseRecorder {

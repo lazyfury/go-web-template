@@ -11,7 +11,6 @@ permissions:
 # 工具版本必须与 Makefile 顶部一致；升级时两处同步（CI 用 pin 版本，不用 latest）
 env:
   GOLANGCI_LINT_VERSION: v2.15.0
-  SWAG_VERSION: v1.16.6
 
 jobs:
   lint:
@@ -34,7 +33,7 @@ jobs:
           args: --timeout=5m
 
   gate:
-    name: Format / Vet / Test / Build / Swagger
+    name: Format / Vet / Test / Build / OpenAPI
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,12 +45,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install pinned tooling (swag)
-        run: |
-          go install github.com/swaggo/swag/cmd/swag@${SWAG_VERSION}
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      # 与本地 `make check` 同款：gofmt 校验 + vet + race 测试 + build + docs 同步
+      # 与本地 `make check` 同款：gofmt 校验 + vet + race 测试 + build + OpenAPI 黄金文件
       - name: make gate
         run: make gate
 

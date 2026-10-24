@@ -15,21 +15,6 @@ import (
 	"github.com/example/go-web-template/internal/platform/logx"
 )
 
-//	@title			Go Web Template API
-//	@version		1.0.0
-//	@description	Industry-standard Go web monolith template: Gin + GORM + PostgreSQL + zap.
-//	@termsOfService	http://swagger.io/terms/
-
-//	@contact.name	API Support
-//	@contact.email	support@example.com
-
-//	@license.name	MIT
-//	@license.url	https://opensource.org/licenses/MIT
-
-//	@host		localhost:8080
-//	@BasePath	/api/v1
-//	@schemes	http https
-
 // Build-time variables, injected via -ldflags "-X main.version=... -X main.commit=...".
 var (
 	version = "dev"
@@ -64,7 +49,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	application, err := app.New(cfg, logger)
+	application, err := app.New(cfg, logger, app.WithVersion(version))
 	if err != nil {
 		logger.Fatal("init application", zap.Error(err))
 	}

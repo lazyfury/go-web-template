@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 检查外部工具是否可用；缺失时给出可执行的修复指令并退出 1。
-# 用法: ./scripts/check-tools.sh golangci-lint swag
+# 用法: ./scripts/check-tools.sh golangci-lint air govulncheck migrate
 set -uo pipefail
 
 missing=()

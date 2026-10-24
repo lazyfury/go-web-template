@@ -11,14 +11,13 @@ MIGRATE_URL ?= postgres://postgres:postgres@127.0.0.1:5432/go_web_template?sslmo
 
 # 工具版本：CI 与本文件是唯一来源，升级时两处同步（CI 用同一 pin 版本）
 GOLANGCI_LINT_VERSION ?= v2.15.0
-SWAG_VERSION          ?= v1.16.6
 AIR_VERSION           ?= v1.67.4
 GOVULNCHECK_VERSION   ?= v1.9.0
 MIGRATE_VERSION       ?= v4.20.1
 
-.PHONY: help tools golangci-lint-tool swag-tool air-tool govulncheck-tool migrate-tool \
+.PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
-        check gate swagger swagger-diff tidy-check vuln smoke db-up \
+        check gate openapi tidy-check vuln smoke db-up \
         migrate-up migrate-down migrate-create \
         docker-build docker-up docker-down docker-logs clean
 
@@ -27,14 +26,11 @@ help: ## 显示所有命令
 
 ## ---- 工具链（版本 pin，缺失时先 make tools） --------------------------------
 
-tools: golangci-lint-tool swag-tool air-tool govulncheck-tool migrate-tool ## 安装/升级全部 pin 版本工具
+tools: golangci-lint-tool air-tool govulncheck-tool migrate-tool ## 安装/升级全部 pin 版本工具
 	@echo "工具安装目录: $$($(GO) env GOPATH)/bin"
 
 golangci-lint-tool: ## 安装 golangci-lint（v2 配置）
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-
-swag-tool: ## 安装 swag
-	$(GO) install github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION)
 
 air-tool: ## 安装 air（热重载）
 	$(GO) install github.com/air-verse/air@$(AIR_VERSION)
@@ -81,9 +77,9 @@ db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postg
 
 check: lint gate ## 提交前唯一门槛 = lint + gate（CI 同款）
 
-gate: fmt-check vet test-race build swagger-diff tidy-check ## CI 校验链（不含 golangci-lint）
+gate: fmt-check vet test-race build tidy-check ## CI 校验链（不含 golangci-lint）
 
-fmt-check: ## 校验 gofmt（docs/ 为生成代码，豁免）
+fmt-check: ## 校验 gofmt（docs/ 含生成物与 Markdown，豁免）
 	@unformatted=$$(gofmt -l . | grep -v '^docs/' || true); \
 	if [ -n "$$unformatted" ]; then \
 		echo "以下文件未格式化（运行 make fmt）:"; echo "$$unformatted"; exit 1; \
@@ -118,17 +114,8 @@ coverage-func: ## 覆盖率文本摘要（agent/CI 友好，不开浏览器）
 	$(GO) test ./... -coverprofile=coverage.out >/dev/null
 	$(GO) tool cover -func=coverage.out
 
-swagger: ## 重新生成 Swagger 文档（改了注解后必须跑）
-	@./scripts/check-tools.sh swag
-	swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
-
-swagger-diff: ## 校验生成的 docs 与注解同步（只比生成产物，docs/ 下手工文档不参与）
-	@$(MAKE) --no-print-directory swagger >/dev/null
-	@if [ -n "$$(git status --porcelain -- docs/docs.go docs/swagger.json docs/swagger.yaml)" ]; then \
-		echo "docs/ 与 Swagger 注解不同步：请运行 make swagger 并提交 docs/{docs.go,swagger.json,swagger.yaml}"; \
-		git status --porcelain -- docs/docs.go docs/swagger.json docs/swagger.yaml; exit 1; \
-	fi
-	@echo "swagger-diff: ok"
+openapi: ## 重新生成 OpenAPI 契约（改了路由元数据后必须跑）
+	$(GO) test ./internal/app -run TestOpenAPIGolden -update
 
 tidy-check: ## 校验 go.mod/go.sum 已 tidy（未 tidy 时自动整理并提示提交）
 	@tmp=$$(mktemp -d) && cp go.mod go.sum "$$tmp"/ && \

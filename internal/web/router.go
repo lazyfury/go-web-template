@@ -5,27 +5,27 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	swaggerfiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 
 	"github.com/example/go-web-template/internal/platform/apperr"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/httpx"
-
-	// Registers the generated OpenAPI spec (docs/swagger.json) with gin-swagger.
-	_ "github.com/example/go-web-template/docs"
+	"github.com/example/go-web-template/internal/platform/routekit"
 )
 
 // New builds the gin engine with the global middleware chain, operational
-// endpoints and the /api/v1 group. It returns the API group so the
-// composition root can mount domain modules without this package importing
-// them (web must not depend on business code).
-func New(cfg *config.Config, logger *zap.Logger, health *Health) (*gin.Engine, *gin.RouterGroup) {
+// endpoints and the /api/v1 group. It returns a metadata-aware API group so
+// the composition root can mount domain modules without this package
+// importing them (web must not depend on business code). The group also
+// records the route metadata used to build /openapi.json.
+func New(cfg *config.Config, logger *zap.Logger, health *Health, version string) (*gin.Engine, *routekit.Group) {
 	if cfg.App.Debug {
 		gin.SetMode(gin.DebugMode)
 	} else {
 		gin.SetMode(gin.ReleaseMode)
+	}
+	if version == "" {
+		version = "dev"
 	}
 
 	r := gin.New()
@@ -47,16 +47,23 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health) (*gin.Engine, *
 	r.GET("/readyz", health.Readiness)
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	if cfg.Swagger.Enabled {
-		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
-	}
-
 	// API v1. RateLimit stays outermost so abusive clients are rejected before
 	// consuming a request deadline.
-	v1 := r.Group("/api/v1",
+	ginV1 := r.Group("/api/v1",
 		RateLimit(cfg.RateLimit.Enabled, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
 		Timeout(cfg.HTTPServer.RequestTimeout),
 	)
+
+	registry := routekit.NewRegistry(routekit.Config{
+		Info: routekit.Info{
+			Title:       cfg.App.Name,
+			Description: "HTTP JSON API for " + cfg.App.Name,
+			Version:     version,
+		},
+		BasePath: "/api/v1",
+		Servers:  []routekit.Server{{URL: "/api/v1", Description: "Current server"}},
+	})
+	v1 := routekit.NewGroup(ginV1, registry)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.Error(c, http.StatusNotFound, apperr.CodeNotFound, "route not found")

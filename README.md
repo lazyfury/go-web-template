@@ -2,7 +2,7 @@
 
 行业标准的 Go Web 单体应用模板（Monolith），开箱即用。
 
-> 技术栈：**Go 1.26 · Gin · GORM · PostgreSQL · uber-go/zap · viper · golang-migrate · Prometheus · Swagger**
+> 技术栈：**Go 1.26 · Gin · GORM · PostgreSQL · uber-go/zap · viper · golang-migrate · Prometheus · OpenAPI 3.0 / Swagger UI**
 
 ## 特性
 
@@ -13,7 +13,7 @@
 - **可观测性**：`/healthz` 存活探针、`/readyz` 就绪探针（含 DB 检查）、`/metrics` Prometheus 指标
 - **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
-- **文档**：Swagger 注解自动生成 OpenAPI 文档，`/swagger/index.html` 在线预览
+- **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、GitHub Actions CI、golangci-lint、单元测试全绿
 
@@ -28,7 +28,8 @@ make docker-up
 # 2. 验证
 curl http://localhost:8080/healthz        # {"status":"ok"}
 curl http://localhost:8080/readyz         # {"status":"ok"}
-curl http://localhost:8080/swagger/index.html
+curl http://localhost:8080/openapi.json       # OpenAPI 3.0 契约
+curl http://localhost:8080/swagger/index.html # Swagger UI
 ```
 
 本地开发（不用 Docker 构建应用镜像）：
@@ -61,7 +62,7 @@ curl -X PATCH http://localhost:8080/api/v1/users/1 -H 'Content-Type: application
 curl -X DELETE http://localhost:8080/api/v1/users/1
 ```
 
-完整接口定义见 Swagger UI（`/swagger/index.html`）。
+完整接口定义见 `docs/openapi.json` 或 Swagger UI（`/swagger/index.html`）；两者由路由元数据生成，不需要手写注解。
 
 ## 项目结构
 
@@ -75,6 +76,7 @@ go-web-template/
 │   │   ├── httpx/         # 统一响应信封 OK/Created/NoContent/Fail
 │   │   ├── config/        # 配置模型 + viper 加载（文件/环境变量）
 │   │   ├── logx/          # zap logger 构建
+│   │   ├── routekit/      # 声明式路由元数据 + OpenAPI 3.0 生成
 │   │   └── dbx/           # GORM PostgreSQL 连接池
 │   ├── web/               # 紧凑 HTTP 层：engine/中间件/探针/优雅停机（无业务）
 │   ├── user/              # 业务一块：entity → repository → service → handler → routes
@@ -82,12 +84,12 @@ go-web-template/
 ├── migrations/            # golang-migrate SQL 迁移
 ├── configs/               # YAML 配置（config.yaml / config.example.yaml）
 ├── deploy/                # docker-compose.yml
-├── docs/                  # 由 swag 生成的 OpenAPI 文档
+├── docs/                  # openapi.json（生成） + troubleshooting.md
 ├── scripts/               # dev.sh（一键开发）、rename-module.sh（改模块路径）
 ├── web/admin/             # Admin 前端模板（Vue 3 + TS + Vite + Element Plus + UnoCSS）
 ├── .github/workflows/     # CI：lint + vet + test -race + build + docker
 ├── Dockerfile             # 多阶段构建（alpine + 静态二进制，镜像约 70MB）
-├── Makefile               # build/run/dev/test/lint/swagger/migrate/docker 等
+├── Makefile               # build/run/dev/test/lint/openapi/migrate/docker 等
 └── .golangci.yml          # golangci-lint 配置
 ```
 
@@ -109,24 +111,24 @@ go-web-template/
 | `APP_HTTP_REQUEST_TIMEOUT` | 单请求 ctx deadline（`/api/v1`） | `15s` |
 | `APP_HTTP_MAX_BODY_BYTES` | 请求体大小上限 | `1048576`（1 MiB） |
 | `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔） | `*` |
-| `APP_SWAGGER_ENABLED` | 是否暴露 Swagger UI | `true` |
+| `APP_SWAGGER_ENABLED` | 是否暴露 `/openapi.json` 与 Swagger UI | `true` |
 
 生产环境建议：通过密钥管理注入 `APP_DATABASE_PASSWORD` 等敏感项；将 CORS 收紧为实际域名；`APP_DEBUG=false`、`APP_LOG_FORMAT=json`。
 
 ## 常用命令
 
 ```bash
-make tools          # 安装 pin 版本工具（golangci-lint / swag / air / govulncheck / migrate）
+make tools          # 安装 pin 版本工具（golangci-lint / air / govulncheck / migrate）
 make build          # 编译到 bin/
 make run            # 直接运行
 make dev            # air 热重载
 make test           # 单元测试（内存 SQLite，无需 postgres）
 make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
-make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + docs/依赖 同步
+make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
 make smoke          # 本地冒烟：自起自停服务，验证探针 + CRUD
 make db-up          # 起本地 postgres（docker compose 优先）
-make swagger        # 重新生成 OpenAPI 文档
+make openapi        # 重新生成 docs/openapi.json（改了路由元数据后）
 make migrate-up     # 执行迁移（有 docker 用镜像，否则用本地 migrate）
 make migrate-create NAME=add_posts_table   # 新建迁移
 make docker-up      # 一键：postgres + migrate + app
@@ -144,6 +146,7 @@ make test
 - **独立包单测**：`platform/{apperr,httpx,logx,config}` + `web` 中间件（`httptest`）
 - **业务单测**：`internal/user` 的 service（手写 fake repository）与 repository（SQLite）
 - **集成测试**：`internal/app/integration_test.go` 用 `app.NewWithDB` + 内存 SQLite 走通生产同款装配的路由 → handler → service → repository 全链路 CRUD
+- **OpenAPI 测试**：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、路由完整性、禁用时 404）
 - 测试运行无需 PostgreSQL（SQLite 仅用于测试，不进生产镜像）
 
 ## CI / CD
@@ -153,7 +156,7 @@ make test
 | job | 内容 |
 |---|---|
 | `lint` | golangci-lint（v2 配置） |
-| `gate` | `make gate` = gofmt 校验 + `go vet` + `go test -race` + `go build` + `docs/` 同步检查 |
+| `gate` | `make gate` = gofmt 校验 + `go vet` + `go test -race`（含 OpenAPI 黄金文件）+ `go build` + 依赖 tidy |
 | `web` | `web/admin`：pnpm install + typecheck + build |
 | `docker` | 镜像可构建性验证 |
 
@@ -163,7 +166,7 @@ make test
    ```bash
    ./scripts/rename-module.sh github.com/yourorg/your-project
    ```
-2. 按需新增领域：在 `model/` 加实体 → `migrations/` 加迁移 → `repository/` 写仓储 → `service/` 写业务 → `handler/` 写接口 → `router/` 注册路由（含 Swagger 注解）。
+2. 按需新增领域：`internal/<domain>/` 内加 entity → 迁移 → repository → service → handler，`routes.go` 用 `routekit.Group` + `Op` 注册路由（不用写 Swagger 注解），最后 `make openapi`。
 3. 常用扩展方向：JWT 认证中间件、Redis 缓存、消息队列（Kafka/RabbitMQ）、gRPC 网关、多租户。
 
 ## AI 协作文件
@@ -177,7 +180,7 @@ make test
 
 | skill | 用途 |
 |---|---|
-| `add-domain` | 新增领域模块（model→迁移→repo→service→handler→路由→测试→Swagger 八步） |
+| `add-domain` | 新增领域模块（迁移→repo→service→handler→routekit 路由→测试→OpenAPI） |
 | `docker-ops` | 容器编排与本地端到端调试（postgres→迁移→后台跑服务→curl 验证；镜像/compose/CI） |
 | `database-migrations` | 迁移生命周期管理 |
 

@@ -78,7 +78,7 @@ type RateLimit struct {
 	Burst   int     `mapstructure:"burst"`
 }
 
-// Swagger controls whether the Swagger UI is exposed.
+// Swagger controls whether /openapi.json and the Swagger UI are exposed.
 type Swagger struct {
 	Enabled bool `mapstructure:"enabled"`
 }

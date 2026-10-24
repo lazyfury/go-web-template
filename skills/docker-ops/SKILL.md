@@ -16,11 +16,11 @@ description: go-web-template 的容器编排与本地端到端调试：起 postg
 ```bash
 make db-up            # 起 postgres 并等 healthy（有 docker 走 compose）
 make migrate-up       # 应用迁移（首次 "1/u create_users_table"，重复 "no change"）
-make smoke            # 起服务 → /healthz /readyz → users CRUD → 软删 404 → 校验 400 → swagger
+make smoke            # 起服务 → /healthz /readyz → users CRUD → 软删 404 → 校验 400 → OpenAPI/Swagger
 make docker-down      # 收尾停容器（保留数据卷）；本机服务由 smoke 自己清理
 ```
 
-`make smoke` 的断言：创建 201、列表/详情 200、PATCH 200、DELETE 204、软删后 404、非法参数 400、`/swagger/index.html` 200。失败时打印 server 日志尾部与修复提示。
+`make smoke` 的断言：创建 201、列表/详情 200、PATCH 200、DELETE 204、软删后 404、非法参数 400、`/openapi.json` 200、`/swagger/index.html` 200。失败时打印 server 日志尾部与修复提示。
 
 ## 2. 手工调试（需要看细节时）
 

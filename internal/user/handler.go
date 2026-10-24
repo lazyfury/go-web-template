@@ -32,17 +32,15 @@ type UpdateRequest struct {
 	Email *string `json:"email" binding:"omitempty,email,max=255"`
 }
 
+// ListResponse is the payload for GET /users.
+type ListResponse struct {
+	Items    []User `json:"items"`
+	Total    int64  `json:"total"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+}
+
 // Create handles POST /api/v1/users.
-//
-//	@Summary	Create a user
-//	@Tags		users
-//	@Accept		json
-//	@Produce	json
-//	@Param		body	body		CreateRequest	true	"User payload"
-//	@Success	201		{object}	httpx.Body
-//	@Failure	400		{object}	httpx.Body
-//	@Failure	409		{object}	httpx.Body
-//	@Router		/users [post]
 func (h *Handler) Create(c *gin.Context) {
 	var req CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -58,14 +56,6 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 // Get handles GET /api/v1/users/:id.
-//
-//	@Summary	Get a user by id
-//	@Tags		users
-//	@Produce	json
-//	@Param		id	path		int	true	"User ID"
-//	@Success	200	{object}	httpx.Body
-//	@Failure	404	{object}	httpx.Body
-//	@Router		/users/{id} [get]
 func (h *Handler) Get(c *gin.Context) {
 	id, err := parseID(c)
 	if err != nil {
@@ -81,15 +71,6 @@ func (h *Handler) Get(c *gin.Context) {
 }
 
 // List handles GET /api/v1/users.
-//
-//	@Summary	List users with pagination and keyword filter
-//	@Tags		users
-//	@Produce	json
-//	@Param		page		query	int	false	"Page number (default 1)"	mininum(1)
-//	@Param		page_size	query	int	false	"Page size (default 20, max 100)"	maximum(100)
-//	@Param		keyword		query	string	false	"Keyword matched against name/email"
-//	@Success	200			{object}	httpx.Body
-//	@Router		/users [get]
 func (h *Handler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -100,27 +81,15 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	httpx.OK(c, gin.H{
-		"items":     users,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
+	httpx.OK(c, ListResponse{
+		Items:    users,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
 	})
 }
 
 // Update handles PATCH /api/v1/users/:id.
-//
-//	@Summary	Update a user
-//	@Tags		users
-//	@Accept		json
-//	@Produce	json
-//	@Param		id		path	int					true	"User ID"
-//	@Param		body	body	UpdateRequest	true	"Fields to update"
-//	@Success	200		{object}	httpx.Body
-//	@Failure	400		{object}	httpx.Body
-//	@Failure	404		{object}	httpx.Body
-//	@Failure	409		{object}	httpx.Body
-//	@Router		/users/{id} [patch]
 func (h *Handler) Update(c *gin.Context) {
 	id, err := parseID(c)
 	if err != nil {
@@ -141,14 +110,6 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 // Delete handles DELETE /api/v1/users/:id.
-//
-//	@Summary	Delete a user (soft delete)
-//	@Tags		users
-//	@Produce	json
-//	@Param		id	path	int	true	"User ID"
-//	@Success	204	"no content"
-//	@Failure	404	{object}	httpx.Body
-//	@Router		/users/{id} [delete]
 func (h *Handler) Delete(c *gin.Context) {
 	id, err := parseID(c)
 	if err != nil {

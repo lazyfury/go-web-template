@@ -21,7 +21,7 @@ type User struct {
 	ID        uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name      string     `gorm:"type:varchar(64);not null" json:"name"`
 	Email     string     `gorm:"type:varchar(255);not null;uniqueIndex" json:"email"`
-	Status    Status     `gorm:"type:smallint;not null;default:1" json:"status"`
+	Status    Status     `gorm:"type:smallint;not null;default:1" json:"status" enum:"0,1"`
 	CreatedAt time.Time  `gorm:"not null" json:"created_at"`
 	UpdatedAt time.Time  `gorm:"not null" json:"updated_at"`
 	DeletedAt *time.Time `gorm:"index" json:"-"`

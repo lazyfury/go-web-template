@@ -14,31 +14,54 @@ import (
 
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/dbx"
+	"github.com/example/go-web-template/internal/platform/routekit"
 	"github.com/example/go-web-template/internal/user"
 	"github.com/example/go-web-template/internal/web"
 )
 
+// Options carries process-level metadata used by the composition root.
+type Options struct {
+	// Version is exposed in the OpenAPI document. Defaults to "dev".
+	Version string
+}
+
+// Option customizes Options.
+type Option func(*Options)
+
+// WithVersion sets the version shown in the OpenAPI document.
+func WithVersion(version string) Option {
+	return func(options *Options) {
+		options.Version = version
+	}
+}
+
 // App owns the assembled HTTP stack and the database handle.
 type App struct {
-	db     *gorm.DB
-	engine *gin.Engine
-	server *web.Server
+	db      *gorm.DB
+	engine  *gin.Engine
+	server  *web.Server
+	openapi *routekit.Registry
 }
 
 // New opens the database and wires the application. It is the entry point used
 // by cmd/server/main.go.
-func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
+func New(cfg *config.Config, logger *zap.Logger, opts ...Option) (*App, error) {
 	db, err := dbx.New(&cfg.Database, logger)
 	if err != nil {
 		return nil, fmt.Errorf("init database: %w", err)
 	}
-	return NewWithDB(cfg, logger, db)
+	return NewWithDB(cfg, logger, db, opts...)
 }
 
 // NewWithDB wires every component against an existing *gorm.DB. It exists so
 // tests (and alternative drivers) can exercise the exact production wiring
 // without opening a PostgreSQL connection.
-func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB) (*App, error) {
+func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Option) (*App, error) {
+	options := Options{Version: "dev"}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("access sql.DB: %w", err)
@@ -50,19 +73,28 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB) (*App, error
 	userHandler := user.NewHandler(userService)
 
 	// Transport layer. web knows nothing about domains; the composition root
-	// mounts the module on the versioned API group.
-	engine, v1 := web.New(cfg, logger, web.NewHealth(sqlDB))
-	user.RegisterRoutes(v1, userHandler)
+	// mounts each module on the versioned API group and then builds the
+	// OpenAPI document from the registered metadata.
+	engine, api := web.New(cfg, logger, web.NewHealth(sqlDB), options.Version)
+	user.RegisterRoutes(api, userHandler)
+	if err := web.MountDocs(engine, api, cfg.Swagger.Enabled); err != nil {
+		return nil, fmt.Errorf("build openapi: %w", err)
+	}
 
 	return &App{
-		db:     db,
-		engine: engine,
-		server: web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
+		db:      db,
+		engine:  engine,
+		server:  web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
+		openapi: api.Registry(),
 	}, nil
 }
 
 // Handler exposes the HTTP handler (tests use it with httptest).
 func (a *App) Handler() http.Handler { return a.engine }
+
+// OpenAPI exposes the registry backing the generated document. Tests use it
+// to assert that every gin route is documented.
+func (a *App) OpenAPI() *routekit.Registry { return a.openapi }
 
 // Run blocks until ctx is canceled, then drains connections gracefully.
 func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }

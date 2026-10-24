@@ -69,5 +69,6 @@ ID=$(printf '%s' "$CREATE_BODY" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p' | hea
 [ "$(code -X POST "$BASE/api/v1/users" -H 'Content-Type: application/json' -d '{"name":"x"}')" = "400" ] \
   || fail "非法参数应为 400"
 [ "$(code "$BASE/swagger/index.html")" = "200" ] || fail "swagger UI 非 200"
+[ "$(code "$BASE/openapi.json")" = "200" ] || fail "openapi.json 非 200"
 
-echo "smoke: PASS（liveness + readyz + CRUD + 校验 + swagger）"
+echo "smoke: PASS（liveness + readyz + CRUD + 校验 + OpenAPI/Swagger）"

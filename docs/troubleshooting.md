@@ -9,7 +9,7 @@
 |---|---|
 | `curl` 挂起、无响应直到超时 | shell 有 `all_proxy`/`http_proxy`，本机请求也被代理。加 `--noproxy '*'`（`scripts/smoke.sh` 已内置） |
 | 起的服务器进程莫名被杀 / 命令一直不返回 | 在 agent 的普通 bash 调用里用 `&` 起长驻进程，工具会等所有子进程。用 `./scripts/smoke.sh`（自起自停 + trap 清理），或 `nohup ... &` + 记 PID + 显式 kill |
-| `make lint` / `make swagger` 报 command not found | 工具未安装：`make tools`；确认 `$(go env GOPATH)/bin` 在 `PATH` |
+| `make lint` 报 command not found | 工具未安装：`make tools`；确认 `$(go env GOPATH)/bin` 在 `PATH` |
 | `make migrate-*` 报 docker 不存在 | 无 docker 环境：`make migrate-tool` 后用本地二进制（Makefile 已自动二选一） |
 | `make smoke` 报"进程启动即退出" | 多半是 postgres 不可达：`make db-up`（有 docker 走 compose，否则检查本机 postgres） |
 | 改了代码、镜像也重建了，但 `curl :8080` 行为还是旧的 | 早先 `nohup` 起的调试二进制成了孤儿进程占着端口，Docker Desktop 的端口映射被遮住（容器日志里看不到你的请求）。`lsof -nP -iTCP:8080 -sTCP:LISTEN` 确认后 `pkill -f '<binary>'`，再 `docker compose up -d --force-recreate app` |
@@ -37,6 +37,8 @@
 | 超时中间件"没生效" | `Timeout` 只向 `c.Request.Context()` 注入 deadline；handler 不检查 `ctx.Err()` 就不会中断。DB 查询因 `WithContext(ctx)` 会受影响。硬超时由 http server read/write timeout 兜底 |
 | `/metrics` 404 | 不能用 DefaultServeMux 自动注册，直挂 `promhttp.Handler()` |
 | `errors.Is(err, apperrors.ErrNotFound)` 不成立 | `apperrors.Error.Is` 按 Code 匹配；确认是 `apperrors.Wrap/New` 产出的错误，且调用了 `Unwrap` 链（`fmt.Errorf("%w")` 也可） |
+| `TestOpenAPIGolden` 失败 | 改了路由/`Op` 但没更新契约：运行 `make openapi`，review `docs/openapi.json` 后提交 |
+| 启动报 `routekit: unsupported type` / `path parameter ... missing` | `Op` 与 gin path 不一致，或 DTO 含 routekit 未覆盖的类型；按错误中的路由/类型修正（query 数组/对象、通配路径当前不支持） |
 
 ## 5. golangci-lint
 
@@ -60,7 +62,7 @@
 
 | 报错 | 处理 |
 |---|---|
-| `TS5103 Invalid value for '--ignoreDeprecations'` | tsconfig 的值必须匹配 TS major：TS 5.x 只认 `"5.0"`，TS 6.0/7.0 认 `"6.0"`（见 `context.md` ADR 9） |
+| `TS5103 Invalid value for '--ignoreDeprecations'` | tsconfig 的值必须匹配 TS major：TS 5.x 只认 `"5.0"`，TS 6.0/7.0 认 `"6.0"`（见 `context.md` ADR 11） |
 | `[sass] Expected newline` | `<style lang="sass">` 是缩进式语法却写了 SCSS 花括号 → 改 `lang="scss"` |
 | `[unocss] failed to load icon "-"` | 无害噪音，来自 JSDoc 注释里独立的 `-` token，可忽略 |
 
