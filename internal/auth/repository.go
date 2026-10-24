@@ -25,6 +25,13 @@ type Repository interface {
 	// all the racing tabs share one cookie jar, so only the newest token should
 	// survive instead of accumulating orphaned sessions.
 	RevokeOthersForUser(ctx context.Context, userID uint64, keepID uint64, revokedAt time.Time, reason string) error
+	// RetireRotatedForUser rewrites the reason of already-rotated tokens so the
+	// reuse grace window can no longer tolerate them. Rotated rows are the only
+	// ones a replay may resurrect; when a hard revocation (logout, password
+	// change, reuse detection, session cap) happens, they must stop being
+	// replayable immediately — otherwise a token rotated seconds before the
+	// logout would still mint a fresh session afterwards.
+	RetireRotatedForUser(ctx context.Context, userID uint64, reason string) error
 }
 
 // gormRepository is the GORM-backed implementation of Repository.
@@ -76,6 +83,17 @@ func (r *gormRepository) RevokeOthersForUser(ctx context.Context, userID, keepID
 		Updates(map[string]any{"revoked_at": revokedAt, "revoked_reason": reason}).Error
 	if err != nil {
 		return apperr.Wrap(apperr.CodeDatabase, "revoke sibling refresh tokens failed", err)
+	}
+	return nil
+}
+
+func (r *gormRepository) RetireRotatedForUser(ctx context.Context, userID uint64, reason string) error {
+	err := r.db.WithContext(ctx).
+		Model(&RefreshToken{}).
+		Where("user_id = ? AND revoked_at IS NOT NULL AND revoked_reason = ?", userID, RevokeRotated).
+		Update("revoked_reason", reason).Error
+	if err != nil {
+		return apperr.Wrap(apperr.CodeDatabase, "retire rotated refresh tokens failed", err)
 	}
 	return nil
 }

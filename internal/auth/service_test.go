@@ -120,6 +120,15 @@ func (f *fakeTokens) RevokeAllForUser(_ context.Context, userID uint64, revokedA
 	return nil
 }
 
+func (f *fakeTokens) RetireRotatedForUser(_ context.Context, userID uint64, reason string) error {
+	for _, token := range f.tokens {
+		if token.UserID == userID && token.RevokedAt != nil && token.RevokedReason == RevokeRotated {
+			token.RevokedReason = reason
+		}
+	}
+	return nil
+}
+
 func (f *fakeTokens) activeCount() int {
 	count := 0
 	for _, token := range f.tokens {
@@ -544,5 +553,34 @@ func TestLogoutRevokesEverySession(t *testing.T) {
 	}
 	if _, err := h.svc.Refresh(context.Background(), laptop.RefreshToken, ClientMeta{}); !errors.Is(err, apperr.ErrUnauthorized) {
 		t.Errorf("sibling session must be dead after logout, got %v", err)
+	}
+}
+
+// TestLogoutKillsRotatedTokenInsideReuseWindow 钉住 F4 的边界：登出前刚被轮换掉的
+// token 也在宽限期内，若它的 reason 还是 rotated，重放会拿到全新会话 —— 等于登出
+// 后攻击者仍然活着。硬吊销必须把 rotated 行也改标，宽限期才不再容忍重放。
+func TestLogoutKillsRotatedTokenInsideReuseWindow(t *testing.T) {
+	h := newHarness(t)
+	h.seedUser(t, "member@example.com", authkit.RoleMember, user.StatusActive)
+
+	session, err := h.svc.Login(context.Background(), LoginInput{Email: "member@example.com", Password: testPassword})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	rotatedAway := session.RefreshToken // 即将被轮换掉的那条
+
+	rotated, err := h.svc.Refresh(context.Background(), rotatedAway, ClientMeta{})
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	// 马上登出（仍在 30s 宽限期内）。
+	if err := h.svc.Logout(context.Background(), rotated.RefreshToken); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if _, err := h.svc.Refresh(context.Background(), rotatedAway, ClientMeta{}); !errors.Is(err, apperr.ErrUnauthorized) {
+		t.Errorf("rotated token must not be tolerated after logout, got %v", err)
+	}
+	if got := h.tokens.activeCount(); got != 0 {
+		t.Errorf("active tokens = %d, want 0", got)
 	}
 }

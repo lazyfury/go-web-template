@@ -187,7 +187,7 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 		return nil, apperr.New(apperr.CodeUnauthorized, "refresh token expired")
 	}
 	if s.sessionExpired(stored, now) {
-		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, now, RevokeSessionCap); err != nil {
+		if err := s.revokeAllSessions(ctx, stored.UserID, now, RevokeSessionCap); err != nil {
 			return nil, err
 		}
 		s.logger.Info("session reached its absolute lifetime", zap.Uint64("user_id", stored.UserID))
@@ -209,7 +209,7 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 		if s.withinReuseInterval(stored, now) {
 			return s.toleratedReplay(ctx, account, meta, stored, now)
 		}
-		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, now, RevokeReuse); err != nil {
+		if err := s.revokeAllSessions(ctx, stored.UserID, now, RevokeReuse); err != nil {
 			return nil, err
 		}
 		s.logger.Error("refresh token reuse detected; all sessions revoked", zap.Uint64("user_id", stored.UserID))
@@ -227,7 +227,7 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 		if findErr == nil && reloaded.RevokedAt != nil && s.withinReuseInterval(reloaded, now) {
 			return s.toleratedReplay(ctx, account, meta, reloaded, now)
 		}
-		if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, now, RevokeReuse); err != nil {
+		if err := s.revokeAllSessions(ctx, stored.UserID, now, RevokeReuse); err != nil {
 			return nil, err
 		}
 		s.logger.Error("concurrent refresh token rotation; all sessions revoked", zap.Uint64("user_id", stored.UserID))
@@ -293,7 +293,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	// logout, which is exactly what the user was trying to stop. The reason is
 	// RevokeLogout (not RevokeRotated), so the reuse grace window never
 	// resurrects any of them.
-	if err := s.tokens.RevokeAllForUser(ctx, stored.UserID, s.now(), RevokeLogout); err != nil {
+	if err := s.revokeAllSessions(ctx, stored.UserID, s.now(), RevokeLogout); err != nil {
 		return err
 	}
 	return nil
@@ -352,7 +352,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint64, currentPass
 	if err := s.users.SaveAuthState(ctx, account); err != nil {
 		return err
 	}
-	if err := s.tokens.RevokeAllForUser(ctx, account.ID, now, RevokePassword); err != nil {
+	if err := s.revokeAllSessions(ctx, account.ID, now, RevokePassword); err != nil {
 		return err
 	}
 	s.logger.Info("password changed", zap.Uint64("user_id", account.ID))
@@ -402,10 +402,22 @@ func (s *Service) SeedAdmin(ctx context.Context, name, email, password string, r
 		return nil, err
 	}
 	// A credential reset must invalidate previous sessions.
-	if err := s.tokens.RevokeAllForUser(ctx, account.ID, now, RevokePassword); err != nil {
+	if err := s.revokeAllSessions(ctx, account.ID, now, RevokePassword); err != nil {
 		return nil, err
 	}
 	return account, nil
+}
+
+// revokeAllSessions is the hard revocation used by logout, password changes,
+// reuse detection and the session cap: every active token dies, and every
+// already-rotated token stops being tolerated by the reuse grace window.
+// Without the second step a token rotated seconds before the logout could be
+// replayed afterwards and mint a brand new session.
+func (s *Service) revokeAllSessions(ctx context.Context, userID uint64, now time.Time, reason string) error {
+	if err := s.tokens.RevokeAllForUser(ctx, userID, now, reason); err != nil {
+		return err
+	}
+	return s.tokens.RetireRotatedForUser(ctx, userID, reason)
 }
 
 // recordFailure increments the failed-login counter and locks the account once
