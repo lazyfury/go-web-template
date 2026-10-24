@@ -63,7 +63,7 @@ func TestNoStoreSurvivesRejection(t *testing.T) {
 	t.Parallel()
 
 	r := gin.New()
-	r.Use(NoStore(), RateLimit(true, 1, 1))
+	r.Use(NoStore(), ipLimit(1, 1))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := newRequest(t, http.MethodGet, "/")

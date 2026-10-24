@@ -49,6 +49,7 @@ type App struct {
 	server        *web.Server
 	openapi       *routekit.Registry
 	messageWorker *message.Worker
+	limiters      *web.Limiters
 }
 
 // New opens the database and wires the application. It is the entry point used
@@ -134,10 +135,15 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	// Transport layer. web knows nothing about domains; the composition root
 	// mounts each module on the versioned API group and then builds the
 	// OpenAPI document from the registered metadata.
-	engine, api := web.New(cfg, logger, web.NewHealth(sqlDB), options.Version)
+	//
+	// The rate-limiter registry is created here because cmd/server has to own
+	// the goroutine that sweeps idle buckets (ADR 14): constructors never start
+	// goroutines.
+	limiters := web.NewLimiters()
+	engine, api := web.New(cfg, logger, web.NewHealth(sqlDB), options.Version, limiters)
 
 	// Public auth endpoints: login is throttled per IP, refresh is not.
-	loginGuard := web.RateLimit(true, cfg.Auth.LoginRPS, cfg.Auth.LoginBurst)
+	loginGuard := limiters.Middleware(true, clientIPKey, cfg.Auth.LoginRPS, cfg.Auth.LoginBurst)
 	auth.RegisterRoutes(api, authHandler, loginGuard)
 
 	// Everything below requires a valid access token. Authkit reads the user
@@ -149,7 +155,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	// holds a valid token and can rotate IPs freely.
 	var passwordGuards []gin.HandlerFunc
 	if cfg.RateLimit.Enabled {
-		passwordGuards = append(passwordGuards, web.RateLimitKeyed(func(c *gin.Context) string {
+		passwordGuards = append(passwordGuards, limiters.Middleware(true, func(c *gin.Context) string {
 			if principal, ok := authkit.PrincipalFrom(c); ok {
 				return "user:" + strconv.FormatUint(principal.UserID, 10)
 			}
@@ -171,8 +177,14 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		server:        web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
 		openapi:       api.Registry(),
 		messageWorker: messageWorker,
+		limiters:      limiters,
 	}, nil
 }
+
+// clientIPKey mirrors web's default bucket dimension for guards registered by
+// the composition root (login): the TCP peer, or X-Forwarded-For from a trusted
+// proxy. Callers cannot pick their own bucket.
+func clientIPKey(c *gin.Context) string { return c.ClientIP() }
 
 // sessionRevoker adapts auth.Repository to user.SessionRevoker without making
 // the user domain import auth (or leak revocation reasons into it).
@@ -227,6 +239,10 @@ func (a *App) OpenAPI() *routekit.Registry { return a.openapi }
 // MessageWorker exposes the delivery worker for cmd/server to start. It returns
 // nil when message.worker_enabled is false. App never starts goroutines itself.
 func (a *App) MessageWorker() *message.Worker { return a.messageWorker }
+
+// Limiters exposes the rate-limiter registry so cmd/server can run the idle
+// bucket sweeper. App never starts goroutines itself.
+func (a *App) Limiters() *web.Limiters { return a.limiters }
 
 // Run blocks until ctx is canceled, then drains connections gracefully.
 func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }

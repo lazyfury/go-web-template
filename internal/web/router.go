@@ -13,12 +13,24 @@ import (
 	"github.com/example/go-web-template/internal/platform/routekit"
 )
 
+// clientIPKey is the default bucket dimension: the TCP peer IP, or the
+// X-Forwarded-For entry when that peer is one of the configured trusted proxies
+// (see SetTrustedProxies above). Callers cannot choose their own bucket.
+func clientIPKey(c *gin.Context) string { return c.ClientIP() }
+
 // New builds the gin engine with the global middleware chain, operational
 // endpoints and the /api/v1 group. It returns a metadata-aware API group so
 // the composition root can mount domain modules without this package
 // importing them (web must not depend on business code). The group also
 // records the route metadata used to build /openapi.json.
-func New(cfg *config.Config, logger *zap.Logger, health *Health, version string) (*gin.Engine, *routekit.Group) {
+//
+// limiters receives the /api/v1 guard and must be non-nil: the registry is owned
+// by the composition root, which also hands it to cmd/server so idle buckets get
+// swept by an owned goroutine instead of a constructor one.
+func New(cfg *config.Config, logger *zap.Logger, health *Health, version string, limiters *Limiters) (*gin.Engine, *routekit.Group) {
+	if limiters == nil {
+		panic("web.New: limiters must not be nil (create it in the composition root and run it from cmd/server)")
+	}
 	if cfg.App.Debug {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -72,7 +84,7 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string)
 	ginV1 := r.Group("/api/v1",
 		// API payloads carry access tokens and per-user data: never cache them.
 		NoStore(),
-		RateLimit(cfg.RateLimit.Enabled, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
+		limiters.Middleware(cfg.RateLimit.Enabled, clientIPKey, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
 		Timeout(cfg.HTTPServer.RequestTimeout),
 	)
 

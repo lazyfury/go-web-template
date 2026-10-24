@@ -125,6 +125,12 @@ func TestCORS(t *testing.T) {
 	})
 }
 
+// ipLimit is the shape every IP-keyed guard has: a registry-owned token bucket
+// per client IP. Tests use it instead of a self-starting limiter.
+func ipLimit(rps float64, burst int) gin.HandlerFunc {
+	return NewLimiters().Middleware(true, clientIPKey, rps, burst)
+}
+
 // TestRateLimitIgnoresSpoofedXFF 钉住 F2：没有配置可信代理时，调用方不能靠轮换
 // X-Forwarded-For 换到新的限流桶（否则登录限流形同虚设）。
 func TestRateLimitIgnoresSpoofedXFF(t *testing.T) {
@@ -134,7 +140,7 @@ func TestRateLimitIgnoresSpoofedXFF(t *testing.T) {
 	if err := r.SetTrustedProxies(nil); err != nil {
 		t.Fatalf("SetTrustedProxies: %v", err)
 	}
-	r.Use(RateLimit(true, 1, 1))
+	r.Use(ipLimit(1, 1))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	first := newRequest(t, http.MethodGet, "/")
@@ -161,7 +167,7 @@ func TestRateLimitUsesXFFFromTrustedProxy(t *testing.T) {
 	if err := r.SetTrustedProxies([]string{"10.1.0.0/16"}); err != nil {
 		t.Fatalf("SetTrustedProxies: %v", err)
 	}
-	r.Use(RateLimit(true, 1, 1))
+	r.Use(ipLimit(1, 1))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	viaProxy := func(client string) *http.Request {
@@ -186,7 +192,7 @@ func TestRateLimit(t *testing.T) {
 
 	newRouter := func(enabled bool, rps float64, burst int) *gin.Engine {
 		r := gin.New()
-		r.Use(RateLimit(enabled, rps, burst))
+		r.Use(NewLimiters().Middleware(enabled, clientIPKey, rps, burst))
 		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 		return r
 	}
@@ -484,7 +490,7 @@ func TestRateLimitKeyed(t *testing.T) {
 	t.Parallel()
 
 	r := gin.New()
-	r.Use(RateLimitKeyed(func(c *gin.Context) string { return c.GetHeader("X-Test-Key") }, 1, 1))
+	r.Use(NewLimiters().Middleware(true, func(c *gin.Context) string { return c.GetHeader("X-Test-Key") }, 1, 1))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	send := func(key string) int {

@@ -61,13 +61,16 @@ func main() {
 		}
 	}()
 
-	// Root goroutines live here: HTTP and the message worker share one
-	// lifecycle. A failure in either cancels the other; App itself never
-	// starts goroutines.
+	// Root goroutines live here: HTTP, the message worker and the rate-limiter
+	// sweeper share one lifecycle. A failure in any of them cancels the others;
+	// App itself never starts goroutines.
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error { return application.Run(groupCtx) })
 	if worker := application.MessageWorker(); worker != nil {
 		group.Go(func() error { return worker.Run(groupCtx) })
+	}
+	if limiters := application.Limiters(); limiters != nil && limiters.Len() > 0 {
+		group.Go(func() error { return limiters.Run(groupCtx) })
 	}
 	if err := group.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Fatal("application exited with error", zap.Error(err))
