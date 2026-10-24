@@ -20,7 +20,7 @@
 
 ## 快速开始
 
-前置条件：Go ≥ 1.26、Docker。
+前置条件：Go ≥ 1.26、Docker。（`go.mod` 固定 `toolchain go1.27.3`，低于它的工具链会自动切换；想完全本地化就 `GOTOOLCHAIN=local`。）
 
 ```bash
 # 1. 一键起 postgres + 迁移 + 应用（compose 按生产式默认关闭文档端点）

@@ -1,5 +1,10 @@
 # ---- Build stage ----------------------------------------------------------
-FROM golang:1.26-alpine AS builder
+# 必须与 go.mod 的 `toolchain go1.27.3` 一致：stdlib 漏洞（如 GO-2026-6809
+# crypto/x509）只能靠工具链修，换依赖没用。GOTOOLCHAIN=local 让「镜像里的 Go
+# 比 go.mod 要求更旧」在构建期直接失败，而不是偷偷下载另一个工具链。
+FROM golang:1.27.3-alpine AS builder
+
+ENV GOTOOLCHAIN=local
 
 WORKDIR /src
 
