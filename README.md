@@ -258,6 +258,10 @@ make docker-down
 ```bash
 export APP_AUTH_JWT_SECRET="$(openssl rand -base64 48)"
 docker compose -f deploy/docker-compose.yml up -d --build
+# 忘了 export 的表现：app 容器退出，日志
+#   load config: auth.jwt_secret must be at least 32 bytes in production:
+#   set APP_AUTH_JWT_SECRET, or run `make docker-up` ...
+# 也就是说 `make docker-up`（自动生成并复用 .local/jwt-secret）是本地唯一推荐入口。
 ```
 
 ## 从模板开始你的项目

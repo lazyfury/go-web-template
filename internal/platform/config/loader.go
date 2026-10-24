@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -184,10 +185,27 @@ func Load(configFile, envPrefix string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.normalize()
+	honourEmptyDangerousEnv(cfg, envPrefix)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// honourEmptyDangerousEnv makes "explicitly empty" win over the value shipped in
+// configs/config.yaml for the one key where it matters.
+//
+// viper ignores empty environment variables by default, so compose's
+// `APP_AUTH_JWT_SECRET: "${APP_AUTH_JWT_SECRET:-}"` (an operator who forgot to
+// export the secret) silently left the repository's development secret in
+// place. Production then failed with "jwt_secret still uses a template
+// placeholder", which reads like a bug in the code instead of "you did not set
+// the secret". Treating the empty value as empty makes the message say exactly
+// that.
+func honourEmptyDangerousEnv(cfg *Config, envPrefix string) {
+	if raw, ok := os.LookupEnv(envPrefix + "_AUTH_JWT_SECRET"); ok && strings.TrimSpace(raw) == "" {
+		cfg.Auth.JWTSecret = ""
+	}
 }
 
 // bindAppEnv maps the top-level "app" section to APP_<KEY> (APP_PORT,
@@ -324,10 +342,10 @@ func isPlaceholderSecret(secret string) bool {
 func (c *Config) validateAuth() error {
 	if c.IsProduction() {
 		if len(c.Auth.JWTSecret) < minJWTSecretBytes {
-			return fmt.Errorf("auth.jwt_secret must be at least %d bytes in production (set APP_AUTH_JWT_SECRET)", minJWTSecretBytes)
+			return fmt.Errorf("auth.jwt_secret must be at least %d bytes in production: set APP_AUTH_JWT_SECRET, or run `make docker-up` (it generates .local/jwt-secret and injects it)", minJWTSecretBytes)
 		}
 		if isPlaceholderSecret(c.Auth.JWTSecret) {
-			return fmt.Errorf("auth.jwt_secret still uses a template placeholder; set APP_AUTH_JWT_SECRET to a random value")
+			return fmt.Errorf("auth.jwt_secret still uses a placeholder shipped in this repository (configs/config.yaml or an example value): set APP_AUTH_JWT_SECRET to a random value of at least %d bytes; `make docker-up` generates and injects .local/jwt-secret", minJWTSecretBytes)
 		}
 	}
 	if c.Auth.Issuer == "" {

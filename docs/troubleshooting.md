@@ -65,6 +65,7 @@
 |---|---|
 | 启动报 `auth.jwt_secret is required` | 没有任何来源提供密钥：`configs/config.yaml` 有开发默认值；容器/生产用 `APP_AUTH_JWT_SECRET`（≥32 字节） |
 | 生产启动报 `still uses a template placeholder` | 密钥命中了占位标记（`CHANGE_ME…`/`insecure`/`dev-only`/`local-compose-default`/`replace-with`…）：换成随机值（如 `openssl rand -base64 48`） |
+| 直接 `docker compose up` 后 app 容器反复重启，日志 `auth.jwt_secret still uses a placeholder shipped in this repository` | 你没注入密钥：compose 里是 `${APP_AUTH_JWT_SECRET:-}`，空值不会覆盖 `configs/config.yaml` 的开发默认值（现在会按「空 = 没设置」处理）。用 `make docker-up`（生成并注入 `.local/jwt-secret`），或 `export APP_AUTH_JWT_SECRET=$(openssl rand -base64 48)` 后再 `docker compose up` |
 | `docker compose up` 后 app 容器反复重启，日志 `auth.jwt_secret must be at least 32 bytes in production` | compose 不再提供默认密钥（默认密钥=公开密钥）：用 `make docker-up`（自动生成 `.local/jwt-secret`），或自己 `export APP_AUTH_JWT_SECRET=$(openssl rand -base64 48)` |
 | 所有 `/api/v1/*` 都 401，但确实带了 token | 先确认 header 形如 `Authorization: Bearer <jwt>`；再确认 `APP_AUTH_ACCESS_TTL` 未过期、用户未被禁用/改密（`users.token_version` 已变） |
 | `POST /auth/login` 返回 **403 且响应体为空**（无 `{code,message}` 信封） | 不是凭证问题，是 **CORS 预检被拒**：浏览器来源不在 `cors.allowed_origins` 里。跨域 + refresh cookie 还必须 `allow_credentials=true`（`APP_CORS_ALLOW_CREDENTIALS`），且来源不能用 `*`。本地开发推荐走 vite 代理（同源，无需 CORS）；直连时把 `http://localhost:5173` 加进 `APP_CORS_ALLOWED_ORIGINS` |

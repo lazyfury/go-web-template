@@ -350,3 +350,37 @@ func TestRedisSettingsFromEnv(t *testing.T) {
 		t.Errorf("redis.db = %d, want 3", cfg.Redis.DB)
 	}
 }
+
+// TestEmptyJWTSecretEnvDoesNotFallBackToTheRepoDefault 钉住「忘记注入密钥」的真实现场：
+// compose 的 `${APP_AUTH_JWT_SECRET:-}` 展开成空串时，viper 默认会忽略空环境变量，
+// 于是应用拿着 configs/config.yaml 里的开发占位值跑到 production 校验，报出
+// 「still uses a template placeholder」——听起来像代码 bug，其实是没设置密钥。
+func TestEmptyJWTSecretEnvDoesNotFallBackToTheRepoDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := "app:\n  env: production\nauth:\n  jwt_secret: dev-only-insecure-secret-change-me-32b\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	// 环境变量未设置：仓库默认值照常生效 → 命中占位值拒绝，并说明去哪里设。
+	if _, err := Load(path, "APP"); err == nil {
+		t.Fatal("Load accepted the repository placeholder in production")
+	} else if !strings.Contains(err.Error(), "placeholder") {
+		t.Errorf("unset env error = %v, want the placeholder rejection", err)
+	}
+
+	// 显式空值（`APP_AUTH_JWT_SECRET=` / compose 的 ${VAR:-}）：不能被当成「未设置」
+	// 而回落到仓库默认值，必须直接说「密钥太短/没设置」。
+	t.Setenv("APP_AUTH_JWT_SECRET", "")
+	_, err := Load(path, "APP")
+	if err == nil {
+		t.Fatal("Load accepted an empty APP_AUTH_JWT_SECRET in production")
+	}
+	if strings.Contains(err.Error(), "placeholder") {
+		t.Errorf("error = %v, want the missing-secret message, not the placeholder one", err)
+	}
+	if !strings.Contains(err.Error(), "APP_AUTH_JWT_SECRET") || !strings.Contains(err.Error(), "make docker-up") {
+		t.Errorf("error = %v, want it to name APP_AUTH_JWT_SECRET and `make docker-up`", err)
+	}
+}

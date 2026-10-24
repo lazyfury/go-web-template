@@ -90,8 +90,12 @@ services:
       # JWT 签名密钥：**必须由外部注入**（>=32 字节随机值）。
       # 这里故意不提供可用默认值：仓库里自带的默认值 = 公开密钥，任何能读到
       # 仓库的人都能用它自签 admin token（历史版本踩过这个坑）。
-      # 留空时应用会在启动时 fail-fast 报 auth.jwt_secret must be at least 32 bytes。
+      # 留空时应用会在启动时 fail-fast（APP_AUTH_JWT_SECRET 显式为空的按「没设置」
+      # 处理，不会回落到 configs/config.yaml 的开发占位值）。
       # 本地编排：`make docker-up` 会自动生成并复用 .local/jwt-secret。
+      # 这里用 `${VAR:-}` 而不是 compose 的必填语法 `${VAR:?}`：后者在解析期报错，
+      # 会让 `make db-up` / `make smoke` / `docker compose down` 这些只需要 DB 的
+      # 命令一起失败。
       APP_AUTH_JWT_SECRET: "${APP_AUTH_JWT_SECRET:-}"
       # 默认 true（这是会随编排进生产的那份配置）：Secure cookie 只能走 https。
       # 本地 http 调试由 `make docker-up` 显式注入 false（浏览器才会回传 refresh
