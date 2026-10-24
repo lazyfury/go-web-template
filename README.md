@@ -14,9 +14,9 @@
 - **可观测性**：`/healthz` 存活探针、`/readyz` 就绪探针（含 DB 检查）、`/metrics` Prometheus 指标
 - **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
-- **字典/配置模块**：`dict_groups`（setting）+ `dict_items`（dict array）；消费侧 `GET /api/v1/dicts/:group`，管理侧 `/dict-groups`、`/dict-items`；业务模块可用 `dict.Store.Set/Update/GetInto` 维护对象/数组型配置
+- **字典/配置模块**：`dict_groups`（setting）+ `dict_items`（dict array）；消费侧 `GET /api/v1/dicts/:group`，管理侧 `/dict-groups`、`/dict-items`；业务模块可用 `dict.Store.Replace/Get/GetInto` 维护对象/数组型配置
 - **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
-- **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用；API 类型由 `docs/openapi.json` 生成
+- **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户管理 / 字典管理开箱即用；API 类型由 `docs/openapi.json` 生成
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、golangci-lint、单元测试全绿
 
 ## 快速开始
@@ -205,7 +205,7 @@ make test
 测试策略：
 
 - **独立包单测**：`platform/{apperr,httpx,logx,config}` + `web` 中间件（`httptest`）
-- **业务单测**：`internal/user`（角色/归属/禁用失效）、`internal/auth`（枚举防护、锁定、refresh 轮换与重用检测、改密失效）、`internal/dict`（key 校验、停用过滤、Set/Update、GetInto）与 repository（SQLite）
+- **业务单测**：`internal/user`（角色/归属/禁用失效）、`internal/auth`（枚举防护、锁定、refresh 轮换与重用检测、改密失效）、`internal/dict`（key 校验、停用过滤、Replace、GetInto）与 repository（SQLite）
 - **认证原语**：`internal/platform/authkit`（HS256 钉死、alg=none、iss/exp、RBAC、中间件 401/403）
 - **集成测试**：`internal/app/integration_test.go` 用 `app.NewWithDB` + 内存 SQLite 走通生产同款装配：seed 管理员 → 登录 → bearer → CRUD，并覆盖匿名 401、member 403、refresh 轮换、改密后旧 token 失效
 - **OpenAPI 测试**：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、路由完整性、禁用时 404）

@@ -25,13 +25,14 @@ pnpm gen:api    # docs/openapi.json → src/types/openapi.ts
 | `/login` | 登录页（左品牌区 + 右表单） | 真实 `POST /api/v1/auth/login` |
 | `/dashboard` | 仪表盘：统计卡 + 销售趋势 + 渠道占比 + 最新用户 | 统计为演示值，最新用户走真实 API |
 | `/users` | 用户管理：搜索 / 分页 / 新建 / 编辑 / 删除 | 全部对接真实 `/api/v1/users` |
+| `/dicts` | 字典管理：左侧 group（setting）列表，右侧维护 dict items | 全部对接真实 `/api/v1/dict-groups`、`/api/v1/dict-items` |
 | 任意未匹配 | 404（后台布局内） | — |
 
 ## 目录结构
 
 ```
 web/admin/src/
-├── api/            # HTTP 层（http.ts：axios + 统一信封解包）与领域 API（user.ts / auth.ts）
+├── api/            # HTTP 层（http.ts：axios + 统一信封解包）与领域 API（user.ts / auth.ts / dict.ts）
 ├── components/
 │   ├── common/     # 通用组件（StatCard / StatusTag）
 │   └── layout/     # 布局组件（AppSidebar / AppHeader / AppTabs）
@@ -41,8 +42,8 @@ web/admin/src/
 ├── router/         # 静态路由表 + 登录守卫
 ├── stores/         # pinia：auth（登录态）/ tabs（多标签工作区）
 ├── styles/         # tokens.css 设计令牌 / base.css / element.css（EP 主题接入）
-├── types/          # 类型与常量（api 信封 / user / auth / openapi 生成）
-└── views/          # 页面（Login / Dashboard / Users / NotFound）
+├── types/          # 类型与常量（api 信封 / user / auth / dict / openapi 生成）
+└── views/          # 页面（Login / Dashboard / Users / Dicts / NotFound）
 ```
 
 ## 范式约定（相对参考项目的修正）
@@ -92,7 +93,16 @@ pnpm gen:api
 | 权限 | `stores/auth.ts#can('users:write')`；菜单 `config/menu.ts` 的 `permission`、路由 `meta.permission`、按钮 `v-if` 三处共用同一套权限常量 |
 | 类型 | `src/types/auth.ts` 全部来自 `openapi.ts` 生成的 schema，禁止手写重复接口 |
 
-后端 RBAC：`admin` = `users:read/write/delete`；`member` = `users:read:self` + `users:write:self`。前端隐藏只是体验，**真正判定在服务端**（40100 未认证 / 40300 无权限）。
+后端 RBAC：`admin` = `users:read/write/delete` + `dicts:read/write`；`member` = `users:read:self` + `users:write:self` + `dicts:read`。前端隐藏只是体验，**真正判定在服务端**（40100 未认证 / 40300 无权限）。
+
+## 字典/配置页
+
+`/dicts` 是 master-detail 布局：
+
+- 左侧：group 列表（`key`/`name`/`status`/`item_count`），支持关键字搜索与分页；新建/编辑 group，`key` 创建后不可改。
+- 右侧：选中 group 的 dict array；表格展示 `sort`/`key`/`label`/`value`/`value_type`/`status`/`remark`，支持新增/编辑/删除。
+- 管理端请求带 `include_disabled=true`，停用的 group/item 在后台仍可见；消费侧 `GET /dicts/:group` 只返回启用项。
+- 业务页面消费字典时用 `dictApi.values(group)`（或后端模块的 `dict.Store`），不要依赖管理端接口。
 
 ## 对接后端
 

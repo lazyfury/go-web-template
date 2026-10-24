@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"regexp"
-	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -32,10 +31,10 @@ type Store interface {
 	// GetInto loads a group into dst: a map, a slice, or a struct with
 	// matching json tags.
 	GetInto(ctx context.Context, group string, dst any) error
-	// Set replaces a group with the fields of an object setting.
-	Set(ctx context.Context, group string, values map[string]any) error
-	// Update replaces a group with the elements of an array setting.
-	Update(ctx context.Context, group string, values []any) error
+	// Replace replaces a whole setting with an object or an array value.
+	// Objects become key/value items (sorted by key); arrays become ordered
+	// items (sort_order = index). Any other value is rejected.
+	Replace(ctx context.Context, group string, value any) error
 }
 
 // Service implements dictionary use-cases. It depends on Repository only, so
@@ -336,70 +335,25 @@ func (s *Service) GetInto(ctx context.Context, group string, dst any) error {
 	}
 }
 
-// Set replaces a group with an object setting: each field becomes an item.
-// Keys are sorted so repeated writes produce deterministic sort_order values.
-func (s *Service) Set(ctx context.Context, group string, values map[string]any) error {
+// Replace replaces a whole setting. An object value becomes key/value items
+// sorted by field name; an array value becomes items ordered by index. The
+// group is created when missing; existing admin-managed metadata is preserved.
+func (s *Service) Replace(ctx context.Context, group string, value any) error {
 	key, err := normalizeGroupKey(group)
 	if err != nil {
 		return err
 	}
 
-	keys := make([]string, 0, len(values))
-	for field := range values {
-		if values[field] == nil {
-			continue
-		}
-		keys = append(keys, field)
+	var items []Item
+	if fields, ok := toAnyMap(value); ok {
+		items, err = itemsFromObject(fields)
+	} else if list, ok := toAnySlice(value); ok {
+		items, err = itemsFromList(list)
+	} else {
+		return invalid("dict setting value must be an object or an array")
 	}
-	sort.Strings(keys)
-
-	items := make([]Item, 0, len(keys))
-	for i, field := range keys {
-		itemKey, err := normalizeItemKey(field)
-		if err != nil {
-			return err
-		}
-		value, valueType, err := encodeValue(values[field])
-		if err != nil {
-			return err
-		}
-		items = append(items, Item{
-			Key:       itemKey,
-			Label:     itemKey,
-			Value:     value,
-			ValueType: valueType,
-			SortOrder: i,
-			Status:    StatusEnabled,
-		})
-	}
-
-	_, err = s.repo.ReplaceGroupItems(ctx, &Group{
-		Key:    key,
-		Name:   key,
-		Status: StatusEnabled,
-	}, items)
-	return err
-}
-
-// Update replaces a group with an array setting. Primitive elements become
-// key/value/label entries; objects with a "key" field are treated as explicit
-// item definitions.
-func (s *Service) Update(ctx context.Context, group string, values []any) error {
-	key, err := normalizeGroupKey(group)
 	if err != nil {
 		return err
-	}
-
-	items := make([]Item, 0, len(values))
-	for i, raw := range values {
-		if raw == nil {
-			continue
-		}
-		item, err := itemFromValue(raw, i)
-		if err != nil {
-			return err
-		}
-		items = append(items, *item)
 	}
 
 	_, err = s.repo.ReplaceGroupItems(ctx, &Group{

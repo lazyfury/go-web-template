@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Odometer, User } from '@element-plus/icons-vue'
+import { Collection, Odometer, User } from '@element-plus/icons-vue'
 import type { PermissionKey } from '@/router/routes'
 
 /**
@@ -33,5 +33,12 @@ export const menuConfig: MenuItem[] = [
     icon: User,
     // 只有能读用户列表的角色（admin）才显示；member 只能看自己的资料。
     permission: 'users:read',
+  },
+  {
+    path: '/dicts',
+    title: '字典管理',
+    icon: Collection,
+    // 管理端需要写权限；消费侧读取由各业务页面自行调用 /dicts/:group。
+    permission: 'dicts:write',
   },
 ]

@@ -31,7 +31,7 @@ type Repository interface {
 	CountItems(ctx context.Context, groupIDs []uint64) (map[uint64]int64, error)
 
 	// ReplaceGroupItems upserts a group by key and atomically replaces every
-	// item of that group. It backs the Set/Update convenience API, where the
+	// item of that group. It backs the Replace convenience API, where the
 	// caller provides a whole object/array rather than individual rows.
 	ReplaceGroupItems(ctx context.Context, group *Group, items []Item) (*Group, error)
 }

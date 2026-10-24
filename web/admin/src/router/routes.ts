@@ -9,10 +9,13 @@ export type PermissionKey =
   | 'users:delete'
   | 'users:read:self'
   | 'users:write:self'
+  | 'dicts:read'
+  | 'dicts:write'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import UsersView from '@/views/UsersView.vue'
+import DictsView from '@/views/DictsView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
 
 /**
@@ -61,6 +64,12 @@ export const routes: RouteRecordRaw[] = [
         name: 'users',
         component: UsersView,
         meta: { title: '用户管理', permission: 'users:read' },
+      },
+      {
+        path: 'dicts',
+        name: 'dicts',
+        component: DictsView,
+        meta: { title: '字典管理', permission: 'dicts:write' },
       },
       // catch-all：未匹配路由渲染 404（保持在后台布局内）
       {

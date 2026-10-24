@@ -2,7 +2,7 @@
 //
 // A group is one setting (for example "user.status" or "site.seo"), and its
 // items are the dict array consumers read: [{key, label, value, ...}]. Other
-// modules use the Store convenience methods (Set/Update/GetInto) instead of
+// modules use the Store convenience methods (Replace/Get/GetInto) instead of
 // touching the tables, so the normalized item representation stays an
 // implementation detail.
 package dict

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,84 @@ func encodeValue(value any) (string, ValueType, error) {
 		}
 		return string(raw), ValueTypeJSON, nil
 	}
+}
+
+// itemsFromObject turns an object setting into key/value items. Field order is
+// sorted so repeated writes produce deterministic sort_order values.
+func itemsFromObject(values map[string]any) ([]Item, error) {
+	keys := make([]string, 0, len(values))
+	for field := range values {
+		if values[field] == nil {
+			continue
+		}
+		keys = append(keys, field)
+	}
+	sort.Strings(keys)
+
+	items := make([]Item, 0, len(keys))
+	for i, field := range keys {
+		key, err := normalizeItemKey(field)
+		if err != nil {
+			return nil, err
+		}
+		value, valueType, err := encodeValue(values[field])
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, Item{
+			Key:       key,
+			Label:     key,
+			Value:     value,
+			ValueType: valueType,
+			SortOrder: i,
+			Status:    StatusEnabled,
+		})
+	}
+	return items, nil
+}
+
+// itemsFromList turns an array setting into ordered items.
+func itemsFromList(values []any) ([]Item, error) {
+	items := make([]Item, 0, len(values))
+	for i, raw := range values {
+		if raw == nil {
+			continue
+		}
+		item, err := itemFromValue(raw, i)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *item)
+	}
+	return items, nil
+}
+
+// toAnyMap accepts any Go map with string keys (map[string]any,
+// map[string]string, named map types) without forcing callers to convert.
+func toAnyMap(value any) (map[string]any, bool) {
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() || rv.Kind() != reflect.Map || rv.Type().Key().Kind() != reflect.String {
+		return nil, false
+	}
+	out := make(map[string]any, rv.Len())
+	iter := rv.MapRange()
+	for iter.Next() {
+		out[iter.Key().String()] = iter.Value().Interface()
+	}
+	return out, true
+}
+
+// toAnySlice accepts any slice or array ([]any, []string, named slice types).
+func toAnySlice(value any) ([]any, bool) {
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() || (rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array) {
+		return nil, false
+	}
+	out := make([]any, rv.Len())
+	for i := range out {
+		out[i] = rv.Index(i).Interface()
+	}
+	return out, true
 }
 
 // itemFromValue maps one element of an array setting to an item. Objects may

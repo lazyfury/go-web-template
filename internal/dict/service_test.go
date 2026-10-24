@@ -154,21 +154,21 @@ func TestGetFiltersDisabledGroupAndItems(t *testing.T) {
 	}
 }
 
-func TestSetReplacesObjectAsSortedItems(t *testing.T) {
+func TestReplaceObjectAsSortedItems(t *testing.T) {
 	repo := newFakeRepository()
 	svc := NewService(repo)
 
-	err := svc.Set(context.Background(), "site.seo", map[string]any{
+	err := svc.Replace(context.Background(), "site.seo", map[string]any{
 		"title":  "Example",
 		"robots": "index",
 		"count":  3,
 		"nested": map[string]any{"enabled": true},
 	})
 	if err != nil {
-		t.Fatalf("set: %v", err)
+		t.Fatalf("replace object: %v", err)
 	}
 	if repo.replacedItems == nil {
-		t.Fatal("Set must replace the group items through the repository")
+		t.Fatal("Replace must replace the group items through the repository")
 	}
 
 	wantKeys := []string{"count", "nested", "robots", "title"}
@@ -183,21 +183,21 @@ func TestSetReplacesObjectAsSortedItems(t *testing.T) {
 		}
 	}
 	if repo.replacedGroup == nil || repo.replacedGroup.ID == 0 {
-		t.Error("Set must create the group when it does not exist")
+		t.Error("Replace must create the group when it does not exist")
 	}
 }
 
-func TestUpdateMapsArrayToItems(t *testing.T) {
+func TestReplaceListMapsItems(t *testing.T) {
 	repo := newFakeRepository()
 	svc := NewService(repo)
 
-	err := svc.Update(context.Background(), "keywords", []any{
+	err := svc.Replace(context.Background(), "keywords", []any{
 		"go",
 		"gin",
 		map[string]any{"key": "gorm", "label": "GORM", "value": 2, "sort": 5},
 	})
 	if err != nil {
-		t.Fatalf("update: %v", err)
+		t.Fatalf("replace list: %v", err)
 	}
 	if len(repo.replacedItems) != 3 {
 		t.Fatalf("items = %d, want 3", len(repo.replacedItems))
@@ -208,6 +208,29 @@ func TestUpdateMapsArrayToItems(t *testing.T) {
 	structured := repo.replacedItems[2]
 	if structured.Key != "gorm" || structured.Label != "GORM" || structured.Value != "2" || structured.ValueType != ValueTypeNumber || structured.SortOrder != 5 {
 		t.Errorf("structured item = %+v", structured)
+	}
+}
+
+func TestReplaceAcceptsTypedSlicesAndRejectsScalars(t *testing.T) {
+	repo := newFakeRepository()
+	svc := NewService(repo)
+
+	if err := svc.Replace(context.Background(), "keywords", []string{"go", "gin"}); err != nil {
+		t.Fatalf("replace typed slice: %v", err)
+	}
+	if len(repo.replacedItems) != 2 || repo.replacedItems[0].Key != "go" {
+		t.Errorf("typed slice items = %+v", repo.replacedItems)
+	}
+
+	if err := svc.Replace(context.Background(), "keywords", []string{}); err != nil {
+		t.Fatalf("replace empty typed slice: %v", err)
+	}
+	if len(repo.replacedItems) != 0 {
+		t.Errorf("empty typed slice items = %+v, want empty", repo.replacedItems)
+	}
+
+	if err := svc.Replace(context.Background(), "keywords", "not-an-object-or-array"); !isCode(err, apperr.CodeInvalidArgument) {
+		t.Errorf("scalar replace error = %v, want invalid argument", err)
 	}
 }
 
