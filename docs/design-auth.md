@@ -59,8 +59,10 @@
 ### Refresh token（不透明随机串）
 
 - 32 字节 `crypto/rand` → base64url；**只存 SHA-256 摘要**（`token_hash CHAR(64) UNIQUE`），DB 泄露不可直接使用。
-- TTL 7 天；每次 `/auth/refresh` **轮换**：旧 token 立即 `revoked_at`，新 token 返回。
-- 重用检测：收到已 `revoked_at` 的 token → 判定泄露，**吊销该用户全部 refresh token** 并返回 401。
+- TTL 30 天 **滑动**（每次轮换续满）；`session_started_at` 跨轮换继承，会话绝对上限 90 天。
+- 每次 `/auth/refresh` **轮换**：旧 token 置 `revoked_at` + `revoked_reason=rotated`，新 token 返回。
+- 复用宽限：`revoked_reason=rotated` 且吊销在 30s 内 → 容忍（多标签页共享 cookie jar），发新 token 并清理兄弟 token，保持仅 1 个活跃 token。
+- 重用检测：超窗重放、或登出/改密等非轮换吊销 → **吊销该用户全部 refresh token** 并返回 401（登出立即生效，不被宽限期复活）。
 
 ## 3. 数据模型（迁移 + entity 双同步）
 

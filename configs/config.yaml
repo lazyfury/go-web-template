@@ -63,11 +63,17 @@ auth:
   jwt_secret: dev-only-insecure-secret-change-me-32b
   issuer: go-web-template
   access_ttl: 15m
-  refresh_ttl: 168h
+  # 滑动续期：每次 /auth/refresh 都会续到 30 天，活跃用户不会被迫重登
+  refresh_ttl: 720h
+  # 会话绝对上限：从首次登录算起最多 90 天（到点强制重登）
+  refresh_max_lifetime: 2160h
+  # 轮换后的旧 token 在 30s 内重放视为多标签页竞态（容忍），超出则按盗用处理
+  refresh_reuse_interval: 30s
   bcrypt_cost: 12
   login_max_attempts: 5
   login_lockout: 15m
   login_rps: 5
   login_burst: 10
-  # 本地 http 调试时置 false，否则浏览器不会保存 refresh cookie
-  cookie_secure: true
+  # 本地 http 调试必须 false：Secure cookie 不会在 http 上回传，
+  # 表现为「登录成功但刷新页面就掉线」。生产（HTTPS）必须 true。
+  cookie_secure: false

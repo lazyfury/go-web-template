@@ -36,7 +36,7 @@ Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler 
 8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
 9. **OpenAPI 代码优先**：路由必须通过 `routekit.Group` 注册并带 `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`（改完运行 `make openapi` 并提交）。API 契约变化后同步前端类型（`cd web/admin && pnpm gen:api`）。新增端点漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
 10. **鉴权默认拒绝**：`/api/v1` 下除 `/auth/login`、`/auth/refresh` 外一律挂在 `protected` 组（`Security(bearerAuth)` + `authkit.Authenticate`）。新增端点必须显式声明权限（`authkit.RequirePermission`）并在 `Op.Errors` 里带 `CodeForbidden`；**401（未认证）与 403（无权限）不得混用**。资源归属校验放 service（`actor` 显式入参），不要只靠中间件。禁止把密码/token 写日志或放进 DTO。
-11. **凭证与密钥**：密码只存 bcrypt 摘要；access token 无状态（`users.token_version` 控失效）；refresh token 只存 SHA-256、必须轮换、重用即吊销全部会话。生产必须注入 `APP_AUTH_JWT_SECRET`（≥32 字节、非占位值）。
+11. **凭证与密钥**：密码只存 bcrypt 摘要；access token 无状态（`users.token_version` 控失效）；refresh token 只存 SHA-256、必须轮换 + **滑动续期**，并用 `session_started_at` 封顶整个会话；`refresh_reuse_interval`（默认 30s）只容忍 `revoked_reason=rotated` 的重放（多标签页竞态），登出/改密/禁用/超窗重用一律立即吊销全部会话。生产必须注入 `APP_AUTH_JWT_SECRET`（≥32 字节、非占位值）。
 
 ## 质量门（唯一入口）
 

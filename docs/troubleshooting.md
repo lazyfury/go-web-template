@@ -66,12 +66,16 @@
 | 启动报 `auth.jwt_secret is required` | 没有任何来源提供密钥：`configs/config.yaml` 有开发默认值；容器/生产用 `APP_AUTH_JWT_SECRET`（≥32 字节） |
 | 生产启动报 `still uses a template placeholder` | 密钥仍是 `CHANGE_ME…` 或含 `insecure`：换成随机值（如 `openssl rand -base64 48`） |
 | 所有 `/api/v1/*` 都 401，但确实带了 token | 先确认 header 形如 `Authorization: Bearer <jwt>`；再确认 `APP_AUTH_ACCESS_TTL` 未过期、用户未被禁用/改密（`users.token_version` 已变） |
+| `POST /auth/login` 返回 **403 且响应体为空**（无 `{code,message}` 信封） | 不是凭证问题，是 **CORS 预检被拒**：浏览器来源不在 `cors.allowed_origins` 里。跨域 + refresh cookie 还必须 `allow_credentials=true`（`APP_CORS_ALLOW_CREDENTIALS`），且来源不能用 `*`。本地开发推荐走 vite 代理（同源，无需 CORS）；直连时把 `http://localhost:5173` 加进 `APP_CORS_ALLOWED_ORIGINS` |
+| `POST /auth/login` 返回 403 且 `code=40300` | 账号被锁定（`account temporarily locked, retry in …`）或已禁用（`account disabled`）。锁定 = 连续失败达到 `auth.login_max_attempts`；解锁最省事是 `make seed-admin`（会重置密码、清零失败计数、吊销会话） |
 | 401 与 403 分不清 | 40100 = 未认证（没带/无效/过期 token、登录凭证错）；40300 = 已认证但角色权限不足、账号禁用/锁定、管理员自删 |
 | 登录总是 `invalid credentials` | 账号可能没有凭证（`password_hash=''`，仅老数据）：用 `make seed-admin EMAIL=… APP_SEED_PASSWORD=…` 重置；或用管理员 `PATCH /users/:id` 设密码 |
 | 连续输错后 `account temporarily locked` | `auth.login_max_attempts`（默认 5）+ `auth.login_lockout`（默认 15m）；等待或用 seed-admin 重置（会清空锁定计数） |
 | refresh 一直失败 / 刷新页面就掉线 | refresh cookie 是 `Secure` 而当前是 http：本地置 `APP_AUTH_COOKIE_SECURE=false`（`make smoke` 已自动处理）；跨域部署还需 `allow_credentials=true` 且不能 `*` origin |
-| 前端偶发登出 | 多个并发 401 触发多次 refresh 会把轮换令牌用掉：前端已做 single-flight；若自定义客户端，必须保证同一时刻只发一个 refresh |
+| 前端偶发登出 | 多个并发 401 触发多次 refresh 会把轮换令牌用掉：前端已做 single-flight，服务端另有 `auth.refresh_reuse_interval`（30s）兜底多标签页竞态。若仍频繁掉线，检查是否被**跨站**（SameSite=Strict 不发送）或 cookie 被清 |
 | 改密后旧 access token 仍能用 | 只有走 `PATCH /auth/password` 或管理员改密/禁用才会 `token_version++`；直接把 hash 写库不会触发失效 |
+| 用户被强制重登（约 90 天/30 天） | `auth.refresh_max_lifetime`（绝对上限，默认 90d）或闲置超过 `auth.refresh_ttl`（默认 30d）。想更久就调大这两个，**不要**调 `access_ttl` |
+| 登出后 30s 内还能用旧 cookie 换 token | 不应发生：容忍只对 `revoked_reason=rotated` 生效，登出写的是 `logout`。若出现说明迁移 000004 未执行（`revoked_reason` 列缺失）→ `make migrate-up` |
 
 ## 6. 前端（web/admin）
 

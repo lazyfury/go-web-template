@@ -7,7 +7,7 @@
 ## 特性
 
 - **模块化单体**：`internal/platform/*` 叶子包 + `internal/web` 传输层 + 每个业务域一个包（`internal/user`），包内按 handler → service → repository 分文件
-- **认证与权限**：邮箱+密码登录 → **JWT access token（15m）+ HttpOnly refresh cookie（7d，轮换 + 重用检测）**；RBAC `admin`/`member`；`/api/v1` 默认全部要求登录（除登录/刷新），401/403 语义分离
+- **认证与权限**：邮箱+密码登录 → **JWT access token（15m）+ HttpOnly refresh cookie（滑动 30 天，绝对上限 90 天）**；轮换带 30s 复用宽限期（多标签页不掉线）、超窗重用即吊销全部会话；RBAC `admin`/`member`；`/api/v1` 默认全部要求登录（除登录/刷新），401/403 语义分离
 - **统一响应格式**：`{ code, message, data }` + 稳定的业务错误码（`internal/platform/apperr`）
 - **配置管理**：默认值 < `configs/config.yaml` < 环境变量（`APP_*` 前缀），支持 `.env`
 - **结构化日志**：zap JSON 日志，访问日志携带 request-id、耗时、状态码
@@ -75,8 +75,14 @@ curl -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/js
   -d '{"name":"Alicia"}' http://localhost:8080/api/v1/users/2
 curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/users/2
 
-# 刷新 access token（凭 cookie 轮换，旧 cookie 立即失效）
+# 刷新 access token（凭 cookie 轮换；滑动续期 = 活跃即长期在线）
 curl -b cookies.txt -c cookies.txt -X POST http://localhost:8080/api/v1/auth/refresh
+
+# 非浏览器客户端（CLI/移动端）：refresh token 走 body/header，不依赖 cookie
+curl -X POST http://localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+  -H 'X-Refresh-Transport: body' -d '{"email":"admin@example.com","password":"admin-password"}'
+# → data.refresh_token；之后：
+curl -X POST http://localhost:8080/api/v1/auth/refresh -H "X-Refresh-Token: $REFRESH"
 
 # 登出 / 当前用户 / 改密
 curl -X POST -H "Authorization: Bearer $TOKEN" -b cookies.txt http://localhost:8080/api/v1/auth/logout
@@ -139,14 +145,20 @@ go-web-template/
 | `APP_RATELIMIT_RPS` / `APP_RATELIMIT_BURST` | 每 IP 限流速率 / 突发 | `100` / `200` |
 | `APP_HTTP_REQUEST_TIMEOUT` | 单请求 ctx deadline（`/api/v1`） | `15s` |
 | `APP_HTTP_MAX_BODY_BYTES` | 请求体大小上限 | `1048576`（1 MiB） |
-| `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔） | `*` |
+| `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔；**跨域带 cookie 时不能用 `*`**） | `*` |
+| `APP_CORS_ALLOW_CREDENTIALS` | 是否允许跨域携带凭据（refresh cookie 必需，需配合具体来源） | `false` |
 | `APP_SWAGGER_ENABLED` | 是否暴露 `/openapi.json` 与 Swagger UI | `true` |
 | `APP_AUTH_JWT_SECRET` | JWT 签名密钥（HS256，≥32 字节；生产必填且不得是占位值） | 空（启动失败） |
-| `APP_AUTH_ACCESS_TTL` / `APP_AUTH_REFRESH_TTL` | access / refresh 有效期 | `15m` / `168h` |
+| `APP_AUTH_ACCESS_TTL` | access token 有效期 | `15m` |
+| `APP_AUTH_REFRESH_TTL` | refresh 滑动有效期（每次刷新重置） | `720h`（30 天） |
+| `APP_AUTH_REFRESH_MAX_LIFETIME` | 会话绝对上限（从首次登录算，到点强制重登） | `2160h`（90 天） |
+| `APP_AUTH_REFRESH_REUSE_INTERVAL` | 轮换后旧 token 的容忍窗口（多标签页竞态） | `30s` |
 | `APP_AUTH_COOKIE_SECURE` | refresh cookie 是否带 `Secure`（本地 http 调试置 `false`） | `true` |
 | `APP_SEED_PASSWORD` | 仅 `cmd/admin` / `make seed-admin` 读取的初始密码 | — |
 
 `deploy/docker-compose.yml` 按生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地调试时显式 `APP_SWAGGER_ENABLED=true make docker-up`。
+
+跨域说明：`web/admin` 开发期通过 vite 代理 `/api`（同源，无 CORS）；若让前端直连 `:8080`，必须把前端来源写进 `APP_CORS_ALLOWED_ORIGINS`（不能是 `*`）并设置 `APP_CORS_ALLOW_CREDENTIALS=true`，否则登录请求会被 CORS 以 **403 空响应体** 拒绝。
 
 生产环境建议：通过密钥管理注入 `APP_DATABASE_PASSWORD` 等敏感项；将 CORS 收紧为实际域名；`APP_DEBUG=false`、`APP_LOG_FORMAT=json`。
 

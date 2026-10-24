@@ -71,8 +71,12 @@ log:      {level: info|debug|warn|error, format: json|console}
 cors:     {allowed_origins, allowed_methods, allowed_headers, exposed_headers, allow_credentials, max_age}
 ratelimit:{enabled, rps, burst}
 swagger:  {enabled}   # /openapi.json + Swagger UI
-auth:     {jwt_secret, issuer, access_ttl: 15m, refresh_ttl: 168h, bcrypt_cost: 12,
-           login_max_attempts: 5, login_lockout: 15m, login_rps: 5, login_burst: 10, cookie_secure}
+auth:     {jwt_secret, issuer, access_ttl: 15m,
+           refresh_ttl: 720h,            # 滑动续期（每次 refresh 重置）
+           refresh_max_lifetime: 2160h,  # 会话绝对上限（从首次登录算）
+           refresh_reuse_interval: 30s,  # 轮换后旧 token 的宽限期（多标签页竞态）
+           bcrypt_cost: 12, login_max_attempts: 5, login_lockout: 15m,
+           login_rps: 5, login_burst: 10, cookie_secure}
 ```
 
 - 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（仅 `cmd/admin` 读取）。
@@ -116,13 +120,16 @@ auth:     {jwt_secret, issuer, access_ttl: 15m, refresh_ttl: 168h, bcrypt_cost: 
 
 错误响应额外带 `request_id`（与 `X-Request-ID` 一致，便于客户端关联日志）。OpenAPI 文档由 `routekit.Op` 元数据生成，响应的 `data` 使用真实 DTO 类型（不是 `any`）。
 
-**认证**：`Authorization: Bearer <access token>`（HS256，15m）；refresh token 只走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api/v1/auth`，7d）。OpenAPI 通过 `securitySchemes.bearerAuth` 声明，受保护操作自动带 `401`。
+**认证**：`Authorization: Bearer <access token>`（HS256，15m）。
+refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api/v1/auth`）；**浏览器不需要任何额外处理就能长期在线**：轮换即滑动续期（默认 30 天），活跃用户永不重登，只有闲置超过 `refresh_ttl` 或会话达到 `refresh_max_lifetime`（默认 90 天）才需要重登。
+非浏览器客户端（CLI/移动端）可用 body/header 传输：登录时带 `X-Refresh-Transport: body` 让 `refresh_token` 出现在响应体（不设 cookie），之后用 `X-Refresh-Token` 头刷新。
+`refresh_reuse_interval`（默认 30s）容忍同一 cookie jar 的多标签页并发轮换；只有**轮换导致**的吊销会被容忍，登出/改密/重用检测/会话到期**立即生效**（`revoked_reason` 区分）。OpenAPI 通过 `securitySchemes.bearerAuth` 声明，受保护操作自动带 `401`。
 
 | 端点 | 方法 | 登录 | 权限 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|---|---|
 | `/api/v1/auth/login` | POST | 否 | — | `{email,password}`；按 IP 限流 + 账号锁定；失败统一 `401 invalid credentials`（不泄露用户是否存在） | 200 `{access_token,token_type,expires_in,user}` + cookie | 400/401/403 |
-| `/api/v1/auth/refresh` | POST | 否（凭 cookie） | — | 轮换 refresh token；重用已吊销 token → 吊销该用户全部会话 | 200 同上 | 401 |
-| `/api/v1/auth/logout` | POST | 是 | — | 吊销当前 refresh 会话（幂等） | 204 | 401 |
+| `/api/v1/auth/refresh` | POST | 否（cookie 或 `X-Refresh-Token`） | — | 轮换 + 滑动续期；30s 内重放旧 token 容忍（并清理兄弟 token）；超窗重用 → 吊销全部会话；超 90 天绝对上限 → 401 | 200 同上 | 401 |
+| `/api/v1/auth/logout` | POST | 是 | — | 吊销当前 refresh 会话（幂等，立即生效、不受宽限期影响） | 204 | 401 |
 | `/api/v1/auth/me` | GET | 是 | — | 当前用户 + 角色 + 权限列表 | 200 `UserView` | 401 |
 | `/api/v1/auth/password` | PATCH | 是 | — | `{current_password,new_password}`；`token_version++` 并吊销所有会话 | 204 | 400/401 |
 | `/api/v1/users` | GET | 是 | `users:read` | 列表（admin） | 200 | 401/403 |
@@ -175,7 +182,7 @@ auth:     {jwt_secret, issuer, access_ttl: 15m, refresh_ttl: 168h, bcrypt_cost: 
 8. **迁移与 model 双源**：SQL 迁移管生产 schema，AutoMigrate 只服务测试，避免启动时隐式改库。
 9. **平台包 + 垂直切片（模块化单体）**：`platform/*` 为无业务叶子包（可独立单测），`web` 为无业务的传输层，每个业务域一个包（`user/`）内部按文件分层。包是**部署/测试边界**，文件是**代码分层**；不再为单个域维护 model/repository/service/handler 四个包。`web` 与域之间通过 `*routekit.Group` + `RegisterRoutes` 组合根挂载，避免循环依赖。
 10. **OpenAPI 代码优先（routekit）**：路由与 `routekit.Op` 元数据在同一次注册中登记，启动时反射生成 OpenAPI 3.0.3；不再使用 swag 注解。`httpx.Body` 的信封与 `apperr.Code` 的 HTTP 映射自动复用，响应 `data` 有真实类型。`docs/openapi.json` 是黄金文件，`TestOpenAPIGolden` 校验漂移；`TestOpenAPICoversAllRoutes` 保证 gin 路由与文档一一对应。选择 3.0.3 是为了兼容 Swagger UI 与主流客户端生成器。
-12. **JWT（HS256）+ 可吊销 refresh token + RBAC**：access token 无状态、15m、带 `ver`（users.token_version），改密/禁用即失效；refresh 为 32B 随机串、只存 SHA-256、每次轮换、重用即吊销全部会话（检测泄露）。签名算法、issuer、过期时间在签发/校验两侧硬编码（`jwt.WithValidMethods`），杜绝 `alg=none`/算法混淆。refresh 放 `HttpOnly+SameSite=Strict` cookie、access 只存内存（前端不落 localStorage），降低 XSS 影响面。RBAC 用代码内静态表（admin/member → 权限字符串）：粗粒度守卫在 `authkit` 中间件，资源归属（本人）在 service，两处职责不重叠。
+12. **JWT（HS256）+ 可吊销 refresh token + RBAC**：access token 无状态、15m、带 `ver`（users.token_version），改密/禁用即失效；refresh 为 32B 随机串、只存 SHA-256、每次轮换。**轮换是滑动的**（每次续满 `refresh_ttl`=30d），因此"活跃即长期在线"；`session_started_at` 跨轮换继承，把一次会话硬性封顶在 `refresh_max_lifetime`=90d。`refresh_reuse_interval`=30s 容忍多标签页并发轮换（否则一个标签页刷新会把另一个踢下线），容忍范围仅限 `revoked_reason=rotated`；登出/改密/禁用/重用检测/到期都是立即吊销。签名算法、issuer、过期时间在签发/校验两侧硬编码（`jwt.WithValidMethods`），杜绝 `alg=none`/算法混淆。refresh 放 `HttpOnly+SameSite=Strict` cookie、access 只存内存（前端不落 localStorage），降低 XSS 影响面。RBAC 用代码内静态表（admin/member → 权限字符串）：粗粒度守卫在 `authkit` 中间件，资源归属（本人）在 service，两处职责不重叠。
 13. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
 
 ## 10. 扩展指南
@@ -196,6 +203,8 @@ auth:     {jwt_secret, issuer, access_ttl: 15m, refresh_ttl: 168h, bcrypt_cost: 
 
 - 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）；登录限流/锁定同样是单实例状态。
 - access token 无状态：吊销/禁用最坏延迟 = `access_ttl`（15m）；改密/禁用通过 `token_version` 即时生效。
+- 多标签页共享一个 cookie jar：`refresh_reuse_interval` 期间旧 token 重放会被容忍并只保留最新 token；窗口外仍会判定为盗用并全量吊销（默认 30s，可按需调大）。
+- 会话寿命 = `min(闲置 refresh_ttl, 自登录起 refresh_max_lifetime)`：想"更久不用重登"就调这两个值，不要调 `access_ttl`。
 - `VerifyAccess` 每请求查一次用户行（status/token_version/role 即时生效）；高 QPS 需要本地短 TTL 缓存。
 - HS256 单密钥：轮换需要多密钥 + `kid`，当前不支持；轮换会全量掉线（重新登录即可）。
 - 无忘记密码/邮箱验证流程：密码只能由管理员 PATCH 重置或本人 `PATCH /auth/password`。
