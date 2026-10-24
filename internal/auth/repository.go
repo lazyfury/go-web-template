@@ -89,6 +89,7 @@ func (r *gormRepository) RevokeOthersForUser(ctx context.Context, userID, keepID
 	if err != nil {
 		return apperr.Wrap(apperr.CodeDatabase, "revoke sibling refresh tokens failed", err)
 	}
+	sessionRevocationsTotal.WithLabelValues(reason).Inc()
 	return nil
 }
 
@@ -111,6 +112,7 @@ func (r *gormRepository) RevokeAllForUser(ctx context.Context, userID uint64, re
 	if err != nil {
 		return apperr.Wrap(apperr.CodeDatabase, "revoke refresh tokens failed", err)
 	}
+	sessionRevocationsTotal.WithLabelValues(reason).Inc()
 	return nil
 }
 

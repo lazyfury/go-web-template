@@ -67,4 +67,36 @@ func TestPurgeExpiredDeletesOnlyRowsPastTheCutoff(t *testing.T) {
 	}
 }
 
+func TestRevocationMetricsAreRecordedAtTheRepository(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	tokens := []*RefreshToken{
+		{UserID: 1, TokenHash: "a", ExpiresAt: now.Add(time.Hour), SessionStartedAt: now},
+		{UserID: 1, TokenHash: "b", ExpiresAt: now.Add(time.Hour), SessionStartedAt: now},
+	}
+	for _, token := range tokens {
+		if err := repo.Create(ctx, token); err != nil {
+			t.Fatalf("Create(%s): %v", token.TokenHash, err)
+		}
+	}
+
+	before := testutil.CounterValueFor(t, "auth_session_revocations_total", "reason", RevokeReuse)
+	if err := repo.RevokeAllForUser(ctx, 1, now, RevokeReuse); err != nil {
+		t.Fatalf("RevokeAllForUser: %v", err)
+	}
+	if got := testutil.CounterValueFor(t, "auth_session_revocations_total", "reason", RevokeReuse) - before; got < 1 {
+		t.Errorf("auth_session_revocations_total{reason=%q} increased by %v, want at least 1", RevokeReuse, got)
+	}
+
+	beforeSuperseded := testutil.CounterValueFor(t, "auth_session_revocations_total", "reason", RevokeSuperseded)
+	if err := repo.RevokeOthersForUser(ctx, 1, tokens[0].ID, now, RevokeSuperseded); err != nil {
+		t.Fatalf("RevokeOthersForUser: %v", err)
+	}
+	if got := testutil.CounterValueFor(t, "auth_session_revocations_total", "reason", RevokeSuperseded) - beforeSuperseded; got < 1 {
+		t.Errorf("auth_session_revocations_total{reason=%q} increased by %v, want at least 1", RevokeSuperseded, got)
+	}
+}
+
 func ptr[T any](v T) *T { return &v }

@@ -11,7 +11,7 @@
 - **统一响应格式**：`{ code, message, data }` + 稳定的业务错误码（`internal/platform/apperr`）
 - **配置管理**：默认值 < `configs/config.yaml` < 环境变量（`APP_*` 前缀），支持 `.env`
 - **结构化日志**：zap JSON 日志，访问日志携带 request-id、耗时、状态码
-- **可观测性**：`/healthz` 存活探针、`/readyz` 就绪探针（含 DB 检查）、`/metrics` Prometheus 指标
+- **可观测性**：`/healthz` 存活探针、`/readyz` 就绪探针（含 DB 检查）、`/metrics` Prometheus 指标（HTTP 层 + 登录/刷新/会话吊销/投递/保留期清理的业务指标）
 - **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **字典/配置模块**：`dict_groups`（setting）+ `dict_items`（dict array）；消费侧 `GET /api/v1/dicts/:group`，管理侧 `/dict-groups`、`/dict-items`；业务模块可用 `dict.Store.Replace/Get/GetInto` 维护对象/数组型配置

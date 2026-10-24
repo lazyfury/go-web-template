@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/example/go-web-template/internal/testutil"
 )
 
 func TestRunOncePassesCutoffPerTask(t *testing.T) {
@@ -191,5 +193,40 @@ func TestRunSurfacesFailures(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run swallowed the failure instead of returning it")
+	}
+}
+
+// TestRunOnceRecordsRetentionMetrics 钉住「清理量」与「失败」都可观测：一个静默
+// 失败的 janitor 只会在磁盘满的时候才被发现。
+func TestRunOnceRecordsRetentionMetrics(t *testing.T) {
+	t.Parallel()
+
+	purged := testutil.CounterValueFor(t, "housekeeping_purged_rows_total", "task", "metric-ok")
+	failures := testutil.CounterValueFor(t, "housekeeping_task_failures_total", "task", "metric-broken")
+
+	worker := NewWorker([]Task{
+		{
+			Name: "metric-ok",
+			Purge: func(context.Context, time.Time) (int64, error) {
+				return 7, nil
+			},
+		},
+		{
+			Name: "metric-broken",
+			Purge: func(context.Context, time.Time) (int64, error) {
+				return 0, errors.New("lock timeout")
+			},
+		},
+	}, Options{})
+
+	if err := worker.RunOnce(context.Background()); err == nil {
+		t.Fatal("RunOnce returned nil, want the broken task's error")
+	}
+
+	if got := testutil.CounterValueFor(t, "housekeeping_purged_rows_total", "task", "metric-ok") - purged; got != 7 {
+		t.Errorf("purged rows delta = %v, want 7", got)
+	}
+	if got := testutil.CounterValueFor(t, "housekeeping_task_failures_total", "task", "metric-broken") - failures; got < 1 {
+		t.Errorf("task failure delta = %v, want at least 1", got)
 	}
 }

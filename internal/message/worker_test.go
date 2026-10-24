@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/example/go-web-template/internal/testutil"
 )
 
 type workerRepo struct {
@@ -140,5 +142,61 @@ func TestWorkerRunStopsOnCancel(t *testing.T) {
 	cancel()
 	if err := worker.Run(ctx); err != nil {
 		t.Errorf("Run canceled = %v, want nil", err)
+	}
+}
+
+// TestWorkerRecordsDeliveryMetrics 保证投递结果可观测：HTTP 只能看到「发送成功」，
+// 邮件失败/进入 dead/没有 sender 只能靠这些计数告警。
+func TestWorkerRecordsDeliveryMetrics(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	delta := func(channel, result string, run func()) float64 {
+		t.Helper()
+		before := testutil.CounterValueFor(t, "message_delivery_attempts_total", "channel", channel, "result", result)
+		run()
+		return testutil.CounterValueFor(t, "message_delivery_attempts_total", "channel", channel, "result", result) - before
+	}
+
+	sent := delta("email", "sent", func() {
+		repo := &workerRepo{claim: []Delivery{{ID: 1, Channel: ChannelEmail, Attempts: 1, MaxAttempts: 3}}}
+		worker := fixedWorker(repo, map[Channel]Sender{ChannelEmail: &fakeSender{channel: ChannelEmail, id: "p1"}}, now)
+		if err := worker.RunOnce(context.Background()); err != nil {
+			t.Fatalf("RunOnce(sent): %v", err)
+		}
+	})
+	if sent < 1 {
+		t.Errorf("email/sent delta = %v, want at least 1", sent)
+	}
+
+	failed := delta("sms", "failed", func() {
+		repo := &workerRepo{claim: []Delivery{{ID: 2, Channel: ChannelSMS, Attempts: 1, MaxAttempts: 3}}}
+		worker := fixedWorker(repo, map[Channel]Sender{ChannelSMS: &fakeSender{channel: ChannelSMS, err: errors.New("sms down")}}, now)
+		if err := worker.RunOnce(context.Background()); err != nil {
+			t.Fatalf("RunOnce(failed): %v", err)
+		}
+	})
+	if failed < 1 {
+		t.Errorf("sms/failed delta = %v, want at least 1", failed)
+	}
+
+	dead := delta("webhook", "dead", func() {
+		repo := &workerRepo{claim: []Delivery{{ID: 3, Channel: ChannelWebhook, Attempts: 2, MaxAttempts: 2}}}
+		worker := fixedWorker(repo, map[Channel]Sender{ChannelWebhook: &fakeSender{channel: ChannelWebhook, err: errors.New("403")}}, now)
+		if err := worker.RunOnce(context.Background()); err != nil {
+			t.Fatalf("RunOnce(dead): %v", err)
+		}
+	})
+	if dead < 1 {
+		t.Errorf("webhook/dead delta = %v, want at least 1", dead)
+	}
+
+	noSender := delta("webhook", "no_sender", func() {
+		repo := &workerRepo{claim: []Delivery{{ID: 4, Channel: ChannelWebhook, Attempts: 1, MaxAttempts: 2}}}
+		worker := fixedWorker(repo, nil, now)
+		if err := worker.RunOnce(context.Background()); err != nil {
+			t.Fatalf("RunOnce(no sender): %v", err)
+		}
+	})
+	if noSender < 1 {
+		t.Errorf("webhook/no_sender delta = %v, want at least 1", noSender)
 	}
 }

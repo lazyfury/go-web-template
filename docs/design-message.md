@@ -393,7 +393,7 @@ message:
 ### Phase 5：可选增强
 
 - [x] 保留期限清理 worker（`internal/housekeeping`：过期消息 + 终态投递记录，窗口可配）
-- [ ] Prometheus 指标（投递成功/失败/延迟）
+- [x] Prometheus 指标（投递成功/失败/延迟：`message_delivery_attempts_total{channel,result}` + `message_delivery_duration_seconds{channel}`）
 - [ ] SSE 实时红点（多实例时 Redis Pub/Sub）
 - [ ] 跨域事件：`outbox_events` + dispatcher（仅在有 3+ 生产者时）
 - [ ] 用户渠道偏好/退订

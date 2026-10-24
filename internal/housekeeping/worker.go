@@ -135,6 +135,7 @@ func (w *Worker) runTask(ctx context.Context, task Task) error {
 
 	deleted, err := task.Purge(taskCtx, before)
 	if err != nil {
+		taskFailuresTotal.WithLabelValues(task.Name).Inc()
 		w.opts.Logger.Error("housekeeping task failed",
 			zap.String("task", task.Name),
 			zap.Error(err),
@@ -142,6 +143,7 @@ func (w *Worker) runTask(ctx context.Context, task Task) error {
 		return fmt.Errorf("housekeeping task %q: %w", task.Name, err)
 	}
 	if deleted > 0 {
+		purgedRowsTotal.WithLabelValues(task.Name).Add(float64(deleted))
 		w.opts.Logger.Info("housekeeping task purged rows",
 			zap.String("task", task.Name),
 			zap.Int64("rows", deleted),

@@ -115,14 +115,18 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 }
 
 func (w *Worker) process(ctx context.Context, delivery *Delivery) {
+	channel := string(delivery.Channel)
 	sender, ok := w.senders[delivery.Channel]
 	if !ok {
+		deliveryAttemptsTotal.WithLabelValues(channel, "no_sender").Inc()
 		w.fail(ctx, delivery, "sender not configured", true)
 		return
 	}
 
 	sendCtx, cancel := context.WithTimeout(ctx, w.opts.DeliveryTimeout)
+	started := time.Now() // real clock on purpose: this is a measured duration, not a policy input
 	providerID, err := sender.Send(sendCtx, delivery)
+	deliveryDuration.WithLabelValues(channel).Observe(time.Since(started).Seconds())
 	cancel()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -131,6 +135,11 @@ func (w *Worker) process(ctx context.Context, delivery *Delivery) {
 			return
 		}
 		dead := delivery.Attempts >= delivery.MaxAttempts
+		if dead {
+			deliveryAttemptsTotal.WithLabelValues(channel, "dead").Inc()
+		} else {
+			deliveryAttemptsTotal.WithLabelValues(channel, "failed").Inc()
+		}
 		w.fail(ctx, delivery, err.Error(), dead)
 		if !dead {
 			w.opts.Logger.Warn("message delivery failed; scheduled retry",
@@ -148,6 +157,7 @@ func (w *Worker) process(ctx context.Context, delivery *Delivery) {
 		)
 		return
 	}
+	deliveryAttemptsTotal.WithLabelValues(channel, "sent").Inc()
 	w.opts.Logger.Info("message delivery sent",
 		zap.Uint64("delivery_id", delivery.ID),
 		zap.String("channel", string(delivery.Channel)),

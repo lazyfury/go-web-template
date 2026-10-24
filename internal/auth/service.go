@@ -120,8 +120,10 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 	case errors.Is(err, apperr.ErrNotFound):
 		s.hasher.BurnTiming(in.Password)
 		s.logger.Warn("login failed", zap.String("reason", "unknown_email"), zap.String("email", email))
+		loginTotal.WithLabelValues("unknown_email").Inc()
 		return nil, invalidCredentials()
 	case err != nil:
+		loginTotal.WithLabelValues("error").Inc()
 		return nil, err
 	}
 
@@ -135,11 +137,13 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 	if account.LockedUntil != nil && s.now().Before(*account.LockedUntil) {
 		s.hasher.BurnTiming(in.Password)
 		s.logger.Warn("login failed", zap.String("reason", "locked"), zap.Uint64("user_id", account.ID))
+		loginTotal.WithLabelValues("locked").Inc()
 		return nil, invalidCredentials()
 	}
 	if !account.IsActive() {
 		s.hasher.BurnTiming(in.Password)
 		s.logger.Warn("login failed", zap.String("reason", "disabled"), zap.Uint64("user_id", account.ID))
+		loginTotal.WithLabelValues("disabled").Inc()
 		return nil, invalidCredentials()
 	}
 	if !s.hasher.Verify(account.PasswordHash, in.Password) {
@@ -155,6 +159,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		return nil, err
 	}
 	s.logger.Info("login succeeded", zap.Uint64("user_id", account.ID), zap.String("role", string(account.Role)))
+	loginTotal.WithLabelValues("success").Inc()
 	return s.startSession(ctx, account, in.ClientMeta, now)
 }
 
@@ -172,18 +177,22 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 // every session of that user is revoked.
 func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta) (*Session, error) {
 	if rawToken == "" {
+		refreshTotal.WithLabelValues("invalid").Inc()
 		return nil, apperr.New(apperr.CodeUnauthorized, "missing refresh token")
 	}
 	stored, err := s.tokens.FindByHash(ctx, hashToken(rawToken))
 	if errors.Is(err, apperr.ErrNotFound) {
+		refreshTotal.WithLabelValues("invalid").Inc()
 		return nil, apperr.New(apperr.CodeUnauthorized, "invalid refresh token")
 	}
 	if err != nil {
+		refreshTotal.WithLabelValues("error").Inc()
 		return nil, err
 	}
 
 	now := s.now()
 	if !now.Before(stored.ExpiresAt) {
+		refreshTotal.WithLabelValues("expired").Inc()
 		return nil, apperr.New(apperr.CodeUnauthorized, "refresh token expired")
 	}
 	if s.sessionExpired(stored, now) {
@@ -191,17 +200,21 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 			return nil, err
 		}
 		s.logger.Info("session reached its absolute lifetime", zap.Uint64("user_id", stored.UserID))
+		refreshTotal.WithLabelValues("session_cap").Inc()
 		return nil, apperr.New(apperr.CodeUnauthorized, "session expired, please sign in again")
 	}
 
 	account, err := s.users.FindByID(ctx, stored.UserID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
+			refreshTotal.WithLabelValues("invalid").Inc()
 			return nil, apperr.New(apperr.CodeUnauthorized, "invalid refresh token")
 		}
+		refreshTotal.WithLabelValues("error").Inc()
 		return nil, err
 	}
 	if !account.IsActive() {
+		refreshTotal.WithLabelValues("disabled").Inc()
 		return nil, apperr.New(apperr.CodeUnauthorized, "account disabled")
 	}
 
@@ -213,6 +226,7 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 			return nil, err
 		}
 		s.logger.Error("refresh token reuse detected; all sessions revoked", zap.Uint64("user_id", stored.UserID))
+		refreshTotal.WithLabelValues("reuse").Inc()
 		return nil, apperr.New(apperr.CodeUnauthorized, "invalid refresh token")
 	}
 
@@ -231,14 +245,21 @@ func (s *Service) Refresh(ctx context.Context, rawToken string, meta ClientMeta)
 			return nil, err
 		}
 		s.logger.Error("concurrent refresh token rotation; all sessions revoked", zap.Uint64("user_id", stored.UserID))
+		refreshTotal.WithLabelValues("reuse").Inc()
 		return nil, apperr.New(apperr.CodeUnauthorized, "invalid refresh token")
 	}
-	return s.startSession(ctx, account, meta, stored.SessionStartedAt)
+	session, err := s.startSession(ctx, account, meta, stored.SessionStartedAt)
+	if err != nil {
+		return nil, err
+	}
+	refreshTotal.WithLabelValues("ok").Inc()
+	return session, nil
 }
 
 // toleratedReplay issues a fresh session for a token replayed inside the reuse
 // window and revokes sibling tokens, keeping exactly one live refresh token.
 func (s *Service) toleratedReplay(ctx context.Context, account *user.User, meta ClientMeta, stored *RefreshToken, now time.Time) (*Session, error) {
+	refreshTotal.WithLabelValues("tolerated_replay").Inc()
 	session, err := s.startSession(ctx, account, meta, stored.SessionStartedAt)
 	if err != nil {
 		return nil, err
@@ -429,8 +450,11 @@ func (s *Service) recordFailure(ctx context.Context, account *user.User) {
 		account.LockedUntil = &until
 		account.FailedLoginCount = 0
 		s.logger.Warn("login failed", zap.String("reason", "locked_out"), zap.Uint64("user_id", account.ID))
+		loginTotal.WithLabelValues("locked_out").Inc()
+		accountLockoutsTotal.Inc()
 	} else {
 		s.logger.Warn("login failed", zap.String("reason", "bad_password"), zap.Uint64("user_id", account.ID))
+		loginTotal.WithLabelValues("bad_password").Inc()
 	}
 	if err := s.users.SaveAuthState(ctx, account); err != nil {
 		s.logger.Error("persist failed-login state", zap.Uint64("user_id", account.ID), zap.Error(err))

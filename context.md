@@ -244,6 +244,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 访问日志在已认证请求上追加 `user_id`（未认证不输出），便于按用户排查；**不记录** `Authorization`/密码/token。
 - `X-Request-ID`：入站复用或生成 UUID；响应头回写；访问日志与错误响应体（`request_id` 字段）均携带；错误响应统一经 `httpx.Fail`/`httpx.Error` 生成。
 - 指标：`http_requests_total{method,path,status}`、`http_request_duration_seconds{method,path}`、`http_requests_in_flight`；path 用路由模式（`/api/v1/users/:id`），未匹配路由固定记为 `unmatched`（避免扫描器打爆基数）。
+- 业务指标（`/metrics` 默认开启，`metrics.enabled=false` 关闭）：`auth_login_total{result}`、`auth_refresh_total{result}`、`auth_session_revocations_total{reason}`、`auth_account_lockouts_total`（认证域，reason 由 repo 的吊销咽喉点打出）、`message_delivery_attempts_total{channel,result}`、`message_delivery_duration_seconds{channel}`（投递 worker）、`housekeeping_purged_rows_total{task}`、`housekeeping_task_failures_total{task}`（保留期清理）。标签都是闭集，不含用户/邮箱/目标地址。
 - 限流：每 IP token bucket（`x/time/rate`），X-Forwarded-For 取第一跳；超限 429 + `Retry-After`。
 - 超时：`Timeout` 只注入 context deadline，不另起 goroutine、不伪造响应（`gin.Context` 非并发安全，goroutine 版会 data race）。需要硬拒绝时在 handler 内检查 `ctx.Err()` 并返回业务错误。
 - 优雅停机：SIGINT/SIGTERM → `signal.NotifyContext` → `http.Server.Shutdown`（`http.shutdown_timeout` 上限）。
