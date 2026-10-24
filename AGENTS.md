@@ -16,7 +16,7 @@
 
 ## 项目一句话
 
-Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，内置 Docker / CI / OpenAPI（routekit 生成）/ Prometheus。
+Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → service → repository`，统一响应信封 + 业务错误码，内置 Docker / OpenAPI（routekit 生成）/ Prometheus。
 
 ## 开工顺序
 
@@ -42,7 +42,7 @@ Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler 
 make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
 ```
 
-- CI 跑同一套（`make gate` + golangci-lint job + web typecheck/build + docker build）。
+- 质量门全部在本地执行（仓库不配置远端 CI）：提交前必须自己跑 `make check`；前端改动再跑 `pnpm api:check` 与 `pnpm build`。
 - 工具缺失 → `make tools`（版本 pin 在 `Makefile` 顶部，**不要 `@latest`**）。
 - 改了路由/`routekit.Op` 元数据 → `make openapi` 并提交 `docs/openapi.json`（`make check` 的黄金测试会检出漂移）。
 - 只改 Go 代码时，最快闭环是 `make test`：测试用内存 SQLite，**不需要 postgres/docker**。
@@ -62,7 +62,7 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 - `git push --force`、改写已推送历史、删除或重写**已应用**的迁移文件。
 - `make migrate-down` 作用在共享/预发/生产库。
 - `docker compose down -v`、删除数据卷、`rm -rf` 非构建产物。
-- 提交密钥/`.env`、修改 CI 触发条件或仓库权限。
+- 提交密钥/`.env`、修改仓库权限或分支保护。
 - 改动超出任务范围的重构（先确认再动）。
 
 ## 完成定义（DoD）

@@ -15,7 +15,7 @@
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户 CRUD 开箱即用
-- **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、GitHub Actions CI、golangci-lint、单元测试全绿
+- **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、golangci-lint、单元测试全绿
 
 ## 快速开始
 
@@ -91,7 +91,6 @@ go-web-template/
 ├── docs/                  # openapi.json（生成） + troubleshooting.md
 ├── scripts/               # dev.sh（一键开发）、rename-module.sh（改模块路径）
 ├── web/admin/             # Admin 前端模板（Vue 3 + TS + Vite + Element Plus + UnoCSS）
-├── .github/workflows/     # CI：lint + vet + test -race + build + docker
 ├── Dockerfile             # 多阶段构建（alpine + 静态二进制，镜像约 70MB）
 ├── Makefile               # build/run/dev/test/lint/openapi/migrate/docker 等
 └── .golangci.yml          # golangci-lint 配置
@@ -155,16 +154,23 @@ make test
 - **OpenAPI 测试**：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、路由完整性、禁用时 404）
 - 测试运行无需 PostgreSQL（SQLite 仅用于测试，不进生产镜像）
 
-## CI / CD
+## 质量门（本地）
 
-`.github/workflows/ci.yml`（工具版本 pin 在 workflow env，与 `Makefile` 一致）：
+仓库不配置远端 CI，提交前在本地跑：
 
-| job | 内容 |
-|---|---|
-| `lint` | golangci-lint（v2 配置） |
-| `gate` | `make gate` = gofmt 校验 + `go vet` + `go test -race`（含 OpenAPI 黄金文件）+ `go build` + 依赖 tidy |
-| `web` | `web/admin`：pnpm install + typecheck + build |
-| `docker` | 镜像可构建性验证 |
+```bash
+make check                          # golangci-lint + gofmt + vet + race + build + OpenAPI 黄金文件 + tidy
+cd web/admin && pnpm api:check      # 校验 generated API types 与 docs/openapi.json 同步
+cd web/admin && pnpm build          # vue-tsc + vite build
+```
+
+Docker 端到端：
+
+```bash
+make docker-up                      # 默认关闭 /openapi.json 与 Swagger
+APP_SWAGGER_ENABLED=true make docker-up   # 本地需要文档时
+make docker-down
+```
 
 ## 从模板开始你的项目
 
@@ -187,7 +193,7 @@ make test
 | skill | 用途 |
 |---|---|
 | `add-domain` | 新增领域模块（迁移→repo→service→handler→routekit 路由→测试→OpenAPI） |
-| `docker-ops` | 容器编排与本地端到端调试（postgres→迁移→后台跑服务→curl 验证；镜像/compose/CI） |
+| `docker-ops` | 容器编排与本地端到端调试（postgres→迁移→后台跑服务→curl 验证；镜像/compose） |
 | `database-migrations` | 迁移生命周期管理 |
 
 ## License

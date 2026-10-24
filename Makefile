@@ -9,7 +9,7 @@ LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 GO         ?= go
 MIGRATE_URL ?= postgres://postgres:postgres@127.0.0.1:5432/go_web_template?sslmode=disable
 
-# 工具版本：CI 与本文件是唯一来源，升级时两处同步（CI 用同一 pin 版本）
+# 工具版本：Makefile 是唯一来源，升级时只改这里
 GOLANGCI_LINT_VERSION ?= v2.15.0
 AIR_VERSION           ?= v1.67.4
 GOVULNCHECK_VERSION   ?= v1.9.0
@@ -75,9 +75,9 @@ db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postg
 
 ## ---- 质量门（提交前唯一入口） ----------------------------------------------
 
-check: lint gate ## 提交前唯一门槛 = lint + gate（CI 同款）
+check: lint gate ## 提交前唯一门槛 = lint + gate
 
-gate: fmt-check vet test-race build tidy-check ## CI 校验链（不含 golangci-lint）
+gate: fmt-check vet test-race build tidy-check ## 本地校验链（不含 golangci-lint）
 
 fmt-check: ## 校验 gofmt（docs/ 含生成物与 Markdown，豁免）
 	@unformatted=$$(gofmt -l . | grep -v '^docs/' || true); \
@@ -103,14 +103,14 @@ tidy: ## 整理依赖
 test: ## 运行全部测试
 	$(GO) test ./... -count=1
 
-test-race: ## 带竞态检测运行测试（CI 同款）
+test-race: ## 带竞态检测运行测试（make check 同款）
 	$(GO) test -race ./... -count=1
 
 coverage: ## 生成 HTML 覆盖率报告（会打开浏览器）
 	$(GO) test ./... -coverprofile=coverage.out
 	$(GO) tool cover -html=coverage.out
 
-coverage-func: ## 覆盖率文本摘要（agent/CI 友好，不开浏览器）
+coverage-func: ## 覆盖率文本摘要（agent/人类友好，不开浏览器）
 	$(GO) test ./... -coverprofile=coverage.out >/dev/null
 	$(GO) tool cover -func=coverage.out
 

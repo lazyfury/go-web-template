@@ -2,7 +2,7 @@
 # 本地冒烟测试：自起自停一个真实进程，验证探针与 users CRUD。
 #
 # 设计要点（harness 无关，不依赖任何 agent 后台任务能力）:
-#   - 本脚本自己 nohup 起服务、trap 清理，任何 agent/CI/人类都能直接跑。
+#   - 本脚本自己 nohup 起服务、trap 清理，任何 agent/人类都能直接跑。
 #   - curl 一律 --noproxy '*'（本机 shell 可能带 all_proxy，否则会挂起）。
 #   - DB 不可用时（/readyz 503）自动降级为「只验 liveness」，并明确提示 SKIP。
 #

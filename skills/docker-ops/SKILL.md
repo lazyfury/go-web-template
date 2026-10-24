@@ -1,6 +1,6 @@
 ---
 name: docker-ops
-description: go-web-template 的容器编排与本地端到端调试：起 postgres → 迁移 → 启动服务 → 验证健康检查/CRUD/限流 → 优雅停机；以及镜像构建（多阶段 Dockerfile）、docker-compose 编排（postgres+migrate+app）、GitHub Actions CI。用于"本地跑起来看看 / 调 API / 复现问题 / 验证改动 / 构建镜像 / 部署 / 排查容器问题"。
+description: go-web-template 的容器编排与本地端到端调试：起 postgres → 迁移 → 启动服务 → 验证健康检查/CRUD/限流 → 优雅停机；以及镜像构建（多阶段 Dockerfile）、docker-compose 编排（postgres+migrate+app）。用于"本地跑起来看看 / 调 API / 复现问题 / 验证改动 / 构建镜像 / 部署 / 排查容器问题"。
 ---
 
 # 容器编排与本地端到端调试
@@ -68,14 +68,19 @@ make docker-down   # 停容器（保留 pgdata 卷；加 -v 会删数据，属�
 - **相对路径相对 `deploy/` 解析**：卷写 `../migrations:/migrations`。
 - **网络**：compose 内用服务名 `postgres`；裸容器用 `host.docker.internal`，或 `--network host` + `127.0.0.1`。
 
-## 5. CI（`.github/workflows/ci.yml`）
+## 5. 本地质量门（无远端 CI）
 
-- 触发：push main/master 或 PR。工具版本 pin 在 workflow `env`，须与 `Makefile` 顶部一致。
-- `lint` job：golangci-lint（v2 配置，pin 版本）。
-- `gate` job：`make gate`（gofmt 校验 + vet + race 测试 + build + `docs/` 同步检查）。
-- `web` job：`pnpm install --frozen-lockfile` + `typecheck` + `build`。
-- `docker` job：依赖 gate/web，执行 `docker build`。
-- Linux runner 上 `--network host` + `127.0.0.1` 可用（与 macOS 不同）。
+```bash
+make check                              # lint + fmt + vet + race + build + OpenAPI 黄金文件 + tidy
+cd web/admin && pnpm api:check && pnpm build
+make docker-up                          # 默认关闭文档端点
+APP_SWAGGER_ENABLED=true make docker-up # 需要 /openapi.json + Swagger UI 时
+make docker-down
+```
+
+- 工具版本 pin 在 `Makefile` 顶部；`make tools` 安装。
+- 仓库不配置 GitHub Actions；CI 成本由本地命令替代。
+- Linux 上 `--network host` + `127.0.0.1` 可用（与 macOS 不同）。
 
 ## 6. 生产配置建议
 

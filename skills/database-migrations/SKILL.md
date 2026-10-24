@@ -60,6 +60,6 @@ make smoke      # 有 DB 时覆盖真实进程的 CRUD 全链路
 
 ## 注意
 
-- 回滚是危险操作：确认没有下游依赖再 down；CI/生产流程只 up。
+- 回滚是危险操作：确认没有下游依赖再 down；部署流程只 up。
 - 已应用到共享环境的迁移文件不要改写——新增迁移修正。
 - 报错速查（compose 卷相对路径、容器连不上库、SQLite 语法差异）见 `docs/troubleshooting.md`。
