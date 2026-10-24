@@ -74,6 +74,8 @@ auth:
   login_lockout: 15m
   login_rps: 5
   login_burst: 10
-  # 本地 http 调试必须 false：Secure cookie 不会在 http 上回传，
-  # 表现为「登录成功但刷新页面就掉线」。生产（HTTPS）必须 true。
-  cookie_secure: false
+  # 镜像里烘焙的默认值必须是 true：这是会随镜像进生产的那份配置。
+  # 本地 http 调试由 make dev / make run / compose / smoke.sh 注入
+  # APP_AUTH_COOKIE_SECURE=false（Secure cookie 在 http 上不会回传，
+  # 表现为「登录成功但刷新页面就掉线」）。
+  cookie_secure: true

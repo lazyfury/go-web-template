@@ -16,5 +16,5 @@ done
 echo "==> 执行数据库迁移"
 docker compose -f deploy/docker-compose.yml run --rm migrate
 
-echo "==> 启动应用（Ctrl+C 停止）"
-exec go run ./cmd/server "$@"
+echo "==> 启动应用（Ctrl+C 停止；本地 http 关闭 Secure cookie）"
+APP_AUTH_COOKIE_SECURE=false exec go run ./cmd/server "$@"

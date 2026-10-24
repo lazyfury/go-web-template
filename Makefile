@@ -59,12 +59,17 @@ build: ## 编译二进制到 bin/（server + admin）
 	$(GO) build -trimpath -ldflags "-s -w $(LDFLAGS)" -o $(BIN) ./cmd/server
 	$(GO) build -trimpath -ldflags "-s -w $(LDFLAGS)" -o bin/$(APP_NAME)-admin ./cmd/admin
 
+# 本地走 http：refresh cookie 不能带 Secure（否则浏览器不回传，刷新页面就掉线）。
+# configs/config.yaml 保持 cookie_secure: true 以便镜像进生产时默认安全，
+# 本地开发由这里和 scripts/dev.sh 显式注入 false。
+LOCAL_HTTP_ENV := APP_AUTH_COOKIE_SECURE=false
+
 run: ## 直接运行（需先启动 postgres）
-	$(GO) run ./cmd/server
+	$(LOCAL_HTTP_ENV) $(GO) run ./cmd/server
 
 dev: ## 开发模式：air 热重载
 	@./scripts/check-tools.sh air
-	$(AIR) -c .air.toml
+	$(LOCAL_HTTP_ENV) $(AIR) -c .air.toml
 
 smoke: ## 本地冒烟：自起自停服务，验证探针 + 登录 + CRUD（DB 不可用时只验 liveness）
 	@./scripts/smoke.sh

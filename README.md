@@ -160,7 +160,7 @@ go-web-template/
 
 跨域说明：`web/admin` 开发期通过 vite 代理 `/api`（同源，无 CORS）；若让前端直连 `:8080`，必须把前端来源写进 `APP_CORS_ALLOWED_ORIGINS`（不能是 `*`）并设置 `APP_CORS_ALLOW_CREDENTIALS=true`，否则登录请求会被 CORS 以 **403 空响应体** 拒绝。
 
-生产环境建议：通过密钥管理注入 `APP_DATABASE_PASSWORD` 等敏感项；将 CORS 收紧为实际域名；`APP_DEBUG=false`、`APP_LOG_FORMAT=json`。
+生产环境建议：通过密钥管理注入 `APP_DATABASE_PASSWORD` 等敏感项；将 CORS 收紧为实际域名；`APP_DEBUG=false`、`APP_LOG_FORMAT=json`；**`APP_AUTH_COOKIE_SECURE=true`**（镜像内 `configs/config.yaml` 已是 `true`，本地 http 由 `make dev` / `make run` / compose 注入 `false`，别把 `false` 带进 HTTPS 环境）。
 
 ## 常用命令
 
