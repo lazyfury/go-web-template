@@ -91,7 +91,7 @@
 
 | 报错 | 处理 |
 |---|---|
-| `TS5103 Invalid value for '--ignoreDeprecations'` | tsconfig 的值必须匹配 TS major：TS 5.x 只认 `"5.0"`，TS 6.0/7.0 认 `"6.0"`（见 `context.md` ADR 11） |
+| `TS5103 Invalid value for '--ignoreDeprecations'` | tsconfig 的值必须匹配 TS major：TS 5.x 只认 `"5.0"`，TS 6.0/7.0 认 `"6.0"`（见 `context.md` ADR 12） |
 | `[sass] Expected newline` | `<style lang="sass">` 是缩进式语法却写了 SCSS 花括号 → 改 `lang="scss"` |
 | `[unocss] failed to load icon "-"` | 无害噪音，来自 JSDoc 注释里独立的 `-` token，可忽略 |
 

@@ -96,6 +96,14 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_active
     ON refresh_tokens (user_id) WHERE revoked_at IS NULL;
 ```
 
+`000004_add_refresh_session_start.up.sql`
+
+```sql
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS session_started_at TIMESTAMPTZ NOT NULL DEFAULT now();
+-- rotated / logout / reuse / superseded / password / admin / session_cap
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS revoked_reason VARCHAR(32);
+```
+
 - 现有用户 `password_hash = ''` → **无法登录**（等价于无凭证）；上线需 §12 P1 的 bootstrap 管理员。
 - 定期清理：`DELETE FROM refresh_tokens WHERE expires_at < now() - interval '7 days'`（放 `cmd/` 的 cron 或后续 job）。
 - 迁移 SQL 与 GORM entity 同步（`context.md` §5 双事实来源）；测试库 `AutoMigrate` 需显式加新 model。
@@ -237,12 +245,13 @@ CORS 注意：refresh 走 cookie 时必须 `allow_credentials=true` 且 `allowed
 ## 11. 测试矩阵
 
 - **authkit 单测**：签发/解析、过期、错误 iss、`alg=none`/RS256 混淆、错误密钥、超长 token、401 响应形状。
-- **auth service 单测**（fake repo/clock）：登录成功、密码错、未知邮箱（同样慢且同样错误）、禁用、锁定、锁定过期、refresh 轮换、**重用检测撤销全部**、logout、改密后 `token_version++` 且撤销其他会话。
+- **auth service 单测**（fake repo/clock）：登录成功、密码错、未知邮箱（同样慢且同样错误）、禁用、锁定、锁定过期、refresh 轮换、**宽限期内重放容忍（只清理兄弟 token）**、**宽限期外重用撤销全部**、logout、改密后 `token_version++` 且撤销其他会话。
 - **中间件单测**：无 Authorization / 非 Bearer / 坏 token / 过期 / 禁用用户 → 401；member 调 admin 接口 → 403；principal 正确注入 ctx。
 - **集成测试**（`internal/app`，生产同款装配）：login → 带 token CRUD 200；无 token 401；member 越权 403；DELETE 后 token 仍有效但资源 404；改密后旧 access 401。
 - **OpenAPI**：`TestOpenAPICoversAllRoutes` 基础上新增断言——除白名单外所有 `/api/v1` 操作必须 `Security` 含 `bearerAuth` 且文档化 401。
 - **前端**：`pnpm api:check`（类型未漂移）、`pnpm build`、401 刷新重放的手动路径。
 - **smoke**：`scripts/smoke.sh` 增加 login 取 token、带 token 跑 CRUD、并断言匿名 401（参照现有 `fail()` 风格）。
+- **verify-auth（真实进程 + 真实 PG）**：`make verify-auth` 覆盖宽限期、登出立即生效、`X-Refresh-Transport`/`X-Refresh-Token` 传输、会话绝对上限夹紧与 `session_cap` 防御分支——这些行为无法用 SQLite 集成测试背书。
 
 ## 12. 分阶段实施（每阶段独立可上线）
 
