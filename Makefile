@@ -29,7 +29,7 @@ MIGRATE_VERSION       ?= v4.20.1
 
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
-        check gate openapi tidy-check vuln audit smoke verify-auth seed-admin db-up \
+        check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
         migrate-up migrate-down migrate-create \
         docker-build docker-up docker-down docker-logs clean
 
@@ -81,6 +81,14 @@ seed-admin: ## 建/重置管理员: EMAIL=admin@example.com APP_SEED_PASSWORD='.
 	@test -n "$(EMAIL)" || { echo "用法: EMAIL=admin@example.com APP_SEED_PASSWORD='...' make seed-admin"; exit 1; }
 	@test -n "$$APP_SEED_PASSWORD" || { echo "缺少 APP_SEED_PASSWORD 环境变量"; exit 1; }
 	$(GO) run ./cmd/admin -email "$(EMAIL)" -name "$(or $(NAME),Administrator)"
+
+seed-demo: ## 批量创建测试假数据: USERS=20 MESSAGES=10 PREFIX=seed make seed-demo
+	$(GO) run ./cmd/seeding -config configs/config.yaml \
+		-prefix "$(or $(PREFIX),seed)" \
+		-users $(or $(USERS),20) \
+		-messages $(or $(MESSAGES),10) \
+		-max-recipients $(or $(MAX_RECIPIENTS),5) \
+		-admin-every $(or $(ADMIN_EVERY),0)
 
 db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postgres）
 	@if command -v docker >/dev/null 2>&1; then \

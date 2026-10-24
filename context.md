@@ -44,6 +44,8 @@
 |---|---|---|
 | `cmd/server` | 进程入口 | `main.go`（version/commit ldflags） |
 | `cmd/admin` | bootstrap/重置管理员 CLI（无公开注册） | `main.go` |
+| `cmd/seeding` | 本地测试假数据 CLI：用户/字典/模板/站内信，幂等、生产默认拒绝 | `main.go` |
+| `internal/seed` | 假数据生成逻辑（可 SQLite 单测） | `seed.go` |
 | `internal/app` | 组合根：装配 + 生命周期 + 集成测试 | `app.go`, `integration_test.go` |
 | `internal/platform/apperr` | 业务错误码 + 类型化错误（纯） | `apperr.go` |
 | `internal/platform/httpx` | 统一响应信封 OK/Created/NoContent/Fail | `response.go` |

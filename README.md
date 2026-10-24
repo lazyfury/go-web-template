@@ -33,6 +33,11 @@ make docker-up
 # 2. 创建管理员（无公开注册）
 APP_SEED_PASSWORD='admin-password' make seed-admin EMAIL=admin@example.com
 
+# 可选：批量创建本地测试假数据（用户/字典/消息模板/站内信）
+# 生产环境默认拒绝；测试账号密码由 APP_SEED_PASSWORD 提供
+make seed-demo
+# 自定义规模：USERS=50 MESSAGES=20 PREFIX=demo make seed-demo
+
 # 3. 验证
 curl http://localhost:8080/healthz        # {"status":"ok"}
 curl http://localhost:8080/readyz         # {"status":"ok"}
@@ -113,6 +118,7 @@ curl -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/js
 go-web-template/
 ├── cmd/server/            # 进程入口（main），只做装配
 ├── cmd/admin/             # CLI：bootstrap/重置管理员（无公开注册）
+├── cmd/seeding/           # CLI：批量创建本地测试假数据（用户/字典/模板/站内信）
 ├── internal/
 │   ├── app/               # 组合根：装配、生命周期、全链路集成测试
 │   ├── platform/          # 叶子包（无业务，可独立单测）
@@ -128,6 +134,8 @@ go-web-template/
 │   ├── auth/              # 认证域：登录、refresh 轮换、改密、bootstrap 管理员
 │   ├── user/              # 用户域：entity → repository → service → handler → routes
 │   ├── dict/              # 字典/配置域：group + items、Store 快捷方法、CRUD 路由
+│   ├── message/           # 消息/通知域：收件箱、模板、投递 outbox、worker、sender
+│   ├── seed/              # 假数据生成逻辑（可 SQLite 单测）
 │   └── testutil/          # 测试共享工具（内存 SQLite，显式传 models）
 ├── migrations/            # golang-migrate SQL 迁移
 ├── configs/               # YAML 配置（config.yaml / config.example.yaml）
@@ -166,7 +174,7 @@ go-web-template/
 | `APP_AUTH_REFRESH_MAX_LIFETIME` | 会话绝对上限（从首次登录算，到点强制重登） | `2160h`（90 天） |
 | `APP_AUTH_REFRESH_REUSE_INTERVAL` | 轮换后旧 token 的容忍窗口（多标签页竞态） | `30s` |
 | `APP_AUTH_COOKIE_SECURE` | refresh cookie 是否带 `Secure`（本地 http 调试置 `false`） | `true` |
-| `APP_SEED_PASSWORD` | 仅 `cmd/admin` / `make seed-admin` 读取的初始密码 | — |
+| `APP_SEED_PASSWORD` | `cmd/admin` / `make seed-admin` 的管理员密码；`cmd/seeding` 的测试用户密码 | — |
 
 `deploy/docker-compose.yml` 按生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地调试时显式 `APP_SWAGGER_ENABLED=true make docker-up`。
 
@@ -206,7 +214,7 @@ make test
 测试策略：
 
 - **独立包单测**：`platform/{apperr,httpx,logx,config}` + `web` 中间件（`httptest`）
-- **业务单测**：`internal/user`（角色/归属/禁用失效）、`internal/auth`（枚举防护、锁定、refresh 轮换与重用检测、改密失效）、`internal/dict`（key 校验、停用过滤、Replace、GetInto）与 repository（SQLite）
+- **业务单测**：`internal/user`（角色/归属/禁用失效）、`internal/auth`（枚举防护、锁定、refresh 轮换与重用检测、改密失效）、`internal/dict`（key 校验、停用过滤、Replace、GetInto）、`internal/message`（发送/模板/worker/重试）、`internal/seed`（幂等假数据）与 repository（SQLite）
 - **认证原语**：`internal/platform/authkit`（HS256 钉死、alg=none、iss/exp、RBAC、中间件 401/403）
 - **集成测试**：`internal/app/integration_test.go` 用 `app.NewWithDB` + 内存 SQLite 走通生产同款装配：seed 管理员 → 登录 → bearer → CRUD，并覆盖匿名 401、member 403、refresh 轮换、改密后旧 token 失效
 - **OpenAPI 测试**：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、路由完整性、禁用时 404）
