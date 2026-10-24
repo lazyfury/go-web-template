@@ -21,6 +21,19 @@ services:
       timeout: 3s
       retries: 10
 
+  # 跨副本共享状态（限流桶）。Redis 不是事实来源：DB 永远权威，Redis 只在
+  # ratelimit.backend=redis 时承载多副本共享的 token bucket。
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # 一次性迁移任务：goose/golang-migrate 官方镜像执行 migrations/ 下的 SQL。
   migrate:
     image: migrate/migrate
@@ -46,6 +59,8 @@ services:
       # 迁移成功后才启动应用，保证新卷上不会出现"库没表"。
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       APP_ENV: production
       APP_DEBUG: "false"
@@ -57,6 +72,10 @@ services:
       APP_DATABASE_DBNAME: go_web_template
       APP_LOG_LEVEL: info
       APP_LOG_FORMAT: json
+      # 限流桶放 Redis：多副本时每个进程各有一份额度是错的（见 context.md §11）。
+      # 单机跑也可以切回 memory：APP_RATELIMIT_BACKEND=memory。
+      APP_RATELIMIT_BACKEND: "${APP_RATELIMIT_BACKEND:-redis}"
+      APP_REDIS_ADDR: "${APP_REDIS_ADDR:-redis:6379}"
       # 生产环境务必收紧 CORS 与限流
       # 本地编排默认放行 vite dev server；跨域 + refresh cookie 必须同时
       # 使用具体来源（不能用 *）并打开 allow_credentials。

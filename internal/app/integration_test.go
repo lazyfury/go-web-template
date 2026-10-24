@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -1458,5 +1460,40 @@ func TestHousekeepingCanBeDisabled(t *testing.T) {
 	env := newTestEnvWithConfig(t, func(cfg *config.Config) { cfg.Retention.Enabled = false })
 	if keeper := env.app.Housekeeper(); keeper != nil {
 		t.Fatalf("Housekeeper() = %+v, want nil when retention.enabled is false", keeper)
+	}
+}
+
+// TestRateLimitIsSharedAcrossReplicasWithRedisBackend 走真实组合根验证多副本语义：
+// 两个 App（模拟两个进程）配置同一个 Redis 时共用一份限流额度；如果还是进程内
+// 内存桶，第二个实例会拿到自己的一份 burst，限额就被放大成 2 倍。
+func TestRateLimitIsSharedAcrossReplicasWithRedisBackend(t *testing.T) {
+	server := miniredis.RunT(t)
+	configure := func(cfg *config.Config) {
+		cfg.RateLimit.Enabled = true
+		cfg.RateLimit.Backend = "redis"
+		cfg.RateLimit.RPS = 0.001 // no refill during the test
+		cfg.RateLimit.Burst = 2
+		cfg.Redis.Addr = server.Addr()
+		cfg.Redis.DialTimeout = 2 * time.Second
+		cfg.Redis.PingTimeout = 2 * time.Second
+		cfg.Redis.PoolSize = 2
+	}
+	replicaA := newTestEnvWithConfig(t, configure)
+	replicaB := newTestEnvWithConfig(t, configure)
+
+	hit := func(env *testEnv) int {
+		t.Helper()
+		// Any /api/v1 request counts against the shared "api" bucket; 401 is the
+		// expected body for an anonymous caller, we only care about 429.
+		return doJSON(t, env.handler, http.MethodGet, "/api/v1/users", nil).Code
+	}
+
+	for i := 0; i < 2; i++ {
+		if code := hit(replicaA); code != http.StatusUnauthorized {
+			t.Fatalf("replica A request %d status = %d, want 401", i+1, code)
+		}
+	}
+	if code := hit(replicaB); code != http.StatusTooManyRequests {
+		t.Fatalf("replica B status = %d, want 429 (bucket must be shared via Redis)", code)
 	}
 }

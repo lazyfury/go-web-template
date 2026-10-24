@@ -5,12 +5,14 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/dbx"
 	"github.com/example/go-web-template/internal/platform/passwd"
+	"github.com/example/go-web-template/internal/platform/redisx"
 	"github.com/example/go-web-template/internal/platform/routekit"
 	"github.com/example/go-web-template/internal/user"
 	"github.com/example/go-web-template/internal/web"
@@ -52,6 +55,7 @@ type App struct {
 	messageWorker *message.Worker
 	housekeeper   *housekeeping.Worker
 	limiters      *web.Limiters
+	redis         *redis.Client
 }
 
 // New opens the database and wires the application. It is the entry point used
@@ -169,11 +173,26 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	// The rate-limiter registry is created here because cmd/server has to own
 	// the goroutine that sweeps idle buckets (ADR 14): constructors never start
 	// goroutines.
-	limiters := web.NewLimiters()
+	//
+	// With ratelimit.backend=redis the buckets live in Redis so replicas share
+	// one allowance; the default remains an in-process map, which keeps the
+	// template runnable with nothing but PostgreSQL. Opening Redis is fail-fast:
+	// a configured-but-unreachable Redis must not silently degrade to per-replica
+	// limits.
+	limiterOptions := []web.LimiterOption{web.WithLimiterLogger(logger)}
+	var redisClient *redis.Client
+	if cfg.RateLimit.Backend == "redis" {
+		redisClient, err = redisx.Open(&cfg.Redis, logger)
+		if err != nil {
+			return nil, fmt.Errorf("init redis: %w", err)
+		}
+		limiterOptions = append(limiterOptions, web.WithRateLimitStore(redisx.NewRateLimitStore(redisClient)))
+	}
+	limiters := web.NewLimiters(limiterOptions...)
 	engine, api := web.New(cfg, logger, web.NewHealth(sqlDB), options.Version, limiters)
 
 	// Public auth endpoints: login is throttled per IP, refresh is not.
-	loginGuard := limiters.Middleware(true, clientIPKey, cfg.Auth.LoginRPS, cfg.Auth.LoginBurst)
+	loginGuard := limiters.Middleware("login", true, clientIPKey, cfg.Auth.LoginRPS, cfg.Auth.LoginBurst)
 	auth.RegisterRoutes(api, authHandler, loginGuard)
 
 	// Everything below requires a valid access token. Authkit reads the user
@@ -185,7 +204,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	// holds a valid token and can rotate IPs freely.
 	var passwordGuards []gin.HandlerFunc
 	if cfg.RateLimit.Enabled {
-		passwordGuards = append(passwordGuards, limiters.Middleware(true, func(c *gin.Context) string {
+		passwordGuards = append(passwordGuards, limiters.Middleware("password", true, func(c *gin.Context) string {
 			if principal, ok := authkit.PrincipalFrom(c); ok {
 				return "user:" + strconv.FormatUint(principal.UserID, 10)
 			}
@@ -209,6 +228,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		messageWorker: messageWorker,
 		housekeeper:   housekeeper,
 		limiters:      limiters,
+		redis:         redisClient,
 	}, nil
 }
 
@@ -282,11 +302,18 @@ func (a *App) Housekeeper() *housekeeping.Worker { return a.housekeeper }
 // Run blocks until ctx is canceled, then drains connections gracefully.
 func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }
 
-// Close releases the database connection pool.
+// Close releases the database connection pool and the optional Redis client.
 func (a *App) Close() error {
-	sqlDB, err := a.db.DB()
-	if err != nil {
-		return fmt.Errorf("access sql.DB: %w", err)
+	var errs []error
+	if sqlDB, err := a.db.DB(); err != nil {
+		errs = append(errs, fmt.Errorf("access sql.DB: %w", err))
+	} else if err := sqlDB.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("close database: %w", err))
 	}
-	return sqlDB.Close()
+	if a.redis != nil {
+		if err := a.redis.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close redis: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }

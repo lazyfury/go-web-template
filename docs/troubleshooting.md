@@ -70,6 +70,9 @@
 | `POST /auth/login` 返回 **403 且响应体为空**（无 `{code,message}` 信封） | 不是凭证问题，是 **CORS 预检被拒**：浏览器来源不在 `cors.allowed_origins` 里。跨域 + refresh cookie 还必须 `allow_credentials=true`（`APP_CORS_ALLOW_CREDENTIALS`），且来源不能用 `*`。本地开发推荐走 vite 代理（同源，无需 CORS）；直连时把 `http://localhost:5173` 加进 `APP_CORS_ALLOWED_ORIGINS` |
 | 登录一直返回 `401 invalid credentials`，但密码确认没错 | 账号可能被**锁定**（连续失败达到 `auth.login_max_attempts`，默认 5 次 / 15 分钟）或已**禁用**：响应刻意与密码错同形（防枚举），看服务日志的 `reason=locked` / `reason=disabled` 区分。解锁最省事是 `make seed-admin`（重置密码 + 清零失败计数 + 吊销会话） |
 | 401 与 403 分不清 | 40100 = 未认证（没带/无效/过期 token、登录凭证错、账号锁定/禁用）；40300 = 已认证但角色权限不足、管理员自删 |
+| 多副本下实际限额是配置值的 N 倍 / 登录限流形同虚设 | `ratelimit.backend` 还是默认的 `memory`（每个副本一份桶）。切 `APP_RATELIMIT_BACKEND=redis` + `APP_REDIS_ADDR`；本地编排已默认 redis |
+| 启动即失败：`init redis: ping redis ...` | 配了 `ratelimit.backend=redis` 但 Redis 不可达。这是**故意的** fail-fast：宁可起不来，也不要静默退化成每副本一份额度。确认 `APP_REDIS_ADDR`/网络/密码，或临时改回 `memory` |
+| Redis 抖动期间登录不再被限流（但账号仍会锁） | 存储不可用时限流 **fail-open**，并在 `/metrics` 记 `ratelimit_store_errors_total{bucket}` + 打限频日志（每分钟一条）。账号锁定在 DB，暴力破解仍会被锁 |
 | 反向代理后所有人共用一个限流桶（或全站 429） | 客户端 IP 取的是 TCP 对端 = 代理 IP。把代理网段填进 `APP_HTTP_TRUSTED_PROXIES`（如 `10.0.0.0/8`）；只有来自这些网段的请求，`X-Forwarded-For` 才会被采信 |
 | 客户端伪造 `X-Forwarded-For` 还能换限流桶 / 日志里出现假 IP | 说明 `APP_HTTP_TRUSTED_PROXIES` 被配成了过宽网段（或历史上默认信任全部）。默认值是「不信任任何代理」，正确做法是只填真实代理的网段 |
 | 登录总是 `invalid credentials` | 账号可能没有凭证（`password_hash=''`，仅老数据）：用 `make seed-admin EMAIL=… APP_SEED_PASSWORD=…` 重置；或用管理员 `PATCH /users/:id` 设密码 |

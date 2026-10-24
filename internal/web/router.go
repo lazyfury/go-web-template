@@ -84,7 +84,7 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string,
 	ginV1 := r.Group("/api/v1",
 		// API payloads carry access tokens and per-user data: never cache them.
 		NoStore(),
-		limiters.Middleware(cfg.RateLimit.Enabled, clientIPKey, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
+		limiters.Middleware("api", cfg.RateLimit.Enabled, clientIPKey, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
 		Timeout(cfg.HTTPServer.RequestTimeout),
 	)
 

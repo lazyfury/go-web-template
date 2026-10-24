@@ -59,6 +59,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ratelimit.enabled", true)
 	v.SetDefault("ratelimit.rps", 100.0)
 	v.SetDefault("ratelimit.burst", 200)
+	// 默认单实例内存桶；多副本部署必须切 redis（否则每个副本各有一份额度）。
+	v.SetDefault("ratelimit.backend", "memory")
+
+	v.SetDefault("redis.addr", "")
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.db", 0)
+	v.SetDefault("redis.pool_size", 10)
+	v.SetDefault("redis.dial_timeout", "2s")
+	v.SetDefault("redis.ping_timeout", "1s")
 
 	v.SetDefault("swagger.enabled", true)
 	// 抓取端点默认开启（本地/内网 Prometheus 直接可用）；编排与公网部署在
@@ -216,6 +225,21 @@ func (c *Config) Validate() error {
 	}
 	if c.RateLimit.Enabled && c.RateLimit.RPS <= 0 {
 		return fmt.Errorf("ratelimit.rps must be positive")
+	}
+	switch c.RateLimit.Backend {
+	case "memory":
+	case "redis":
+		if c.Redis.Addr == "" {
+			return fmt.Errorf("ratelimit.backend=redis requires redis.addr (set APP_REDIS_ADDR)")
+		}
+		if c.Redis.DialTimeout <= 0 || c.Redis.PingTimeout <= 0 {
+			return fmt.Errorf("redis.dial_timeout and redis.ping_timeout must be positive")
+		}
+		if c.Redis.PoolSize <= 0 {
+			return fmt.Errorf("redis.pool_size must be positive")
+		}
+	default:
+		return fmt.Errorf("invalid ratelimit.backend %q (memory|redis)", c.RateLimit.Backend)
 	}
 	if c.HTTPServer.ReadTimeout <= 0 || c.HTTPServer.WriteTimeout <= 0 {
 		return fmt.Errorf("http read/write timeouts must be positive")

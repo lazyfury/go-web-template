@@ -53,6 +53,7 @@
 | `internal/platform/config` | 配置模型 + viper 加载 | `config.go`, `loader.go` |
 | `internal/platform/logx` | zap 构建（只依赖字符串参数） | `logger.go` |
 | `internal/platform/dbx` | GORM PostgreSQL 连接池 | `db.go` |
+| `internal/platform/redisx` | 可选 Redis：客户端 + 共享限流桶（Lua 原子记账）；不是事实来源 | `redis.go`, `ratelimit.go` |
 | `internal/platform/routekit` | 声明式路由元数据 + 反射生成 OpenAPI 3.0.3 | `types.go`, `schema.go`, `registry.go`, `group.go`, `serve.go` |
 | `internal/web` | 紧凑 HTTP 层：engine/中间件/探针/优雅停机/文档挂载（无业务） | `router.go`, `docs.go`, `middleware_*.go`, `health.go`, `server.go` |
 | `internal/user` | 用户域：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
@@ -76,7 +77,8 @@ http:     {read_timeout, write_timeout, idle_timeout, shutdown_timeout, request_
 database: {driver: postgres, host, port, user, password, dbname, sslmode, max_open_conns, max_idle_conns, conn_max_lifetime, log_level}
 log:      {level: info|debug|warn|error, format: json|console}
 cors:     {allowed_origins, allowed_methods, allowed_headers, exposed_headers, allow_credentials, max_age}
-ratelimit:{enabled, rps, burst}
+ratelimit:{enabled, rps, burst, backend: memory|redis}   # backend=redis 时桶在 Redis 共享
+redis:    {addr, password, db, pool_size, dial_timeout: 2s, ping_timeout: 1s}
 swagger:  {enabled}   # /openapi.json + Swagger UI
 auth:     {jwt_secret, issuer, access_ttl: 15m,
            refresh_ttl: 720h,            # 滑动续期（每次 refresh 重置）
@@ -96,7 +98,7 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
            message_retention: 2160h}        # 过期消息再留 90 天（无 expires_at 永不删）
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
@@ -245,7 +247,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - `X-Request-ID`：入站复用或生成 UUID；响应头回写；访问日志与错误响应体（`request_id` 字段）均携带；错误响应统一经 `httpx.Fail`/`httpx.Error` 生成。
 - 指标：`http_requests_total{method,path,status}`、`http_request_duration_seconds{method,path}`、`http_requests_in_flight`；path 用路由模式（`/api/v1/users/:id`），未匹配路由固定记为 `unmatched`（避免扫描器打爆基数）。
 - 业务指标（`/metrics` 默认开启，`metrics.enabled=false` 关闭）：`auth_login_total{result}`、`auth_refresh_total{result}`、`auth_session_revocations_total{reason}`、`auth_account_lockouts_total`（认证域，reason 由 repo 的吊销咽喉点打出）、`message_delivery_attempts_total{channel,result}`、`message_delivery_duration_seconds{channel}`（投递 worker）、`housekeeping_purged_rows_total{task}`、`housekeeping_task_failures_total{task}`（保留期清理）。标签都是闭集，不含用户/邮箱/目标地址。
-- 限流：每 IP token bucket（`x/time/rate`），X-Forwarded-For 取第一跳；超限 429 + `Retry-After`。
+- 限流：每 IP token bucket（`x/time/rate`），X-Forwarded-For 取第一跳；超限 429 + `Retry-After`。桶默认在进程内存（`ratelimit.backend=memory`），多副本切 `backend=redis`（Lua 脚本原子记账，时间取 Redis `TIME`，空桶靠 `PEXPIRE` 回收）。存储不可用时**fail-open** + `ratelimit_store_errors_total` 计数 + 限频日志：限流是保护层，不是放行权威。
 - 超时：`Timeout` 只注入 context deadline，不另起 goroutine、不伪造响应（`gin.Context` 非并发安全，goroutine 版会 data race）。需要硬拒绝时在 handler 内检查 `ctx.Err()` 并返回业务错误。
 - 优雅停机：SIGINT/SIGTERM → `signal.NotifyContext` → `http.Server.Shutdown`（`http.shutdown_timeout` 上限）。
 - 消息 worker 日志只记录 `delivery_id`/`channel`/`attempt`，不记录收件地址、payload、密钥。
@@ -281,6 +283,8 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 14. **进程生命周期与后台 goroutine**：`cmd/server/main.go` 持有 `signal.NotifyContext`，用 `errgroup.WithContext` 同时运行 HTTP、后台 worker 与限流器清扫；任一失败取消另一个，全部退出后才 `App.Close` 释放 DB。`internal/app` 只装配（构造 repo/service/worker）并通过 `App` 暴露 worker，**禁止在 app 内启动 goroutine**；service/handler 只写投递记录（delivery/outbox），异步执行交给 worker。限流器同样遵守这条：`web.NewLimiters()` 是惰性构造，空闲桶清扫由 `App.Limiters()` → `cmd/server` 的 `errgroup` 调用 `Run(ctx)`（旧实现把 `cleanupLoop` 藏在构造函数里，goroutine 无 owner，测试也无法断言）。Worker 契约：`Run(ctx) error`、ticker/clock 可注入、ctx 取消后停止领取新任务并等待在途任务、禁止裸 `go func()` 与 `time.Sleep` 轮询。多实例用 `locked_until` 租约 + 条件更新领取任务（保持 SQLite 可测，不依赖 `SKIP LOCKED`）。
 
 15. **消息/通知 SQL-first（无通用 event bus）**：`messages` 存内容快照，`message_recipients` 是站内信收件箱与已读状态，`message_deliveries` 是邮件/短信/Webhook 的投递 outbox，`message_templates` 存模板。发送在一事务内写 message + recipients + deliveries；`message.Worker` 由 `cmd/server` 通过 errgroup 启动，领取 `message_deliveries` 并调用 SMTP/Twilio/Webhook sender，失败按指数退避重试（failed → 再次领取），超过 `max_attempts` 变 dead。不做通用 event bus；未来跨域事件用 `outbox_events` + dispatcher。Redis 只作为可选加速层，不是消息事实来源。详见 `docs/design-message.md`。
+
+16. **Redis 是可选的跨副本加速层**：`ratelimit.backend=memory|redis`，默认 memory（模板只要求 PostgreSQL 就能跑）。切到 redis 后 token bucket 在 Lua 里原子记账、时间取 Redis `TIME`（唯一所有副本都认的钟）、空桶用 `PEXPIRE` 回收，因此 N 个副本等价于一个限流器。启动时 `PING` 失败直接退出（不允许静默退化成每副本一份额度）；运行期存储不可用则 fail-open + 指标 + 限频日志，且账号锁定仍在 DB（`users.locked_until`），认证安全不依赖 Redis。`/readyz` 不探 Redis：它挂掉只影响限流精度，不该摘掉全部流量。
 
 ## 10. 扩展指南
 
@@ -323,7 +327,8 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 
 ## 11. 已知限制
 
-- 限流是单实例内存态：多副本部署需换 Redis 计数（`x/time/rate` 不支持分布式）；登录限流/锁定同样是单实例状态。
+- 限流桶默认是单实例内存态；多副本必须把 `ratelimit.backend` 切成 `redis`（`APP_REDIS_ADDR`），否则每个副本各有一份额度，实际限额 = 配置值 × 副本数。登录**锁定**状态本来就在 `users.locked_until`（DB），天然多副本一致；Redis 只承载限流桶。
+- Redis 只做跨副本加速层，不是事实来源：`/readyz` 只探 DB，Redis 抖动不会摘流量，限流按 fail-open 处理（见 §8 中间件）。
 - access token 无状态：吊销/禁用最坏延迟 = `access_ttl`（15m）；改密/禁用通过 `token_version` 即时生效。
 - 多标签页共享一个 cookie jar：`refresh_reuse_interval` 期间旧 token 重放会被容忍并只保留最新 token；窗口外仍会判定为盗用并全量吊销（默认 30s，可按需调大）。
 - 会话寿命 = `min(闲置 refresh_ttl, 自登录起 refresh_max_lifetime)`：想"更久不用重登"就调这两个值，不要调 `access_ttl`。

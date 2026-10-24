@@ -2,12 +2,15 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/example/go-web-template/internal/testutil"
 )
 
 // fakeClock is a settable clock for the idle sweep (token-bucket refill keeps
@@ -33,7 +36,7 @@ func newSweepTestRouter(limiters *Limiters) *gin.Engine {
 	r := gin.New()
 	// rps = 0: the single burst token is never refilled, so "200" after the
 	// first request can only mean the bucket was evicted.
-	r.Use(limiters.Middleware(true, clientIPKey, 0, 1))
+	r.Use(limiters.Middleware("test", true, clientIPKey, 0, 1))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 	return r
 }
@@ -147,5 +150,56 @@ func TestLimitersRunWithoutLimitersReturnsImmediately(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Run blocked with no registered limiters")
+	}
+}
+
+// failingStore stands in for an unreachable Redis.
+type failingStore struct{ err error }
+
+func (f failingStore) Allow(context.Context, string, string, float64, int) (bool, error) {
+	return false, f.err
+}
+
+// TestLimiterFailsOpenWhenTheStoreIsDown 钉住可用性取舍：限流是保护层，不是
+// 放行权威。Redis 挂掉时宁可放行并大声报错（计数 + 限频日志），也不要把整个
+// API 变成 429。账号锁定仍在数据库里，认证安全不依赖 Redis。
+func TestLimiterFailsOpenWhenTheStoreIsDown(t *testing.T) {
+	t.Parallel()
+
+	before := testutil.CounterValueFor(t, "ratelimit_store_errors_total", "bucket", "login")
+	limiters := NewLimiters(WithRateLimitStore(failingStore{err: errors.New("redis down")}))
+	r := gin.New()
+	r.Use(limiters.Middleware("login", true, clientIPKey, 1, 1))
+	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	for i := 0; i < 3; i++ {
+		if code := hit(t, r, "203.0.113.99:1234"); code != http.StatusOK {
+			t.Fatalf("request %d status = %d, want 200 (fail open)", i+1, code)
+		}
+	}
+	if got := testutil.CounterValueFor(t, "ratelimit_store_errors_total", "bucket", "login") - before; got < 3 {
+		t.Errorf("store error counter increased by %v, want at least 3", got)
+	}
+}
+
+// TestLimitersRunSkipsNonLocalStores 保证 Redis 后端不会让 cmd/server 多起一个
+// 只会空转的清扫 goroutine（Redis 自己用 TTL 回收空桶）。
+func TestLimitersRunSkipsNonLocalStores(t *testing.T) {
+	t.Parallel()
+
+	limiters := NewLimiters(WithRateLimitStore(failingStore{}))
+	limiters.Middleware("login", true, clientIPKey, 1, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- limiters.Run(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run blocked for a store without local state")
 	}
 }

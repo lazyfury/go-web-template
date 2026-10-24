@@ -16,6 +16,7 @@ type Config struct {
 	Log        Log        `mapstructure:"log"`
 	CORS       CORS       `mapstructure:"cors"`
 	RateLimit  RateLimit  `mapstructure:"ratelimit"`
+	Redis      Redis      `mapstructure:"redis"`
 	Swagger    Swagger    `mapstructure:"swagger"`
 	Metrics    Metrics    `mapstructure:"metrics"`
 	Auth       Auth       `mapstructure:"auth"`
@@ -85,6 +86,24 @@ type RateLimit struct {
 	Enabled bool    `mapstructure:"enabled"`
 	RPS     float64 `mapstructure:"rps"`
 	Burst   int     `mapstructure:"burst"`
+	// Backend selects where the buckets live: "memory" (per process, correct
+	// for one instance) or "redis" (shared, required as soon as there is more
+	// than one replica — otherwise each replica gets its own allowance).
+	Backend string `mapstructure:"backend"`
+}
+
+// Redis holds the optional Redis connection used for cross-instance state.
+// Redis is never a source of truth: the database stays authoritative.
+type Redis struct {
+	Addr     string `mapstructure:"addr"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
+	PoolSize int    `mapstructure:"pool_size"`
+	// DialTimeout also bounds reads/writes, so a stalled Redis fails the
+	// request quickly instead of holding a handler open.
+	DialTimeout time.Duration `mapstructure:"dial_timeout"`
+	// PingTimeout bounds the startup connectivity check.
+	PingTimeout time.Duration `mapstructure:"ping_timeout"`
 }
 
 // Metrics controls the Prometheus scrape endpoint.

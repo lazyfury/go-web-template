@@ -289,3 +289,64 @@ func TestMetricsEnabledDefaultAndOverride(t *testing.T) {
 		t.Error("APP_METRICS_ENABLED=false should disable the endpoint")
 	}
 }
+
+func TestRateLimitBackendDefaultsToMemory(t *testing.T) {
+	cfg := Defaults()
+	if cfg.RateLimit.Backend != "memory" {
+		t.Errorf("ratelimit.backend = %q, want memory", cfg.RateLimit.Backend)
+	}
+	if cfg.Redis.Addr != "" {
+		t.Errorf("redis.addr = %q, want empty by default", cfg.Redis.Addr)
+	}
+}
+
+func TestValidateRejectsRedisBackendWithoutAddr(t *testing.T) {
+	// 配了 redis 后端却没给地址：必须 fail-fast，否则多副本会静默退化成
+	// 「每个进程一份额度」，而运维以为集群共享桶。
+	cfg := Defaults()
+	cfg.RateLimit.Backend = "redis"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted ratelimit.backend=redis without redis.addr")
+	}
+	if !strings.Contains(err.Error(), "redis.addr") {
+		t.Errorf("error %q does not point at redis.addr", err)
+	}
+
+	cfg.Redis.Addr = "127.0.0.1:6379"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with redis.addr: %v", err)
+	}
+}
+
+func TestValidateRejectsUnknownRateLimitBackend(t *testing.T) {
+	cfg := Defaults()
+	cfg.RateLimit.Backend = "memcached"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted an unknown ratelimit backend")
+	}
+	if !strings.Contains(err.Error(), "ratelimit.backend") {
+		t.Errorf("error %q does not mention ratelimit.backend", err)
+	}
+}
+
+func TestRedisSettingsFromEnv(t *testing.T) {
+	t.Setenv("APP_RATELIMIT_BACKEND", "redis")
+	t.Setenv("APP_REDIS_ADDR", "redis.internal:6379")
+	t.Setenv("APP_REDIS_DB", "3")
+
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.RateLimit.Backend != "redis" {
+		t.Errorf("ratelimit.backend = %q, want redis", cfg.RateLimit.Backend)
+	}
+	if cfg.Redis.Addr != "redis.internal:6379" {
+		t.Errorf("redis.addr = %q", cfg.Redis.Addr)
+	}
+	if cfg.Redis.DB != 3 {
+		t.Errorf("redis.db = %d, want 3", cfg.Redis.DB)
+	}
+}

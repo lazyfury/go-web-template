@@ -128,7 +128,7 @@ func TestCORS(t *testing.T) {
 // ipLimit is the shape every IP-keyed guard has: a registry-owned token bucket
 // per client IP. Tests use it instead of a self-starting limiter.
 func ipLimit(rps float64, burst int) gin.HandlerFunc {
-	return NewLimiters().Middleware(true, clientIPKey, rps, burst)
+	return NewLimiters().Middleware("test", true, clientIPKey, rps, burst)
 }
 
 // TestRateLimitIgnoresSpoofedXFF 钉住 F2：没有配置可信代理时，调用方不能靠轮换
@@ -192,7 +192,7 @@ func TestRateLimit(t *testing.T) {
 
 	newRouter := func(enabled bool, rps float64, burst int) *gin.Engine {
 		r := gin.New()
-		r.Use(NewLimiters().Middleware(enabled, clientIPKey, rps, burst))
+		r.Use(NewLimiters().Middleware("test", enabled, clientIPKey, rps, burst))
 		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 		return r
 	}
@@ -490,7 +490,7 @@ func TestRateLimitKeyed(t *testing.T) {
 	t.Parallel()
 
 	r := gin.New()
-	r.Use(NewLimiters().Middleware(true, func(c *gin.Context) string { return c.GetHeader("X-Test-Key") }, 1, 1))
+	r.Use(NewLimiters().Middleware("keyed", true, func(c *gin.Context) string { return c.GetHeader("X-Test-Key") }, 1, 1))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	send := func(key string) int {

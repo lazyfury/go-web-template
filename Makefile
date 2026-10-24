@@ -214,7 +214,7 @@ jwt-secret: ## 生成/复用本地编排的 JWT 密钥（.local/jwt-secret，git
 docker-build: ## 构建镜像
 	docker build -t $(APP_NAME):$(VERSION) .
 
-docker-up: jwt-secret ## 一键启动 postgres + migrate + app（自动注入 JWT 密钥）
+docker-up: jwt-secret ## 一键启动 postgres + redis + migrate + app（自动注入 JWT 密钥）
 	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
 	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_AUTH_COOKIE_SECURE=false \
 		docker compose -f deploy/docker-compose.yml up -d --build
