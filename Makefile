@@ -7,6 +7,18 @@ VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo d
 COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 GO         ?= go
+TOOL_BIN   := $(shell $(GO) env GOPATH)/bin
+# 非登录 shell（agent / 本地 CI 风格调用）通常没有 $GOPATH/bin：显式注入，
+# 让 make check 在任何 shell 都能找到 pin 版本工具，而不是误报“缺少工具”。
+export PATH := $(TOOL_BIN):$(PATH)
+# 注意：macOS 自带 make 3.81 的 direct-exec 不会应用上面的 export PATH，
+# 所以真正被 make 直接执行的工具必须解析成绝对路径（否则报 No such file or directory）。
+GOLANGCI_LINT ?= $(shell [ -x "$(TOOL_BIN)/golangci-lint" ] && echo "$(TOOL_BIN)/golangci-lint" || command -v golangci-lint || echo golangci-lint)
+AIR           ?= $(shell [ -x "$(TOOL_BIN)/air" ] && echo "$(TOOL_BIN)/air" || command -v air || echo air)
+GOVULNCHECK   ?= $(shell [ -x "$(TOOL_BIN)/govulncheck" ] && echo "$(TOOL_BIN)/govulncheck" || command -v govulncheck || echo govulncheck)
+# 覆盖率统计范围：默认 package 归属会让「被集成测试覆盖的 handler/routes」显示 0%，
+# 合并 internal/... 才能看到真实覆盖率。
+COVERPKG   ?= ./internal/...
 MIGRATE_URL ?= postgres://postgres:postgres@127.0.0.1:5432/go_web_template?sslmode=disable
 
 # 工具版本：Makefile 是唯一来源，升级时只改这里
@@ -51,7 +63,7 @@ run: ## 直接运行（需先启动 postgres）
 
 dev: ## 开发模式：air 热重载
 	@./scripts/check-tools.sh air
-	air -c .air.toml
+	$(AIR) -c .air.toml
 
 smoke: ## 本地冒烟：自起自停服务，验证探针 + CRUD（DB 不可用时只验 liveness）
 	@./scripts/smoke.sh
@@ -91,11 +103,11 @@ vet: ## 静态检查
 
 lint: ## golangci-lint（配置见 .golangci.yml，v2 格式）
 	@./scripts/check-tools.sh golangci-lint
-	golangci-lint run
+	$(GOLANGCI_LINT) run
 
 fmt: ## 格式化代码（gofmt + goimports，走 golangci-lint 的 formatters）
 	@./scripts/check-tools.sh golangci-lint
-	golangci-lint fmt
+	$(GOLANGCI_LINT) fmt
 
 tidy: ## 整理依赖
 	$(GO) mod tidy
@@ -107,11 +119,11 @@ test-race: ## 带竞态检测运行测试（make check 同款）
 	$(GO) test -race ./... -count=1
 
 coverage: ## 生成 HTML 覆盖率报告（会打开浏览器）
-	$(GO) test ./... -coverprofile=coverage.out
+	$(GO) test ./... -coverpkg=$(COVERPKG) -coverprofile=coverage.out
 	$(GO) tool cover -html=coverage.out
 
 coverage-func: ## 覆盖率文本摘要（agent/人类友好，不开浏览器）
-	$(GO) test ./... -coverprofile=coverage.out >/dev/null
+	$(GO) test ./... -coverpkg=$(COVERPKG) -coverprofile=coverage.out >/dev/null
 	$(GO) tool cover -func=coverage.out
 
 openapi: ## 重新生成 OpenAPI 契约（改了路由元数据后必须跑）
@@ -129,7 +141,7 @@ tidy-check: ## 校验 go.mod/go.sum 已 tidy（未 tidy 时自动整理并提示
 
 vuln: ## 依赖漏洞扫描
 	@./scripts/check-tools.sh govulncheck
-	govulncheck ./...
+	$(GOVULNCHECK) ./...
 
 ## ---- 数据库迁移（优先 docker；无 docker 用本地 migrate 二进制） ------------
 

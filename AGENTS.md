@@ -8,7 +8,7 @@
 | 文件 | 只放什么 |
 |---|---|
 | `AGENTS.md`（本文件） | **规则、流程、完成定义**；不抄命令、不抄操作细节 |
-| `context.md` | **架构、数据模型、API 契约、配置、ADR**（append-only，不写排错） |
+| `context.md` | **架构、数据模型、API 契约、配置、ADR**（就地更新事实，不写排错） |
 | `skills/` | **可执行配方**（命令 + 断言），按任务加载 |
 | `docs/troubleshooting.md` | **踩坑 → 处理**（报错速查、环境陷阱） |
 | `Makefile` | **命令的唯一权威**（看 `make help`；README/AGENTS 不复写） |

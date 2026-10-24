@@ -1,4 +1,4 @@
-// Package errors defines typed application errors with stable business codes
+// Package apperr defines typed application errors with stable business codes
 // that are returned to API clients inside the unified response envelope.
 //
 // Code layout: [HTTP status][category][sequence]

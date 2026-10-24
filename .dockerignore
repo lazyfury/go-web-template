@@ -7,3 +7,10 @@ Makefile
 coverage.out
 bin/
 tmp/
+
+# 非运行时内容：前端依赖/产物、生成文档、协作文件不要进构建上下文
+web/admin/node_modules
+web/admin/dist
+docs/
+.agents/
+skills/

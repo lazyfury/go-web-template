@@ -53,7 +53,7 @@ docker build --build-arg VERSION=v1.0.0 --build-arg COMMIT=$(git rev-parse --sho
 
 - 多阶段：builder（golang:1.26-alpine，CGO_ENABLED=0）→ runtime（alpine:3.21，非 root `app` uid=10001）。
 - 镜像内 `configs/config.yaml` 为默认配置，覆盖走 `APP_*` 环境变量。
-- `.dockerignore` 已排除 `.git`、`docs`、`.env` 等。
+- `.dockerignore` 已排除 `.git`、`docs/`、`.env`、`web/admin/{node_modules,dist}` 等，构建上下文只留 Go 源码与配置。
 
 ## 4. compose 编排（`deploy/docker-compose.yml`）
 

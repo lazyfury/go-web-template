@@ -78,7 +78,7 @@ pnpm gen:api
 ```
 
 - 生成物：`src/types/openapi.ts`（提交入库，业务层通过 `src/types/user.ts` 的别名使用）。
-- CI 会跑 `pnpm api:check`：重新生成并 `git diff --exit-code`，防止契约变更后忘记更新前端类型。
+- 提交前在本地跑 `pnpm api:check`：重新生成并 `git diff --exit-code`，防止契约变更后忘记更新前端类型（仓库不配置远端 CI）。
 - 业务代码不要手写重复的 `User` / `CreateUserPayload` 等接口，统一从 `components['schemas']` 取。
 
 ## 接入真实认证

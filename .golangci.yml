@@ -1,5 +1,5 @@
 # golangci-lint v2 配置（v1 的 linters-settings / exclude-use-default 已废弃）
-# 版本要求: golangci-lint v2.15.0 — CI 与 `make tools` 用同一版本，避免 latest 漂移导致红灯
+# 版本要求: golangci-lint v2.15.0 — `make tools` 是唯一来源，避免 latest 漂移导致红灯
 version: "2"
 run:
   tests: true
@@ -30,6 +30,9 @@ linters:
     revive:
       rules:
         - name: exported
+          severity: warning
+        # 守门：包注释必须以 "Package <name>" 开头，防止改包名/搬包后注释漂移
+        - name: package-comments
           severity: warning
   exclusions:
     generated: lax

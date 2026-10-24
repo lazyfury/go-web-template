@@ -1,4 +1,4 @@
-// Package repository implements the data-access layer on top of GORM.
+// Package dbx implements the data-access layer on top of GORM.
 package dbx
 
 import (
