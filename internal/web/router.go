@@ -30,6 +30,18 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string)
 
 	r := gin.New()
 
+	// Trust only the proxies configured for this deployment. gin's default
+	// trusts every X-Forwarded-For, which lets any caller pick its own
+	// rate-limit bucket and forge the IP written to the access log (black-box
+	// drill: rotating X-Forwarded-For defeated the login limiter entirely).
+	// An empty list means "trust nobody" and ClientIP falls back to RemoteAddr.
+	if err := r.SetTrustedProxies(cfg.HTTPServer.TrustedProxies); err != nil {
+		// Config validation already rejects malformed entries; never fall back
+		// to trusting everyone if that invariant is ever broken.
+		_ = r.SetTrustedProxies(nil)
+		logger.Warn("invalid http.trusted_proxies; trusting no proxy", zap.Error(err))
+	}
+
 	// Global middleware. Recovery must run first so it can catch panics from
 	// every other middleware; RequestID before Logger so logs carry the id.
 	r.Use(

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -29,6 +30,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("http.shutdown_timeout", "10s")
 	v.SetDefault("http.request_timeout", "15s")
 	v.SetDefault("http.max_body_bytes", 1<<20)
+	// 默认不信任任何代理：X-Forwarded-For 由客户端随意填写，信任它等于让调用方
+	// 自选限流桶并伪造访问日志里的 IP。反向代理部署时显式配置 CIDR。
+	v.SetDefault("http.trusted_proxies", []string{})
 
 	v.SetDefault("database.driver", "postgres")
 	v.SetDefault("database.host", "127.0.0.1")
@@ -100,7 +104,18 @@ func Defaults() *Config {
 	setDefaults(v)
 	cfg := &Config{}
 	_ = v.Unmarshal(cfg) // defaults are always valid
+	cfg.normalize()
 	return cfg
+}
+
+// normalize cleans values whose textual form is human friendly but not machine
+// friendly, e.g. APP_HTTP_TRUSTED_PROXIES="10.0.0.0/8, 192.168.1.10" keeps the
+// space after the comma. gin parses these entries verbatim, so they must be
+// trimmed before they reach SetTrustedProxies.
+func (c *Config) normalize() {
+	for i, proxy := range c.HTTPServer.TrustedProxies {
+		c.HTTPServer.TrustedProxies[i] = strings.TrimSpace(proxy)
+	}
 }
 
 // Load reads the configuration from a YAML file (optional) and environment
@@ -144,6 +159,7 @@ func Load(configFile, envPrefix string) (*Config, error) {
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	cfg.normalize()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -194,6 +210,15 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPServer.MaxBodyBytes <= 0 {
 		return fmt.Errorf("http.max_body_bytes must be positive")
+	}
+	for _, proxy := range c.HTTPServer.TrustedProxies {
+		entry := strings.TrimSpace(proxy)
+		if net.ParseIP(entry) != nil {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(entry); err != nil {
+			return fmt.Errorf("http.trusted_proxies entry %q is neither an IP nor a CIDR", proxy)
+		}
 	}
 	if c.Message.MaxAttempts <= 0 {
 		return fmt.Errorf("message.max_attempts must be positive")

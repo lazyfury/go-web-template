@@ -40,6 +40,11 @@ type HTTPServer struct {
 	RequestTimeout time.Duration `mapstructure:"request_timeout"`
 	// MaxBodyBytes caps the request body size; 0 disables the check.
 	MaxBodyBytes int64 `mapstructure:"max_body_bytes"`
+	// TrustedProxies lists the reverse proxies (IP or CIDR) that may set
+	// X-Forwarded-For / X-Real-IP. Empty means "trust nobody": the client IP
+	// comes from the TCP peer, so a caller cannot choose its own rate-limit
+	// bucket nor forge the IP recorded in the access log.
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 // Database holds the PostgreSQL connection settings.

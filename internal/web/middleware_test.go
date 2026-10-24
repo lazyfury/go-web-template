@@ -124,6 +124,62 @@ func TestCORS(t *testing.T) {
 	})
 }
 
+// TestRateLimitIgnoresSpoofedXFF 钉住 F2：没有配置可信代理时，调用方不能靠轮换
+// X-Forwarded-For 换到新的限流桶（否则登录限流形同虚设）。
+func TestRateLimitIgnoresSpoofedXFF(t *testing.T) {
+	t.Parallel()
+
+	r := gin.New()
+	if err := r.SetTrustedProxies(nil); err != nil {
+		t.Fatalf("SetTrustedProxies: %v", err)
+	}
+	r.Use(RateLimit(true, 1, 1))
+	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	first := newRequest(t, http.MethodGet, "/")
+	first.RemoteAddr = "203.0.113.9:1111"
+	first.Header.Set("X-Forwarded-For", "10.0.0.1")
+	if w := serve(t, r, first); w.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want 200", w.Code)
+	}
+
+	// 同一个真实客户端（同 IP、不同源端口），伪造不同的 XFF。
+	second := newRequest(t, http.MethodGet, "/")
+	second.RemoteAddr = "203.0.113.9:2222"
+	second.Header.Set("X-Forwarded-For", "10.0.0.2")
+	if w := serve(t, r, second); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("spoofed X-Forwarded-For escaped the bucket: status = %d, want 429", w.Code)
+	}
+}
+
+// TestRateLimitUsesXFFFromTrustedProxy 保证反代部署仍然按真实客户端 IP 限流。
+func TestRateLimitUsesXFFFromTrustedProxy(t *testing.T) {
+	t.Parallel()
+
+	r := gin.New()
+	if err := r.SetTrustedProxies([]string{"10.1.0.0/16"}); err != nil {
+		t.Fatalf("SetTrustedProxies: %v", err)
+	}
+	r.Use(RateLimit(true, 1, 1))
+	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	viaProxy := func(client string) *http.Request {
+		req := newRequest(t, http.MethodGet, "/")
+		req.RemoteAddr = "10.1.0.5:9999" // 可信反代
+		req.Header.Set("X-Forwarded-For", client)
+		return req
+	}
+
+	for _, client := range []string{"198.51.100.1", "198.51.100.2"} {
+		if w := serve(t, r, viaProxy(client)); w.Code != http.StatusOK {
+			t.Fatalf("client %s status = %d, want 200 (own bucket)", client, w.Code)
+		}
+	}
+	if w := serve(t, r, viaProxy("198.51.100.1")); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("repeat client status = %d, want 429", w.Code)
+	}
+}
+
 func TestRateLimit(t *testing.T) {
 	t.Parallel()
 

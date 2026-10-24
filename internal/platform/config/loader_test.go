@@ -229,3 +229,49 @@ func TestRepoConfigSecretsAreRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestTrustedProxiesFromEnv(t *testing.T) {
+	t.Setenv("APP_HTTP_TRUSTED_PROXIES", "10.0.0.0/8, 192.168.1.10")
+
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.HTTPServer.TrustedProxies) != 2 {
+		t.Fatalf("trusted proxies = %v, want 2 entries", cfg.HTTPServer.TrustedProxies)
+	}
+	if cfg.HTTPServer.TrustedProxies[0] != "10.0.0.0/8" || cfg.HTTPServer.TrustedProxies[1] != "192.168.1.10" {
+		t.Errorf("trusted proxies = %v, want [10.0.0.0/8 192.168.1.10]", cfg.HTTPServer.TrustedProxies)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid trusted proxies rejected: %v", err)
+	}
+}
+
+func TestValidateRejectsMalformedTrustedProxy(t *testing.T) {
+	cfg := Defaults()
+	cfg.HTTPServer.TrustedProxies = []string{"10.0.0.0/8", "not-an-ip"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for a malformed trusted proxy entry")
+	}
+}
+
+func TestTrustedProxiesDefaultToNone(t *testing.T) {
+	// 默认必须「不信任任何代理」：X-Forwarded-For 由客户端随意填写。
+	cfg := Defaults()
+	if len(cfg.HTTPServer.TrustedProxies) != 0 {
+		t.Errorf("default trusted proxies = %v, want none", cfg.HTTPServer.TrustedProxies)
+	}
+}
+
+func TestTrustedProxiesEmptyEnvIsNoProxy(t *testing.T) {
+	// 空字符串必须等同于「未设置」，否则会变成 [""] 并在校验阶段炸掉启动。
+	t.Setenv("APP_HTTP_TRUSTED_PROXIES", "")
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load with empty env: %v", err)
+	}
+	if len(cfg.HTTPServer.TrustedProxies) != 0 {
+		t.Errorf("trusted proxies = %v, want none", cfg.HTTPServer.TrustedProxies)
+	}
+}

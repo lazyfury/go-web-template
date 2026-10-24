@@ -1,10 +1,8 @@
 package web
 
 import (
-	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -76,7 +74,10 @@ func RateLimit(enabled bool, rps float64, burst int) gin.HandlerFunc {
 	}
 	limiter := NewIPRateLimiter(rps, burst)
 	return func(c *gin.Context) {
-		ip := clientIP(c)
+		// gin's ClientIP honors X-Forwarded-For only when the TCP peer is one
+		// of the configured trusted proxies (see web.New / SetTrustedProxies),
+		// so this key cannot be spoofed by the caller.
+		ip := c.ClientIP()
 		if !limiter.allow(ip) {
 			c.Header("Retry-After", strconv.Itoa(1))
 			httpx.Error(c, http.StatusTooManyRequests, apperr.CodeTooManyRequests, "too many requests, please slow down")
@@ -84,18 +85,4 @@ func RateLimit(enabled bool, rps float64, burst int) gin.HandlerFunc {
 		}
 		c.Next()
 	}
-}
-
-// clientIP resolves the real client IP behind a single reverse proxy.
-func clientIP(c *gin.Context) string {
-	if ip := c.GetHeader("X-Forwarded-For"); ip != "" {
-		// X-Forwarded-For may be "client, proxy1, proxy2" — take the first.
-		if idx := strings.IndexByte(ip, ','); idx >= 0 {
-			ip = ip[:idx]
-		}
-		if parsed := net.ParseIP(strings.TrimSpace(ip)); parsed != nil {
-			return parsed.String()
-		}
-	}
-	return c.ClientIP()
 }
