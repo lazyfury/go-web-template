@@ -215,7 +215,9 @@ docker-build: ## 构建镜像
 	docker build -t $(APP_NAME):$(VERSION) .
 
 docker-up: jwt-secret ## 一键启动 postgres + migrate + app（自动注入 JWT 密钥）
-	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" docker compose -f deploy/docker-compose.yml up -d --build
+	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
+	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_AUTH_COOKIE_SECURE=false \
+		docker compose -f deploy/docker-compose.yml up -d --build
 
 docker-down: ## 停止并移除容器（保留数据卷）
 	docker compose -f deploy/docker-compose.yml down

@@ -184,10 +184,10 @@ go-web-template/
 | `APP_AUTH_REFRESH_TTL` | refresh 滑动有效期（每次刷新重置） | `720h`（30 天） |
 | `APP_AUTH_REFRESH_MAX_LIFETIME` | 会话绝对上限（从首次登录算，到点强制重登） | `2160h`（90 天） |
 | `APP_AUTH_REFRESH_REUSE_INTERVAL` | 轮换后旧 token 的容忍窗口（多标签页竞态） | `30s` |
-| `APP_AUTH_COOKIE_SECURE` | refresh cookie 是否带 `Secure`（本地 http 调试置 `false`） | `true` |
+| `APP_AUTH_COOKIE_SECURE` | refresh cookie 是否带 `Secure`（本地 http 调试置 `false`；compose 默认 `true`，`make docker-up` 注入 `false`） | `true` |
 | `APP_SEED_PASSWORD` | `cmd/admin` / `make seed-admin` 的管理员密码；`cmd/seeding` 的测试用户密码 | — |
 
-`deploy/docker-compose.yml` 按生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地调试时显式 `APP_SWAGGER_ENABLED=true make docker-up`。
+`deploy/docker-compose.yml` 按生产式编排，默认 `APP_SWAGGER_ENABLED=false` 且 `APP_AUTH_COOKIE_SECURE=true`；本地调试用 `make docker-up`（自动注入一次性 JWT 密钥并显式 `APP_AUTH_COOKIE_SECURE=false`），需要文档端点时 `APP_SWAGGER_ENABLED=true make docker-up`。手工 `docker compose up` + 浏览器直连 http 时，同样要自己 `export APP_AUTH_COOKIE_SECURE=false`，否则表现为「登录成功但刷新就掉线」。
 
 跨域说明：`web/admin` 开发期通过 vite 代理 `/api`（同源，无 CORS）；若让前端直连 `:8080`，必须把前端来源写进 `APP_CORS_ALLOWED_ORIGINS`（不能是 `*`）并设置 `APP_CORS_ALLOW_CREDENTIALS=true`，否则登录请求会被 CORS 以 **403 空响应体** 拒绝。
 

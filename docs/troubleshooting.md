@@ -74,7 +74,7 @@
 | 客户端伪造 `X-Forwarded-For` 还能换限流桶 / 日志里出现假 IP | 说明 `APP_HTTP_TRUSTED_PROXIES` 被配成了过宽网段（或历史上默认信任全部）。默认值是「不信任任何代理」，正确做法是只填真实代理的网段 |
 | 登录总是 `invalid credentials` | 账号可能没有凭证（`password_hash=''`，仅老数据）：用 `make seed-admin EMAIL=… APP_SEED_PASSWORD=…` 重置；或用管理员 `PATCH /users/:id` 设密码 |
 | 连续输错后登录一直失败（日志 `reason=locked`） | `auth.login_max_attempts`（默认 5）+ `auth.login_lockout`（默认 15m）；响应与密码错同形，不提示剩余时间；等待或用 seed-admin 重置（会清空锁定计数） |
-| refresh 一直失败 / 刷新页面就掉线 | refresh cookie 是 `Secure` 而当前是 http：本地置 `APP_AUTH_COOKIE_SECURE=false`（`make smoke` 已自动处理）；跨域部署还需 `allow_credentials=true` 且不能 `*` origin |
+| refresh 一直失败 / 刷新页面就掉线 | refresh cookie 是 `Secure` 而当前是 http：本地置 `APP_AUTH_COOKIE_SECURE=false`（`make smoke` 已自动处理；`make docker-up` 也已注入 false，手工 `docker compose up` 需要自己 export）；跨域部署还需 `allow_credentials=true` 且不能 `*` origin |
 | 前端偶发登出 | 多个并发 401 触发多次 refresh 会把轮换令牌用掉：前端已做 single-flight，服务端另有 `auth.refresh_reuse_interval`（30s）兜底多标签页竞态。若仍频繁掉线，检查是否被**跨站**（SameSite=Strict 不发送）或 cookie 被清 |
 | 改密后旧 access token 仍能用 | 只有走 `PATCH /auth/password` 或管理员改密/禁用才会 `token_version++`；直接把 hash 写库不会触发失效 |
 | 用户被强制重登（约 90 天/30 天） | `auth.refresh_max_lifetime`（绝对上限，默认 90d）或闲置超过 `auth.refresh_ttl`（默认 30d）。想更久就调大这两个，**不要**调 `access_ttl` |

@@ -71,8 +71,10 @@ services:
       # 留空时应用会在启动时 fail-fast 报 auth.jwt_secret must be at least 32 bytes。
       # 本地编排：`make docker-up` 会自动生成并复用 .local/jwt-secret。
       APP_AUTH_JWT_SECRET: "${APP_AUTH_JWT_SECRET:-}"
-      # 本地 compose 走 http，Secure cookie 会导致浏览器不回传 refresh token。
-      APP_AUTH_COOKIE_SECURE: "${APP_AUTH_COOKIE_SECURE:-false}"
+      # 默认 true（这是会随编排进生产的那份配置）：Secure cookie 只能走 https。
+      # 本地 http 调试由 `make docker-up` 显式注入 false（浏览器才会回传 refresh
+      # cookie）；手工 `docker compose up` 且用浏览器直连 http 时同样需要显式置 false。
+      APP_AUTH_COOKIE_SECURE: "${APP_AUTH_COOKIE_SECURE:-true}"
     ports:
       - "8080:8080"
     healthcheck:
