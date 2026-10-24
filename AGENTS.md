@@ -9,7 +9,7 @@
 |---|---|
 | `AGENTS.md`（本文件） | **规则、流程、完成定义**；不抄命令、不抄操作细节 |
 | `context.md` | **架构、数据模型、API 契约、配置、ADR**（就地更新事实，不写排错） |
-| `skills/` | **可执行配方**（命令 + 断言），按任务加载 |
+| `skills/` | **可执行配方**（命令 + 断言），按任务加载。内容只能住在这里；`.agents/skills/<name>` 是**指向它的相对 symlink**（pi 只从 `.agents/skills/` 发现技能，不要在那里放过真实文件） |
 | `docs/troubleshooting.md` | **踩坑 → 处理**（报错速查、环境陷阱） |
 | `Makefile` | **命令的唯一权威**（看 `make help`；README/AGENTS 不复写） |
 | `.agents/local.md` | 本机环境差异（gitignored；存在则先读） |
@@ -31,14 +31,14 @@ Go Web 单体应用模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler 
 3. **校验**：请求 DTO 用 gin binding tag；`ShouldBindJSON` 失败 → `apperr.CodeInvalidArgument`。
 4. **日志**：只用 zap（`logx.New` 构建）；访问日志由中间件产出，业务代码不 print。
 5. **上下文**：service/repository 方法首参必须是 `context.Context`，透传 `c.Request.Context()`；DB 查询 `WithContext(ctx)`。
-6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。受保护端点要覆盖匿名 401、越权 403、正常路径；用 `app.SeedAdmin` + `loginAsAdmin` 取 token。
+6. **测试**：新领域必须带 service 层 mock repo 单测 + `internal/app` 全链路集成测试（`app.NewWithDB`）；测试不得依赖真实 PostgreSQL。受保护端点要覆盖匿名 401、越权 403、正常路径；用 `app.SeedAdmin` + `loginAsAdmin` 取 token。auth/会话行为改动必须同步 `scripts/verify-auth.sh` 的断言（真实进程 + 真实 PG，不靠 SQLite 背书）
 7. **依赖**：新增依赖后 `go mod tidy`；sqlite 只允许出现在测试路径（`internal/testutil`）。
 8. **可移植 SQL**：不用 PostgreSQL 专属语法（如 `ILIKE`），测试库是 SQLite。
 9. **OpenAPI 代码优先**：路由必须通过 `routekit.Group` 注册并带 `Op` 元数据；禁止手写 swagger 注解或直接改 `docs/openapi.json`（改完运行 `make openapi` 并提交）。API 契约变化后同步前端类型（`cd web/admin && pnpm gen:api`）。新增端点漏元数据会被 `TestOpenAPICoversAllRoutes` 检出。
 10. **鉴权默认拒绝**：`/api/v1` 下除 `/auth/login`、`/auth/refresh` 外一律挂在 `protected` 组（`Security(bearerAuth)` + `authkit.Authenticate`）。新增端点必须显式声明权限（`authkit.RequirePermission`）并在 `Op.Errors` 里带 `CodeForbidden`；**401（未认证）与 403（无权限）不得混用**。资源归属校验放 service（`actor` 显式入参），不要只靠中间件。禁止把密码/token 写日志或放进 DTO。
 11. **凭证与密钥**：密码只存 bcrypt 摘要；access token 无状态（`users.token_version` 控失效）；refresh token 只存 SHA-256、必须轮换 + **滑动续期**，并用 `session_started_at` 封顶整个会话；`refresh_reuse_interval`（默认 30s）只容忍 `revoked_reason=rotated` 的重放（多标签页竞态），登出/改密/禁用/超窗重用一律立即吊销全部会话。生产必须注入 `APP_AUTH_JWT_SECRET`（≥32 字节、非占位值）。
 
-## 质量门（唯一入口）
+## 质量门与验证（三层，别混用）
 
 ```bash
 make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
@@ -48,8 +48,13 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 - 工具缺失 → `make tools`（版本 pin 在 `Makefile` 顶部，**不要 `@latest`**）。
 - 改了路由/`routekit.Op` 元数据 → `make openapi` 并提交 `docs/openapi.json`（`make check` 的黄金测试会检出漂移）。
 - 只改 Go 代码时，最快闭环是 `make test`：测试用内存 SQLite，**不需要 postgres/docker**。
-- **禁止未运行就声称通过**：结论要有真实输出支撑。
-- **附加门 `make audit`**（不并入 `make check`：含 govulncheck，慢且要网络）：改动涉及 **auth/JWT/鉴权/迁移 SQL** 或**发布前**必须跑。它只覆盖机械可判定部分（密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、依赖漏洞）。
+- **禁止未运行就声称通过**：结论要有真实输出支撑（贴脚本的最后几行，不接受“已跑过”）。
+- **三层门的边界**（不要混为一谈）：
+  | 门 | 何时跑 | 覆盖什么 |
+  |---|---|---|
+  | `make check` | **每次提交前（必跑）** | 编译、lint、vet、race 测试、OpenAPI 黄金文件、依赖 tidy |
+  | `make audit` | auth/JWT/鉴权/迁移 SQL 改动、发布前 | 机械可判定部分：密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、govulncheck（慢且要网络，所以不并入 `make check`） |
+  | `make smoke` / `make verify-auth` | 有 postgres 时；改认证/会话后必跑 verify-auth | 真实进程 + 真实 PG 的端到端行为（宽限期、登出即时、会话上限、CRUD 全链路） |
 
 ## 子 agent 使用边界（默认不拆）
 
@@ -67,7 +72,7 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 用子 agent 时的硬约束（违反 = 打回）：
 
 1. **只读**：只输出 `file:line` + 复现命令 + 严重度 + 建议；不改代码、不跑迁移、不提交。改代码回主会话。
-2. **规则写在文档里，不写在 agent 提示词里**：`agents/*.md` 只写角色与输出格式，要遵守的规则引用本文件与对应 skill，避免第四个真相源。
+2. **规则写在文档里，不写在 agent 提示词里**：`~/.pi/agent/agents/*.md` 只写角色与输出格式，要遵守的规则引用本文件与对应 skill，避免第四个真相源。
 3. **触发点有限**：auth/鉴权改动、迁移改动、发布前；不是每次提交。
 4. **算清成本**：pi 的子 agent 是独立 `pi` 进程（`examples/extensions/subagent`，需自行安装），token 与耗时翻倍且不共享缓存。单次 `make check` 能覆盖的事不要付这份钱。
 
@@ -78,7 +83,10 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 3. 补/改测试。
 4. `make check` 全绿。
 5. 同步文档：架构/契约/配置变化 → `context.md`；新踩的坑 → `docs/troubleshooting.md`；用户可见 → `README.md`。
-6. 提交：先 `git status --short` 复核，再**按文件路径** `git add <paths>`（**不要 `git add -A`**），语义化 message。
+6. 提交（**每次任务完成都要做，不攒工作树**）：先 `git status --short` 复核，再**按文件路径** `git add <paths>`（**不要 `git add -A`**），语义化 message（`feat/fix/chore/docs/test(scope): ...`）。
+   - 一个任务一个提交；同时存在「功能」与「配置/文档同步」时分开提交（后者能用前者独立站住为佳，必要时用 `git worktree` 验证中间提交仍绿）。
+   - 有远端且用户要求同步时 `git push`（推送前先确认工作树里没有别人的在制品：只提交自己的路径，不要顺手带上）。
+   - 提交后回复里给出哈希；不要声称“已提交/已推送”而不粘 `git log --oneline -1` 与 `git status -sb` 的结果。
 
 ## 必须先问人（破坏性 / 不可逆）
 
@@ -95,6 +103,7 @@ make check      # = golangci-lint + gofmt 校验 + vet + race 测试 + build + O
 1. **变更文件清单**（按层：model / repository / service / handler / router / docs）。
 2. **`make check` 的真实输出摘要**（贴最后几行，不要只写"已通过"）；改动涉及 auth/鉴权/迁移 → 附 `make audit` 输出。
 3. **未验证项与风险**（例如"本机无 docker，未跑 compose e2e；已用 `./scripts/smoke.sh` 验证 liveness 路径"）。
+4. **提交记录**：提交哈希 + `git status -sb` 结果（是否已推送）；未提交时必须说明原因（例如"等你确认依赖升级"）。
 
 ## 技能索引
 

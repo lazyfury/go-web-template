@@ -2,7 +2,7 @@
 
 行业标准的 Go Web 单体应用模板（Monolith），开箱即用。
 
-> 技术栈：**Go 1.26 · Gin · GORM · PostgreSQL · JWT + bcrypt · uber-go/zap · viper · golang-migrate · Prometheus · OpenAPI 3.0 / Swagger UI**
+> 技术栈：**Go 1.26 / toolchain 1.27.3 · Gin · GORM · PostgreSQL · JWT + bcrypt · uber-go/zap · viper · golang-migrate · Prometheus · OpenAPI 3.0 / Swagger UI**
 
 ## 特性
 
@@ -174,6 +174,8 @@ make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
 make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
 make smoke          # 本地冒烟：探针 + 登录/JWT + 权限 + CRUD + refresh
+make verify-auth    # 认证端到端（需 postgres）：宽限期/登出即时/body 传输/会话上限
+make audit          # 安全+SQL 机械审计（auth/迁移改动、发布前必跑）
 make seed-admin EMAIL=admin@example.com APP_SEED_PASSWORD='...'  # 建/重置管理员
 make db-up          # 起本地 postgres（docker compose 优先）
 make openapi        # 重新生成 docs/openapi.json（改了路由元数据后）

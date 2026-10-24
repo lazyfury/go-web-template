@@ -84,14 +84,14 @@ migration_bad=0
 for up in migrations/*.up.sql; do
 	down="${up%.up.sql}.down.sql"
 	if [ ! -f "$down" ]; then
-		fail "缺少 $down（up/down 必须成对）"
+		fail "缺少 ${down}（up/down 必须成对）"
 		migration_bad=1
 	fi
 done
 for down in migrations/*.down.sql; do
 	up="${down%.down.sql}.up.sql"
 	if [ ! -f "$up" ]; then
-		fail "缺少 $up（up/down 必须成对）"
+		fail "缺少 ${up}（up/down 必须成对）"
 		migration_bad=1
 		continue
 	fi
@@ -104,7 +104,7 @@ done
 [ "$migration_bad" -eq 0 ] && pass "迁移 up/down 成对且 down 非空"
 
 echo "==> 5/6 鉴权默认拒绝（401 未认证 / 403 无权限 / 登录失败不泄露用户存在性）"
-authz_tests='TestOpenAPISecurity|TestAnonymousRequestsAreRejected|TestMemberPermissions|TestLoginFailures|TestRefreshFlow'
+authz_tests='TestOpenAPISecurity|TestAnonymousRequestsAreRejected|TestMemberPermissions|TestLoginFailures|TestRefreshFlow|TestRefreshTokenHeaderTransportForAPIClients|TestLogoutIsImmediateEvenInsideReuseInterval|TestPasswordChangeInvalidatesTokens'
 if go test ./internal/app -run "$authz_tests" -count=1; then
 	pass "鉴权矩阵回归通过（401 / 403 / 登录失败 / refresh 轮换）"
 else

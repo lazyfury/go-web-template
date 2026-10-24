@@ -77,6 +77,16 @@
 | 用户被强制重登（约 90 天/30 天） | `auth.refresh_max_lifetime`（绝对上限，默认 90d）或闲置超过 `auth.refresh_ttl`（默认 30d）。想更久就调大这两个，**不要**调 `access_ttl` |
 | 登出后 30s 内还能用旧 cookie 换 token | 不应发生：容忍只对 `revoked_reason=rotated` 生效，登出写的是 `logout`。若出现说明迁移 000004 未执行（`revoked_reason` 列缺失）→ `make migrate-up` |
 
+## 5.1 脚本与工具链踩坑（agent 高频）
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 脚本报 `xxx: unbound variable`，变量名看着多了一个乱码字节 | macOS 自带 `bash 3.2`：`$VAR` 紧跟中文字符/全角标点时，首字节被当成变量名的一部分 | 一律写 `${VAR}`：`fail "缺少 ${down}（up/down 必须成对）"`。新增脚本后用 `grep -nE '\$[A-Za-z_][A-Za-z_0-9]*[^\x00-\x7F]' scripts/*.sh` 自检 |
+| `grep: invalid option -- P` | BSD grep 没有 `-P` | 用 `grep -E`，或改用 python/`rg` |
+| 本机 `timeout` 命令不存在 | macOS 无 coreutils | 用 `nc -G <秒>` / 脚本内 `for` 轮询超时 |
+| curl 访问 `127.0.0.1` 挂住不返回 | shell 里带了 `all_proxy`，代理把本机地址也代理了 | curl 加 `--noproxy '*'`；脚本同理（`scripts/*.sh` 已统一处理） |
+| `govulncheck` 报标准库漏洞（如 `crypto/x509@go1.27.2`），升级依赖没用 | 漏洞在 stdlib，只有工具链能修 | `go mod edit -toolchain=go1.X.Y` + Dockerfile builder 镜像同步升到同一版本，并 `ENV GOTOOLCHAIN=local` 让版本不一致在构建期失败 |
+
 ## 6. 前端（web/admin）
 
 | 报错 | 处理 |

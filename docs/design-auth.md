@@ -186,7 +186,9 @@ auth:
   jwt_secret: ""            # APP_AUTH_JWT_SECRET；生产必填，>=32 字节
   issuer: go-web-template
   access_ttl: 15m
-  refresh_ttl: 168h
+  refresh_ttl: 720h            # 滑动：每次 refresh 续满
+  refresh_max_lifetime: 2160h  # 会话绝对上限（从首次登录算）
+  refresh_reuse_interval: 30s  # 轮换后旧 token 的容忍窗口（多标签页竞态）
   bcrypt_cost: 12
   login_max_attempts: 5
   login_lockout: 15m
@@ -260,7 +262,7 @@ P2 是破坏性节点：现有集成测试与 `scripts/smoke.sh` 都会因 401 �
 1. **refresh token 载体**：HttpOnly Cookie（推荐，抗 XSS，需处理 CSRF/SameSite）vs 响应体 + 前端存储（简单，XSS 可偷）。
 2. **RBAC 粒度**：两级角色（推荐先做）vs DB 驱动角色/权限表（多一轮迁移与缓存设计）。
 3. **开户策略**：仅管理员/CLI 创建（推荐，管理后台场景）vs 公开注册 + 邮箱验证（需要邮件通道）。
-4. **TTL**：access 15m / refresh 7d（推荐）vs access 24h / 无 refresh（更简单，但无法吊销）。
+4. **TTL**：access 15m / refresh 滑动 30 天 + 绝对上限 90 天（推荐）vs access 24h / 无 refresh（更简单，但无法吊销）。
 5. **`/metrics` 是否要求认证**：保持公开（内网）vs 单独 admin 端口（推荐生产）。
 
 ## 14. 风险与已知限制
