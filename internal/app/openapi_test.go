@@ -55,6 +55,9 @@ func TestOpenAPIDocument(t *testing.T) {
 		"CreateRequest", "UpdateRequest", "UserDTO", "ListResponse",
 		"CreateGroupRequest", "UpdateGroupRequest", "GroupDTO", "GroupListResponse",
 		"CreateItemRequest", "UpdateItemRequest", "ItemDTO",
+		"SendRequest", "SendResultDTO", "InboxResponse", "InboxItemDTO",
+		"SentListResponse", "TemplateDTO", "TemplateListResponse",
+		"DeliveryDTO", "DeliveryListResponse",
 	} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Errorf("missing component schema %q", schema)
@@ -243,7 +246,7 @@ func TestOpenAPISecurity(t *testing.T) {
 }
 
 func isProtectedDomainPath(path string) bool {
-	for _, prefix := range []string{"/users", "/dicts", "/dict-groups", "/dict-items"} {
+	for _, prefix := range []string{"/users", "/dicts", "/dict-groups", "/dict-items", "/messages", "/message-templates", "/message-deliveries"} {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}

@@ -70,6 +70,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.login_rps", 5.0)
 	v.SetDefault("auth.login_burst", 10)
 	v.SetDefault("auth.cookie_secure", true)
+
+	v.SetDefault("message.webhook_urls", []string{})
+	v.SetDefault("message.default_locale", "zh-CN")
+	v.SetDefault("message.max_attempts", 5)
 }
 
 // Defaults returns the built-in default configuration.
@@ -172,6 +176,9 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPServer.MaxBodyBytes <= 0 {
 		return fmt.Errorf("http.max_body_bytes must be positive")
+	}
+	if c.Message.MaxAttempts <= 0 {
+		return fmt.Errorf("message.max_attempts must be positive")
 	}
 	return c.validateAuth()
 }

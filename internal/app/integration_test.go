@@ -16,6 +16,7 @@ import (
 	"github.com/example/go-web-template/internal/app"
 	"github.com/example/go-web-template/internal/auth"
 	"github.com/example/go-web-template/internal/dict"
+	"github.com/example/go-web-template/internal/message"
 	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/testutil"
@@ -41,7 +42,9 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T, swaggerEnabled bool) *testEnv {
 	t.Helper()
-	db := testutil.NewSQLiteDB(t, &user.User{}, &auth.RefreshToken{}, &dict.Group{}, &dict.Item{})
+	db := testutil.NewSQLiteDB(t, &user.User{}, &auth.RefreshToken{},
+		&dict.Group{}, &dict.Item{},
+		&message.Message{}, &message.Recipient{}, &message.Delivery{}, &message.Template{})
 
 	cfg := config.Defaults()
 	cfg.RateLimit.Enabled = false
@@ -50,6 +53,7 @@ func newTestEnv(t *testing.T, swaggerEnabled bool) *testEnv {
 	// cost 4 keeps the suite fast; production uses auth.bcrypt_cost (12).
 	cfg.Auth.BcryptCost = 4
 	cfg.Auth.CookieSecure = false
+	cfg.Message.WebhookURLs = []string{"https://example.com/hook"}
 
 	application, err := app.NewWithDB(cfg, zap.NewNop(), db)
 	if err != nil {
@@ -353,6 +357,7 @@ func TestAnonymousRequestsAreRejected(t *testing.T) {
 		{http.MethodGet, "/api/v1/auth/me"},
 		{http.MethodGet, "/api/v1/dicts/user.status"},
 		{http.MethodGet, "/api/v1/dict-groups"},
+		{http.MethodGet, "/api/v1/messages/inbox"},
 	} {
 		w := doJSON(t, h, tc.method, tc.path, nil)
 		if w.Code != http.StatusUnauthorized {
@@ -608,6 +613,292 @@ func TestNoRoute(t *testing.T) {
 	w := doJSON(t, h, http.MethodGet, "/api/v1/nope", nil)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("no-route status = %d, want 404", w.Code)
+	}
+}
+
+func (e *testEnv) createMember(t *testing.T, admin *session, email, name, phone string) uint64 {
+	t.Helper()
+	id, _ := createUser(t, e.handler, admin.accessToken, name, email)
+	payload := map[string]any{"password": memberPass}
+	if phone != "" {
+		payload["phone"] = phone
+	}
+	w := doJSONAuth(t, e.handler, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", id), payload, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("prepare member = %d, body=%s", w.Code, w.Body.String())
+	}
+	return id
+}
+
+func TestMessageInboxFlow(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+	memberID := env.createMember(t, admin, memberEmail, "Mia", "+10000000000")
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	w := doJSONAuth(t, h, http.MethodPost, "/api/v1/messages", map[string]any{
+		"title":      "Welcome",
+		"body":       "Hello from the admin",
+		"type":       "system",
+		"level":      "info",
+		"channels":   []string{"inbox"},
+		"recipients": map[string]any{"user_ids": []uint64{memberID}},
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("send message = %d, body=%s", w.Code, w.Body.String())
+	}
+	var sent struct {
+		MessageID      uint64 `json:"message_id"`
+		RecipientCount int    `json:"recipient_count"`
+		DeliveryCount  int    `json:"delivery_count"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &sent); err != nil {
+		t.Fatalf("decode send result: %v", err)
+	}
+	if sent.MessageID == 0 || sent.RecipientCount != 1 || sent.DeliveryCount != 0 {
+		t.Fatalf("send result = %+v", sent)
+	}
+
+	// Sent list is admin-only and exposes read statistics.
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/messages/sent", nil, admin.accessToken)
+	var sentList struct {
+		Items []struct {
+			RecipientCount int64 `json:"recipient_count"`
+			ReadCount      int64 `json:"read_count"`
+		} `json:"items"`
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &sentList); err != nil {
+		t.Fatalf("decode sent list: %v", err)
+	}
+	if sentList.Total != 1 || len(sentList.Items) != 1 || sentList.Items[0].RecipientCount != 1 || sentList.Items[0].ReadCount != 0 {
+		t.Fatalf("sent list = %+v", sentList)
+	}
+
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/messages/inbox", nil, member.accessToken)
+	var inbox struct {
+		Items []struct {
+			ID     uint64 `json:"id"`
+			Title  string `json:"title"`
+			Body   string `json:"body"`
+			ReadAt any    `json:"read_at"`
+		} `json:"items"`
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &inbox); err != nil {
+		t.Fatalf("decode inbox: %v", err)
+	}
+	if inbox.Total != 1 || len(inbox.Items) != 1 || inbox.Items[0].Title != "Welcome" || inbox.Items[0].ReadAt != nil {
+		t.Fatalf("inbox = %+v", inbox)
+	}
+	messageID := inbox.Items[0].ID
+
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/messages/unread-count", nil, member.accessToken)
+	var unread struct {
+		Count int64 `json:"count"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &unread); err != nil || unread.Count != 1 {
+		t.Fatalf("unread = %+v err=%v", unread, err)
+	}
+
+	if w := doJSONAuth(t, h, http.MethodGet, fmt.Sprintf("/api/v1/messages/inbox/%d", messageID), nil, member.accessToken); w.Code != http.StatusOK {
+		t.Errorf("get inbox message = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/messages/inbox/%d/read", messageID), nil, member.accessToken); w.Code != http.StatusNoContent {
+		t.Errorf("mark read = %d", w.Code)
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, doJSONAuth(t, h, http.MethodGet, "/api/v1/messages/unread-count", nil, member.accessToken)).Data, &unread); err != nil || unread.Count != 0 {
+		t.Errorf("unread after read = %+v err=%v", unread, err)
+	}
+	if w := doJSONAuth(t, h, http.MethodPost, "/api/v1/messages/read-all", nil, member.accessToken); w.Code != http.StatusNoContent {
+		t.Errorf("read all = %d", w.Code)
+	}
+	if w := doJSONAuth(t, h, http.MethodDelete, fmt.Sprintf("/api/v1/messages/inbox/%d", messageID), nil, member.accessToken); w.Code != http.StatusNoContent {
+		t.Errorf("delete inbox = %d", w.Code)
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, doJSONAuth(t, h, http.MethodGet, "/api/v1/messages/inbox", nil, member.accessToken)).Data, &inbox); err != nil || inbox.Total != 0 {
+		t.Errorf("inbox after delete = %+v err=%v", inbox, err)
+	}
+
+	// Members cannot send or manage templates.
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodPost, "/api/v1/messages", map[string]any{"channels": []string{"inbox"}, "recipients": map[string]any{"all": true}}},
+		{http.MethodGet, "/api/v1/message-templates", nil},
+		{http.MethodGet, "/api/v1/message-deliveries", nil},
+	} {
+		if w := doJSONAuth(t, h, tc.method, tc.path, tc.body, member.accessToken); w.Code != http.StatusForbidden {
+			t.Errorf("member %s %s = %d, want 403", tc.method, tc.path, w.Code)
+		}
+	}
+}
+
+func TestMessageMultiChannelDeliveries(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+	memberID := env.createMember(t, admin, memberEmail, "Mia", "+10000000000")
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	w := doJSONAuth(t, h, http.MethodPost, "/api/v1/messages", map[string]any{
+		"title":      "Multi channel",
+		"body":       "hello",
+		"channels":   []string{"inbox", "email", "sms", "webhook"},
+		"recipients": map[string]any{"user_ids": []uint64{memberID}},
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("send multi-channel = %d, body=%s", w.Code, w.Body.String())
+	}
+	var sent struct {
+		MessageID      uint64 `json:"message_id"`
+		RecipientCount int    `json:"recipient_count"`
+		DeliveryCount  int    `json:"delivery_count"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if sent.RecipientCount != 1 || sent.DeliveryCount != 3 {
+		t.Fatalf("multi-channel result = %+v, want 1 recipient / 3 deliveries", sent)
+	}
+
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/message-deliveries", nil, admin.accessToken)
+	var deliveries struct {
+		Items []struct {
+			Channel     string `json:"channel"`
+			Target      string `json:"target"`
+			Status      int    `json:"status"`
+			MaxAttempts int    `json:"max_attempts"`
+			ProviderID  string `json:"provider_message_id"`
+		} `json:"items"`
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &deliveries); err != nil {
+		t.Fatalf("decode deliveries: %v", err)
+	}
+	if deliveries.Total != 3 || len(deliveries.Items) != 3 {
+		t.Fatalf("deliveries = %+v", deliveries)
+	}
+	targets := map[string]string{}
+	for _, delivery := range deliveries.Items {
+		targets[delivery.Channel] = delivery.Target
+		if delivery.Status != 0 || delivery.MaxAttempts != 5 {
+			t.Errorf("pending delivery = %+v", delivery)
+		}
+	}
+	if targets["email"] != "member@example.test" || targets["sms"] != "+10000000000" || targets["webhook"] != "https://example.com/hook" {
+		t.Errorf("delivery targets = %+v", targets)
+	}
+
+	// The inbox channel still produced one inbox entry.
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/messages/inbox", nil, member.accessToken)
+	var inbox struct {
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &inbox); err != nil || inbox.Total != 1 {
+		t.Errorf("inbox total = %+v err=%v, want 1", inbox, err)
+	}
+
+	// A channel with no usable target is rejected instead of silently dropped.
+	w = doJSONAuth(t, h, http.MethodPost, "/api/v1/messages", map[string]any{
+		"title":      "No phone",
+		"body":       "hello",
+		"channels":   []string{"sms"},
+		"recipients": map[string]any{"all": false, "roles": []string{"admin"}},
+	}, admin.accessToken)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("sms without phone = %d, want 400", w.Code)
+	}
+}
+
+func TestMessageTemplateFlow(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+	memberID := env.createMember(t, admin, memberEmail, "Mia", "")
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	w := doJSONAuth(t, h, http.MethodPost, "/api/v1/message-templates", map[string]any{
+		"key":       "user.welcome",
+		"channel":   "inbox",
+		"locale":    "zh-CN",
+		"subject":   "Hi {{.Name}}",
+		"body":      "Welcome {{.Name}}",
+		"variables": []string{"Name"},
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create template = %d, body=%s", w.Code, w.Body.String())
+	}
+	var template struct {
+		ID        uint64   `json:"id"`
+		Variables []string `json:"variables"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &template); err != nil {
+		t.Fatal(err)
+	}
+	if template.ID == 0 || len(template.Variables) != 1 || template.Variables[0] != "Name" {
+		t.Fatalf("created template = %+v", template)
+	}
+
+	if w := doJSONAuth(t, h, http.MethodPost, "/api/v1/message-templates", map[string]any{
+		"key": "user.welcome", "channel": "inbox", "locale": "zh-CN", "body": "dup",
+	}, admin.accessToken); w.Code != http.StatusConflict {
+		t.Errorf("duplicate template = %d, want 409", w.Code)
+	}
+
+	// Send using the template and verify the rendered snapshot in the inbox.
+	w = doJSONAuth(t, h, http.MethodPost, "/api/v1/messages", map[string]any{
+		"channels":     []string{"inbox"},
+		"recipients":   map[string]any{"user_ids": []uint64{memberID}},
+		"template_key": "user.welcome",
+		"locale":       "zh-CN",
+		"data":         map[string]any{"Name": "Mia"},
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("send template = %d, body=%s", w.Code, w.Body.String())
+	}
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/messages/inbox", nil, member.accessToken)
+	var inbox struct {
+		Items []struct {
+			Title string `json:"title"`
+			Body  string `json:"body"`
+		} `json:"items"`
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &inbox); err != nil || inbox.Total != 1 {
+		t.Fatalf("inbox after template = %+v err=%v", inbox, err)
+	}
+	if inbox.Items[0].Title != "Hi Mia" || inbox.Items[0].Body != "Welcome Mia" {
+		t.Errorf("rendered message = %+v", inbox.Items[0])
+	}
+
+	// Unknown template variables are rejected.
+	w = doJSONAuth(t, h, http.MethodPost, "/api/v1/messages", map[string]any{
+		"channels":     []string{"inbox"},
+		"recipients":   map[string]any{"user_ids": []uint64{memberID}},
+		"template_key": "user.welcome",
+		"data":         map[string]any{"Other": "x"},
+	}, admin.accessToken)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("unknown template variable = %d, want 400", w.Code)
+	}
+
+	// Update and delete.
+	w = doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/message-templates/%d", template.ID), map[string]any{
+		"subject": "Hello {{.Name}}",
+		"status":  0,
+	}, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Errorf("update template = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONAuth(t, h, http.MethodGet, "/api/v1/message-templates", nil, admin.accessToken); w.Code != http.StatusOK {
+		t.Errorf("list templates = %d", w.Code)
+	}
+	if w := doJSONAuth(t, h, http.MethodDelete, fmt.Sprintf("/api/v1/message-templates/%d", template.ID), nil, admin.accessToken); w.Code != http.StatusNoContent {
+		t.Errorf("delete template = %d", w.Code)
 	}
 }
 

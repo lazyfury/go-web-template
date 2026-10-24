@@ -79,3 +79,10 @@ auth:
   # APP_AUTH_COOKIE_SECURE=false（Secure cookie 在 http 上不会回传，
   # 表现为「登录成功但刷新页面就掉线」）。
   cookie_secure: true
+
+
+message:
+  # 邮件/短信/Webhook 投递（Phase 2 只落 outbox，worker 在 Phase 3 启动）
+  webhook_urls: []
+  default_locale: zh-CN
+  max_attempts: 5

@@ -302,7 +302,7 @@ func TestTemplateCRUDSoftDeleteAndDisabledStatus(t *testing.T) {
 		t.Errorf("updated template = %+v", stored)
 	}
 
-	list, total, err := repo.ListTemplates(ctx, 0, 10)
+	list, total, err := repo.ListTemplates(ctx, 0, 10, nil, nil)
 	if err != nil || total != 1 || len(list) != 1 {
 		t.Errorf("ListTemplates total=%d len=%d err=%v", total, len(list), err)
 	}

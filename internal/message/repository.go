@@ -63,7 +63,7 @@ type Repository interface {
 	CreateTemplate(ctx context.Context, template *Template) error
 	FindTemplateByID(ctx context.Context, id uint64) (*Template, error)
 	FindTemplateByKey(ctx context.Context, key string, channel Channel, locale string) (*Template, error)
-	ListTemplates(ctx context.Context, offset, limit int) ([]Template, int64, error)
+	ListTemplates(ctx context.Context, offset, limit int, channel *Channel, status *Status) ([]Template, int64, error)
 	UpdateTemplate(ctx context.Context, template *Template) error
 	DeleteTemplate(ctx context.Context, id uint64) error
 }
@@ -108,6 +108,10 @@ func (r *gormRepository) CreateMessage(ctx context.Context, message *Message, re
 			if maxAttempts <= 0 {
 				maxAttempts = 5
 			}
+			dedupeKey := draft.DedupeKey
+			if dedupeKey == "" {
+				dedupeKey = fmt.Sprintf("%d:%d", message.ID, len(deliveries))
+			}
 			deliveries = append(deliveries, Delivery{
 				MessageID:     message.ID,
 				RecipientID:   recipientID,
@@ -117,7 +121,7 @@ func (r *gormRepository) CreateMessage(ctx context.Context, message *Message, re
 				Status:        DeliveryPending,
 				MaxAttempts:   maxAttempts,
 				NextAttemptAt: now,
-				DedupeKey:     draft.DedupeKey,
+				DedupeKey:     dedupeKey,
 			})
 		}
 		if err := tx.CreateInBatches(&deliveries, 500).Error; err != nil {
@@ -474,7 +478,7 @@ func (r *gormRepository) FindTemplateByKey(ctx context.Context, key string, chan
 	return &template, nil
 }
 
-func (r *gormRepository) ListTemplates(ctx context.Context, offset, limit int) ([]Template, int64, error) {
+func (r *gormRepository) ListTemplates(ctx context.Context, offset, limit int, channel *Channel, status *Status) ([]Template, int64, error) {
 	query := r.db.WithContext(ctx).Model(&Template{})
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

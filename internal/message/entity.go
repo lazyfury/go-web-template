@@ -120,6 +120,16 @@ const (
 	DeliveryCanceled DeliveryStatus = 5
 )
 
+// Valid reports whether the delivery status is one of the supported values.
+func (s DeliveryStatus) Valid() bool {
+	switch s {
+	case DeliveryPending, DeliverySending, DeliverySent, DeliveryFailed, DeliveryDead, DeliveryCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Message is the immutable content snapshot of one notification.
 //
 // Title/Body are already rendered: templates are applied before insert so later

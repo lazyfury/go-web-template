@@ -40,6 +40,12 @@ const (
 	PermDictsRead Permission = "dicts:read"
 	// PermDictsWrite allows managing dictionary groups/items.
 	PermDictsWrite Permission = "dicts:write"
+	// PermMessagesRead allows reading the caller's own inbox and unread count.
+	PermMessagesRead Permission = "messages:read"
+	// PermMessagesSend allows sending messages and viewing the sent list.
+	PermMessagesSend Permission = "messages:send"
+	// PermMessagesManage allows managing templates and delivery records.
+	PermMessagesManage Permission = "messages:manage"
 )
 
 // Principal is the authenticated caller extracted from a valid access token.

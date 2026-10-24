@@ -11,11 +11,15 @@ var rolePermissions = map[Role][]Permission{
 		PermUsersDelete,
 		PermDictsRead,
 		PermDictsWrite,
+		PermMessagesRead,
+		PermMessagesSend,
+		PermMessagesManage,
 	},
 	RoleMember: {
 		PermUsersReadSelf,
 		PermUsersWriteSelf,
 		PermDictsRead,
+		PermMessagesRead,
 	},
 }
 

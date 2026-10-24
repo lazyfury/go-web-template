@@ -196,12 +196,12 @@ if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/api/v1/messages` | GET | 我的收件箱：`page/page_size/unread_only` |
+| `/api/v1/messages/inbox` | GET | 我的收件箱：`page/page_size/unread_only` |
 | `/api/v1/messages/unread-count` | GET | 未读数 |
-| `/api/v1/messages/:id` | GET | 详情 |
-| `/api/v1/messages/:id/read` | PATCH | 标记已读（幂等） |
+| `/api/v1/messages/inbox/:id` | GET | 详情（不自动已读） |
+| `/api/v1/messages/inbox/:id/read` | PATCH | 标记已读（幂等） |
 | `/api/v1/messages/read-all` | POST | 全部已读 |
-| `/api/v1/messages/:id` | DELETE | 删除自己的收件记录（软删） |
+| `/api/v1/messages/inbox/:id` | DELETE | 删除自己的收件记录（软删） |
 
 ### 管理侧（`messages:send` / `messages:manage`）
 
@@ -251,7 +251,7 @@ pending ──claim──► sending ──success──► sent
 ```
 
 - 退避：`base * 2^(attempts-1)`，加 jitter；`max_attempts` 默认 5。
-- 幂等：`dedupe_key = message_id:recipient_id:channel`；发送前可查。
+- 幂等：`dedupe_key` 默认由 repo 写成 `message_id:delivery_index`，保证同一消息内唯一；后续可扩展为业务幂等键。
 - 错误脱敏：不把密码、完整 webhook URL、token 写日志/`last_error`。
 - 手动重试：只允许 `failed/dead` → 重置 `status=0, next_attempt_at=now()`。
 
@@ -268,19 +268,24 @@ type Sender interface {
 |---|---|---|
 | `InboxSender` | 无 | 站内信直接读写 `message_recipients`，可同步完成，不必进 deliveries |
 | `MailSender` | SMTP / 邮件服务商 | 发件人、超时、HTML 转义、附件暂不做 |
-| `SMSSender` | Twilio / 阿里云 / 腾讯云 | 手机号来源：`ContactResolver`；v1 可先只支持显式 phone |
+| `SMSSender` | Twilio / 阿里云 / 腾讯云 | 手机号来源：`users.phone`（空 = 无目标，发送请求直接 400） |
 | `WebhookSender` | HTTP | HMAC 签名、超时、重试、响应体截断、**禁止私网地址** |
 
-`ContactResolver`（消费侧窄接口）：
+收件人解析（消费侧窄接口，组合根用 user 表实现）：
 
 ```go
-type ContactResolver interface {
-    Email(ctx context.Context, userID uint64) (string, error)
-    Phone(ctx context.Context, userID uint64) (string, error)
+type Directory interface {
+    Resolve(ctx context.Context, filter RecipientFilter) ([]Contact, error)
+}
+
+type Contact struct {
+    UserID uint64
+    Email  string
+    Phone  string
 }
 ```
 
-组合根用 user repo 实现；`users.phone` 未落地前 Phone 返回空，SMS 投递直接标 failed 并记录原因。
+组合根只查 `status=active` 的用户；`users.phone` 为空时 SMS 渠道没有可用目标，发送请求直接返回 `40000`（不会静默丢消息）。
 
 ## 8. 模板渲染
 
@@ -355,13 +360,15 @@ message:
 
 验收：迁移可 up/down；repo 测试覆盖分页、未读过滤、租约领取。
 
-### Phase 2：service + HTTP（站内信 / 发送 / 模板）
+### Phase 2：service + HTTP（站内信 / 发送 / 模板）（已完成）
 
-- [ ] `service.go`：Send / Inbox / UnreadCount / MarkRead / MarkAllRead / Delete
-- [ ] `dto.go` / `handler.go` / `routes.go`：用户侧与管理侧端点
-- [ ] `authkit`：`messages:read` / `messages:send` / `messages:manage`
-- [ ] `internal/app` 装配 + `internal/app/integration_test.go`
-- [ ] `make openapi` + `pnpm gen:api`
+- [x] `service.go`：Send / Inbox / UnreadCount / MarkRead / MarkAllRead / Delete
+- [x] `dto.go` / `handler.go` / `routes.go`：用户侧与管理侧端点
+- [x] `authkit`：`messages:read` / `messages:send` / `messages:manage`
+- [x] `internal/app` 装配 + `internal/app/integration_test.go`
+- [x] `make openapi` + `pnpm gen:api`
+
+说明：邮件/短信/Webhook 本阶段只创建 `message_deliveries` outbox；实际发送在 Phase 3。
 
 验收：匿名 401、member 403、admin 发送/收件箱/已读全链路；`make check` 全绿。
 

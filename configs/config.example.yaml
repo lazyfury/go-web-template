@@ -77,3 +77,10 @@ auth:
   login_burst: 10
   # 本地 http 调试时置 false，否则浏览器不会保存 refresh cookie
   cookie_secure: true
+
+
+message:
+  # Webhook 白名单；为空表示禁用 webhook 渠道
+  webhook_urls: []
+  default_locale: zh-CN
+  max_attempts: 5

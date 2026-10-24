@@ -15,6 +15,7 @@ import (
 
 	"github.com/example/go-web-template/internal/auth"
 	"github.com/example/go-web-template/internal/dict"
+	"github.com/example/go-web-template/internal/message"
 	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/dbx"
@@ -104,6 +105,14 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	dictService := dict.NewService(dictRepo)
 	dictHandler := dict.NewHandler(dictService)
 
+	messageRepo := message.NewRepository(db)
+	messageService := message.NewService(messageRepo, messageDirectory{db: db}, message.Options{
+		WebhookURLs:   cfg.Message.WebhookURLs,
+		DefaultLocale: cfg.Message.DefaultLocale,
+		MaxAttempts:   cfg.Message.MaxAttempts,
+	})
+	messageHandler := message.NewHandler(messageService)
+
 	// Transport layer. web knows nothing about domains; the composition root
 	// mounts each module on the versioned API group and then builds the
 	// OpenAPI document from the registered metadata.
@@ -121,6 +130,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	auth.RegisterProtectedRoutes(protected, authHandler)
 	user.RegisterRoutes(protected, userHandler)
 	dict.RegisterRoutes(protected, dictHandler)
+	message.RegisterRoutes(protected, messageHandler)
 
 	if err := web.MountDocs(engine, api, cfg.Swagger.Enabled); err != nil {
 		return nil, fmt.Errorf("build openapi: %w", err)

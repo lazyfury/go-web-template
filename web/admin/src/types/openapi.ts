@@ -189,6 +189,197 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/message-deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List external delivery records (admin) */
+        get: operations["listMessageDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/message-deliveries/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry a failed or dead delivery (admin) */
+        post: operations["retryMessageDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/message-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List message templates (admin) */
+        get: operations["listMessageTemplates"];
+        put?: never;
+        /** Create a message template (admin) */
+        post: operations["createMessageTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/message-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a message template (admin) */
+        get: operations["getMessageTemplate"];
+        put?: never;
+        post?: never;
+        /** Delete a message template (soft delete, admin) */
+        delete: operations["deleteMessageTemplate"];
+        options?: never;
+        head?: never;
+        /** Update a message template (admin) */
+        patch: operations["updateMessageTemplate"];
+        trace?: never;
+    };
+    "/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a message to users, all users or a role (admin) */
+        post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the caller's inbox */
+        get: operations["listInbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/inbox/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one inbox message */
+        get: operations["getInboxMessage"];
+        put?: never;
+        post?: never;
+        /** Delete one inbox message for the caller */
+        delete: operations["deleteInboxMessage"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/inbox/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Mark one inbox message as read */
+        patch: operations["markMessageRead"];
+        trace?: never;
+    };
+    "/messages/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark every inbox message as read */
+        post: operations["markAllMessagesRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/sent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List sent messages with read statistics (admin) */
+        get: operations["listSentMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the caller's unread message count */
+        get: operations["getUnreadCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -268,6 +459,57 @@ export interface components {
             /** @enum {string} */
             role?: "admin" | "member";
         };
+        CreateTemplateRequest: {
+            body: string;
+            /** @enum {string} */
+            channel: "inbox" | "email" | "sms" | "webhook";
+            key: string;
+            locale?: string;
+            /**
+             * Format: int32
+             * @enum {integer|null}
+             */
+            status?: 0 | 1 | null;
+            subject?: string;
+            variables?: string[];
+        };
+        DeliveryDTO: {
+            /** Format: int32 */
+            attempts: number;
+            /** @enum {string} */
+            channel: "email" | "sms" | "webhook";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            last_error: string;
+            /** Format: int32 */
+            max_attempts: number;
+            /** Format: int64 */
+            message_id: number;
+            /** Format: date-time */
+            next_attempt_at: string;
+            provider_message_id: string;
+            /** Format: int64 */
+            recipient_id?: number | null;
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            status: 0 | 1 | 2 | 3 | 4 | 5;
+            target: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        DeliveryListResponse: {
+            items: components["schemas"]["DeliveryDTO"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+        };
         GroupDTO: {
             /** Format: date-time */
             created_at: string;
@@ -288,6 +530,30 @@ export interface components {
         };
         GroupListResponse: {
             items: components["schemas"]["GroupDTO"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+        };
+        InboxItemDTO: {
+            body: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            level: "info" | "success" | "warning" | "error";
+            link: string;
+            /** Format: date-time */
+            read_at?: string | null;
+            title: string;
+            /** @enum {string} */
+            type: "system" | "announcement" | "alert";
+        };
+        InboxResponse: {
+            items: components["schemas"]["InboxItemDTO"][];
             /** Format: int32 */
             page: number;
             /** Format: int32 */
@@ -340,8 +606,100 @@ export interface components {
             token_type: string;
             user: components["schemas"]["UserView"];
         };
+        RecipientsRequest: {
+            all?: boolean;
+            /** @enum {array} */
+            roles?: "admin" | "member";
+            user_ids?: number[];
+        };
         ReplaceValuesRequest: {
             value: unknown;
+        };
+        SendRequest: {
+            body?: string;
+            /** @enum {array} */
+            channels: "inbox" | "email" | "sms" | "webhook";
+            data?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** @enum {string} */
+            level?: "info" | "success" | "warning" | "error";
+            link?: string;
+            locale?: string;
+            recipients: components["schemas"]["RecipientsRequest"];
+            template_key?: string;
+            title?: string;
+            /** @enum {string} */
+            type?: "system" | "announcement" | "alert";
+        };
+        SendResultDTO: {
+            /** Format: int32 */
+            delivery_count: number;
+            /** Format: int64 */
+            message_id: number;
+            /** Format: int32 */
+            recipient_count: number;
+        };
+        SentItemDTO: {
+            /** @enum {string} */
+            audience: "users" | "all" | "role";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            level: "info" | "success" | "warning" | "error";
+            /** Format: int64 */
+            read_count: number;
+            /** Format: int64 */
+            recipient_count: number;
+            title: string;
+            /** @enum {string} */
+            type: "system" | "announcement" | "alert";
+        };
+        SentListResponse: {
+            items: components["schemas"]["SentItemDTO"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+        };
+        TemplateDTO: {
+            body: string;
+            /** @enum {string} */
+            channel: "inbox" | "email" | "sms" | "webhook";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            key: string;
+            locale: string;
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            status: 0 | 1;
+            subject: string;
+            /** Format: date-time */
+            updated_at: string;
+            variables: string[];
+        };
+        TemplateListResponse: {
+            items: components["schemas"]["TemplateDTO"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+        };
+        UnreadCountResponse: {
+            /** Format: int64 */
+            count: number;
         };
         UpdateGroupRequest: {
             description?: string | null;
@@ -380,6 +738,16 @@ export interface components {
              * @enum {integer|null}
              */
             status?: 0 | 1 | null;
+        };
+        UpdateTemplateRequest: {
+            body?: string | null;
+            /**
+             * Format: int32
+             * @enum {integer|null}
+             */
+            status?: 0 | 1 | null;
+            subject?: string | null;
+            variables?: string[] | null;
         };
         UserDTO: {
             /** Format: date-time */
@@ -1098,6 +1466,516 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    listMessageDeliveries: {
+        parameters: {
+            query?: {
+                /** @description Page number (default 1) */
+                page?: number;
+                /** @description Page size (default 20, max 100) */
+                page_size?: number;
+                /** @description Filter by delivery status (0-5) */
+                status?: number;
+                /** @description Filter by channel */
+                channel?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description delivery page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["DeliveryListResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    retryMessageDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Delivery ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    listMessageTemplates: {
+        parameters: {
+            query?: {
+                /** @description Page number (default 1) */
+                page?: number;
+                /** @description Page size (default 20, max 100) */
+                page_size?: number;
+                /** @description Filter by channel */
+                channel?: string;
+                /** @description Filter by status (0/1) */
+                status?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description template page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["TemplateListResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    createMessageTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description created template */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["TemplateDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            409: components["responses"]["Error409"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getMessageTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Template ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description template */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["TemplateDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    deleteMessageTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Template ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    updateMessageTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Template ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description updated template */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["TemplateDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    sendMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendRequest"];
+            };
+        };
+        responses: {
+            /** @description message created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["SendResultDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    listInbox: {
+        parameters: {
+            query?: {
+                /** @description Page number (default 1) */
+                page?: number;
+                /** @description Page size (default 20, max 100) */
+                page_size?: number;
+                /** @description Only unread messages (default false) */
+                unread_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description inbox page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["InboxResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getInboxMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Message ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description inbox message */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["InboxItemDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    deleteInboxMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Message ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    markMessageRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Message ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    markAllMessagesRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    listSentMessages: {
+        parameters: {
+            query?: {
+                /** @description Page number (default 1) */
+                page?: number;
+                /** @description Page size (default 20, max 100) */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description sent messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["SentListResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getUnreadCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description unread count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["UnreadCountResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             413: components["responses"]["Error413"];

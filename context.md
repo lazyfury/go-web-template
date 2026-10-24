@@ -55,7 +55,7 @@
 | `internal/user` | 用户域：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/auth` | 认证域：登录、access token 签发、refresh 轮换/吊销、改密、bootstrap 管理员 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/dict` | 字典/配置域：group=setting，items=dict array；含其他模块用的 `Store` 快捷方法（Replace/Get/GetInto） | `entity.go`, `repository.go`, `service.go`, `values.go`, `handler.go`, `dto.go`, `routes.go` |
-| `internal/message` | 消息/通知域（Phase 1）：内容、站内信收件箱、投递 outbox、模板的 entity/repo；HTTP/worker 后续阶段 | `entity.go`, `repository.go` |
+| `internal/message` | 消息/通知域：内容、站内信收件箱、外部投递 outbox、模板；HTTP 已接，worker 在 Phase 3 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/platform/authkit` | 叶子包：JWT 签发/校验（HS256 钉死）、Principal、RBAC 表、gin 中间件 | `token.go`, `principal.go`, `rbac.go`, `middleware.go` |
 | `internal/platform/passwd` | 叶子包：bcrypt 哈希/校验 + 防枚举的 dummy 比较 | `passwd.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
@@ -80,6 +80,7 @@ auth:     {jwt_secret, issuer, access_ttl: 15m,
            refresh_reuse_interval: 30s,  # 轮换后旧 token 的宽限期（多标签页竞态）
            bcrypt_cost: 12, login_max_attempts: 5, login_lockout: 15m,
            login_rps: 5, login_burst: 10, cookie_secure}
+message:  {webhook_urls: [], default_locale: zh-CN, max_attempts: 5}
 ```
 
 - 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（仅 `cmd/admin` 读取）。
@@ -193,8 +194,21 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/dict-groups/:id/items` | POST | 是 | `dicts:write` | 新建 item；同组 `item_key` 唯一 | 201 `ItemDTO` | 400/401/403/404/409 |
 | `/api/v1/dict-items/:id` | PATCH | 是 | `dicts:write` | 局部更新 item（key/label/value/value_type/sort/status/remark） | 200 `ItemDTO` | 400/401/403/404/409 |
 | `/api/v1/dict-items/:id` | DELETE | 是 | `dicts:write` | 软删除 item | 204 | 400/401/403/404 |
+| `/api/v1/messages/inbox` | GET | 是 | `messages:read` | 我的收件箱：page/page_size/unread_only | 200 `InboxResponse` | 400/401/403 |
+| `/api/v1/messages/unread-count` | GET | 是 | `messages:read` | 未读数 | 200 `UnreadCountResponse` | 401/403 |
+| `/api/v1/messages/inbox/:id` | GET | 是 | `messages:read` | 收件箱详情（不自动已读） | 200 `InboxItemDTO` | 400/401/403/404 |
+| `/api/v1/messages/inbox/:id/read` | PATCH | 是 | `messages:read` | 标记已读（幂等） | 204 | 400/401/403/404 |
+| `/api/v1/messages/read-all` | POST | 是 | `messages:read` | 全部已读 | 204 | 401/403 |
+| `/api/v1/messages/inbox/:id` | DELETE | 是 | `messages:read` | 删除自己的收件记录（软删） | 204 | 400/401/403/404 |
+| `/api/v1/messages` | POST | 是 | `messages:send` | 发送：收件人/角色/全员 + channels + 模板 | 201 `SendResultDTO` | 400/401/403 |
+| `/api/v1/messages/sent` | GET | 是 | `messages:send` | 已发送列表 + 已读统计 | 200 `SentListResponse` | 401/403 |
+| `/api/v1/message-templates` | GET/POST | 是 | `messages:manage` | 模板列表/新建 | 200/201 | 400/401/403/409 |
+| `/api/v1/message-templates/:id` | GET/PATCH/DELETE | 是 | `messages:manage` | 模板详情/更新/软删 | 200/204 | 400/401/403/404/409 |
+| `/api/v1/message-deliveries` | GET | 是 | `messages:manage` | 外部投递记录（status/channel 过滤） | 200 `DeliveryListResponse` | 400/401/403 |
+| `/api/v1/message-deliveries/:id/retry` | POST | 是 | `messages:manage` | 手动重试 failed/dead 投递 | 204 | 400/401/403/404/409 |
 
 - `dicts:read` 授予 admin + member；`dicts:write` 仅 admin。消费侧只返回启用组/项，管理侧可见停用数据。
+- `messages:read` 授予 admin + member（只能读自己的收件箱）；`messages:send` / `messages:manage` 仅 admin。邮件/短信/Webhook 在 Phase 2 只写 `message_deliveries` outbox，实际发送由 Phase 3 的 worker 完成。
 - `ItemDTO.value` 是**存储原值**（空字符串表示未显式设置）；`dict.Store.GetInto` 解码时才回落 `item_key`，避免前端表单回写时把 key 误固化成 value。
 - 业务模块内部用 `dict.Store` 的 `Get` / `GetInto` / `Replace`（见 §10）；前端/外部系统用 `GET` / `PUT /api/v1/dicts/:group`。
 
@@ -220,11 +234,11 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 ## 8. 测试策略
 
 - 独立包单测（不依赖 gin/gorm）：`platform/apperr`（码表/`From`/`Unwrap`）、`platform/httpx`（信封与错误映射）、`platform/logx`、`platform/config`（优先级/校验）。
-- 业务单测：`internal/user/service_test.go`（fake `Repository`：角色/归属/禁用撤销 token_version）、`internal/auth/service_test.go`（fake `UserStore`+`Repository`+固定时钟：枚举防护、锁定、轮换、重用检测、改密失效）、`internal/dict/service_test.go`（fake `Repository`：key 校验、停用过滤、Replace 整组替换、GetInto 类型解码）。
+- 业务单测：`internal/user/service_test.go`（fake `Repository`：角色/归属/禁用撤销 token_version）、`internal/auth/service_test.go`（fake `UserStore`+`Repository`+固定时钟：枚举防护、锁定、轮换、重用检测、改密失效）、`internal/dict/service_test.go`（fake `Repository`：key 校验、停用过滤、Replace 整组替换、GetInto 类型解码）、`internal/message/service_test.go`（fake `Repository`+`Directory`：audience 校验、多 channel 草稿、模板渲染、管理员权限）。
 - 认证原语：`internal/platform/authkit/authkit_test.go`（HS256 钉死、iss/exp、alg=none、typ 混淆、错误密钥、RBAC 表、中间件 401/403）。
 - 仓储：`internal/user/repository_test.go`、`internal/dict/repository_test.go`、`internal/message/repository_test.go` 直接对 SQLite 测（软删、部分唯一索引、排序、收件箱分页、投递租约/重试）。
 - 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/Health，`httptest` 驱动）。
-- 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**：`app.SeedAdmin` → login → bearer → CRUD，覆盖匿名 401、member 403/越权、refresh 轮换与旧 cookie 重用、改密后旧 token 失效。
+- 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**：`app.SeedAdmin` → login → bearer → CRUD，覆盖匿名 401、member 403/越权、refresh 轮换与旧 cookie 重用、改密后旧 token 失效、消息收件箱/多 channel 投递/模板渲染。
 - OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、`engine.Routes()` 完整性、禁用时 404、**受保护操作必须带 bearerAuth+401/403，公开端点不得带 security**）。
 - 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移，`pnpm build` 做 vue-tsc + vite 构建。
 - 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见；每个测试用独立命名内存库，可并行。
@@ -246,6 +260,8 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 12. **字典/配置模型（group = setting + items = dict array）**：`dict_groups` 保存 setting 元数据（`group_key` 不可变），`dict_items` 保存有序数组元素（`item_key`、`label`、`value`、`value_type`、`sort_order`）。消费侧 `GET /dicts/:group` 只返回启用项；管理端按 group/item 做 CRUD。其他业务模块通过 `dict.Store` 的 `Replace("seo", map)` / `Replace("keywords", []any)` 做整组替换（事务内 upsert group + purge/insert items），`GetInto` 按 `value_type` 解码到 map/slice/struct。这样模板既支持"下拉字典"，也支持"对象/数组型 setting"，且不把 JSON blob 塞进单列。
 13. **前端 TS 6.0 + `ignoreDeprecations: "6.0"`**：`web/admin` 锁 `typescript ^6.0.3`（实测 vue-tsc 2.2.12 兼容，typecheck/build 全绿）。`ignoreDeprecations` 只接受当前 major 对应的值：TS 5.x 仅认 `"5.0"`（写 `"6.0"` 报 TS5103），TS 6.0/7.0 认 `"6.0"`。升级 TS 大版本时需同步调整该值，先改 tsconfig 再升依赖。
 14. **进程生命周期与后台 goroutine**：`cmd/server/main.go` 持有 `signal.NotifyContext`，用 `errgroup.WithContext` 同时运行 HTTP 与后台 worker；任一失败取消另一个，全部退出后才 `App.Close` 释放 DB。`internal/app` 只装配（构造 repo/service/worker）并通过 `App` 暴露 worker，**禁止在 app 内启动 goroutine**；service/handler 只写投递记录（delivery/outbox），异步执行交给 worker。Worker 契约：`Run(ctx) error`、ticker/clock 可注入、ctx 取消后停止领取新任务并等待在途任务、禁止裸 `go func()` 与 `time.Sleep` 轮询。多实例用 `locked_until` 租约 + 条件更新领取任务（保持 SQLite 可测，不依赖 `SKIP LOCKED`）。
+
+15. **消息/通知 SQL-first（无通用 event bus）**：`messages` 存内容快照，`message_recipients` 是站内信收件箱与已读状态，`message_deliveries` 是邮件/短信/Webhook 的投递 outbox，`message_templates` 存模板。发送在一事务内写 message + recipients + deliveries；worker（Phase 3，由 `cmd/server` 启动）领取 `message_deliveries` 并调用 channel adapter。不做通用 event bus；未来跨域事件用 `outbox_events` + dispatcher。Redis 只作为可选加速层，不是消息事实来源。详见 `docs/design-message.md`。
 
 ## 10. 扩展指南
 

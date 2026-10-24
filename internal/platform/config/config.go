@@ -18,6 +18,7 @@ type Config struct {
 	RateLimit  RateLimit  `mapstructure:"ratelimit"`
 	Swagger    Swagger    `mapstructure:"swagger"`
 	Auth       Auth       `mapstructure:"auth"`
+	Message    Message    `mapstructure:"message"`
 }
 
 // App holds generic application metadata.
@@ -118,6 +119,17 @@ type Auth struct {
 
 	// CookieSecure marks the refresh cookie Secure; set false for local http.
 	CookieSecure bool `mapstructure:"cookie_secure"`
+}
+
+// Message holds notification delivery settings (Phase 2: no worker yet).
+type Message struct {
+	// WebhookURLs is the allowlist of endpoints used by the webhook channel.
+	// Empty disables the channel.
+	WebhookURLs []string `mapstructure:"webhook_urls"`
+	// DefaultLocale is used when a template lookup has no explicit locale.
+	DefaultLocale string `mapstructure:"default_locale"`
+	// MaxAttempts is the default retry budget for external deliveries.
+	MaxAttempts int `mapstructure:"max_attempts"`
 }
 
 // IsProduction reports whether the app runs with production hardening rules.
