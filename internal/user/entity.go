@@ -25,9 +25,12 @@ const (
 // PasswordHash is never serialized to JSON and never copied into UserDTO: only
 // the auth domain reads it, through the repository.
 type User struct {
-	ID     uint64       `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name   string       `gorm:"type:varchar(64);not null" json:"name"`
-	Email  string       `gorm:"type:varchar(255);not null;uniqueIndex" json:"email"`
+	ID    uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name  string `gorm:"type:varchar(64);not null" json:"name"`
+	Email string `gorm:"type:varchar(255);not null;uniqueIndex" json:"email"`
+	// Phone is optional contact information for the message module (SMS).
+	// Empty string means "not set".
+	Phone  string       `gorm:"type:varchar(32);not null;default:''" json:"phone"`
 	Status Status       `gorm:"type:smallint;not null;default:1" json:"status"`
 	Role   authkit.Role `gorm:"type:varchar(32);not null;default:member" json:"role"`
 

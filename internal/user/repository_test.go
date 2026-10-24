@@ -15,7 +15,7 @@ func TestRepositoryCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Create.
-	user := &User{Name: "Repo Tester", Email: "repo@example.com", Status: StatusActive}
+	user := &User{Name: "Repo Tester", Email: "repo@example.com", Phone: "+10000000000", Status: StatusActive}
 	if err := repo.Create(ctx, user); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -30,6 +30,9 @@ func TestRepositoryCRUD(t *testing.T) {
 	}
 	if got.Email != "repo@example.com" {
 		t.Errorf("email = %q", got.Email)
+	}
+	if got.Phone != "+10000000000" {
+		t.Errorf("phone = %q, want +10000000000", got.Phone)
 	}
 	if _, err := repo.FindByEmail(ctx, "REPO@example.com"); err != nil {
 		t.Errorf("FindByEmail should be case-insensitive on lookup, got %v", err)
@@ -53,14 +56,18 @@ func TestRepositoryCRUD(t *testing.T) {
 		t.Errorf("keyword list total=%d err=%v, want 0", total, err)
 	}
 
-	// Update.
+	// Update, including clearing the phone (zero value must persist).
 	user.Name = "Renamed"
+	user.Phone = ""
 	if err := repo.Update(ctx, user); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	got, _ = repo.FindByID(ctx, user.ID)
 	if got.Name != "Renamed" {
 		t.Errorf("name after update = %q", got.Name)
+	}
+	if got.Phone != "" {
+		t.Errorf("phone after clear = %q, want empty", got.Phone)
 	}
 
 	// Soft delete: row disappears from normal queries.
@@ -88,6 +95,8 @@ func TestRepositorySaveAuthStatePersistsZeroValues(t *testing.T) {
 	// Simulate a failed login followed by a successful one: the counter must go
 	// back to 0 (Updates(struct) alone would skip the zero value).
 	u.FailedLoginCount = 4
+	u.Name = "Auth Renamed"
+	u.Phone = "+20000000000"
 	if err := repo.SaveAuthState(ctx, u); err != nil {
 		t.Fatalf("SaveAuthState: %v", err)
 	}
@@ -110,5 +119,8 @@ func TestRepositorySaveAuthStatePersistsZeroValues(t *testing.T) {
 	}
 	if got.PasswordHash != "hash-2" {
 		t.Errorf("password hash = %q, want hash-2", got.PasswordHash)
+	}
+	if got.Name != "Auth Renamed" || got.Phone != "+20000000000" {
+		t.Errorf("profile columns not persisted by SaveAuthState: name=%q phone=%q", got.Name, got.Phone)
 	}
 }

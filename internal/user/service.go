@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/example/go-web-template/internal/platform/apperr"
 	"github.com/example/go-web-template/internal/platform/authkit"
@@ -15,6 +16,7 @@ import (
 type Input struct {
 	Name     string
 	Email    string
+	Phone    string
 	Password string
 	Role     authkit.Role
 }
@@ -24,6 +26,7 @@ type Input struct {
 type Patch struct {
 	Name     *string
 	Email    *string
+	Phone    *string
 	Role     *authkit.Role
 	Password *string
 	Status   *Status
@@ -53,7 +56,7 @@ func NewService(repo Repository, hasher *passwd.Hasher, revoker SessionRevoker) 
 
 // Create provisions a user with credentials and rejects duplicate emails.
 // Authorization (users:write) is enforced by the route middleware.
-func (s *Service) Create(ctx context.Context, in Input) (*User, error) {
+func (s *Service) Create(ctx context.Context, in *Input) (*User, error) {
 	email := normalizeEmail(in.Email)
 	if _, err := s.repo.FindByEmail(ctx, email); err == nil {
 		return nil, apperr.Wrap(apperr.CodeConflict, "email already registered", nil)
@@ -74,10 +77,16 @@ func (s *Service) Create(ctx context.Context, in Input) (*User, error) {
 		return nil, apperr.Wrap(apperr.CodeInvalidArgument, err.Error(), err)
 	}
 
+	phone := normalizePhone(in.Phone)
+	if utf8.RuneCountInString(phone) > 32 {
+		return nil, apperr.Wrap(apperr.CodeInvalidArgument, "phone must be at most 32 characters", nil)
+	}
+
 	now := s.now()
 	user := &User{
 		Name:              strings.TrimSpace(in.Name),
 		Email:             email,
+		Phone:             phone,
 		Status:            StatusActive,
 		Role:              role,
 		PasswordHash:      hash,
@@ -140,6 +149,13 @@ func (s *Service) Update(ctx context.Context, actor authkit.Principal, id uint64
 	}
 	if patch.Name != nil {
 		user.Name = strings.TrimSpace(*patch.Name)
+	}
+	if patch.Phone != nil {
+		phone := normalizePhone(*patch.Phone)
+		if utf8.RuneCountInString(phone) > 32 {
+			return nil, apperr.Wrap(apperr.CodeInvalidArgument, "phone must be at most 32 characters", nil)
+		}
+		user.Phone = phone
 	}
 
 	authStateChanged := false
@@ -215,4 +231,8 @@ func forbidden(message string) error {
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func normalizePhone(phone string) string {
+	return strings.TrimSpace(phone)
 }

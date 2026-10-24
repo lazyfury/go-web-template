@@ -116,14 +116,17 @@ var (
 func TestServiceCreate(t *testing.T) {
 	svc := newTestService(newMockUserRepo())
 
-	u, err := svc.Create(context.Background(), Input{
-		Name: "Alice", Email: "  Alice@Example.com ", Password: "secret-pass",
+	u, err := svc.Create(context.Background(), &Input{
+		Name: "Alice", Email: "  Alice@Example.com ", Phone: " +10000000000 ", Password: "secret-pass",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if u.Email != "alice@example.com" {
 		t.Errorf("email normalized to %q, want alice@example.com", u.Email)
+	}
+	if u.Phone != "+10000000000" {
+		t.Errorf("phone = %q, want trimmed +10000000000", u.Phone)
 	}
 	if u.Status != StatusActive {
 		t.Errorf("status = %d, want active", u.Status)
@@ -136,7 +139,7 @@ func TestServiceCreate(t *testing.T) {
 	}
 
 	// Duplicate email must be rejected with a conflict error.
-	_, err = svc.Create(context.Background(), Input{Name: "Alice2", Email: "alice@example.com", Password: "secret-pass"})
+	_, err = svc.Create(context.Background(), &Input{Name: "Alice2", Email: "alice@example.com", Password: "secret-pass"})
 	if !errors.Is(err, apperr.ErrConflict) {
 		t.Errorf("expected conflict error, got %v", err)
 	}
@@ -145,13 +148,13 @@ func TestServiceCreate(t *testing.T) {
 func TestServiceCreateRejectsBadInput(t *testing.T) {
 	svc := newTestService(newMockUserRepo())
 
-	_, err := svc.Create(context.Background(), Input{Name: "A", Email: "a@example.com", Password: "secret-pass", Role: "root"})
+	_, err := svc.Create(context.Background(), &Input{Name: "A", Email: "a@example.com", Password: "secret-pass", Role: "root"})
 	if !errors.Is(err, apperr.ErrInvalidArgument) {
 		t.Errorf("invalid role should be CodeInvalidArgument, got %v", err)
 	}
 
 	tooLong := strings.Repeat("x", passwd.MaxPasswordBytes+1)
-	_, err = svc.Create(context.Background(), Input{Name: "Long", Email: "long@example.com", Password: tooLong})
+	_, err = svc.Create(context.Background(), &Input{Name: "Long", Email: "long@example.com", Password: tooLong})
 	if !errors.Is(err, apperr.ErrInvalidArgument) {
 		t.Errorf("oversized password should be CodeInvalidArgument, got %v", err)
 	}
@@ -169,7 +172,7 @@ func TestServiceGetOwnership(t *testing.T) {
 	repo := newMockUserRepo()
 	svc := newTestService(repo)
 
-	created, err := svc.Create(context.Background(), Input{Name: "Bob", Email: "bob@example.com", Password: "secret-pass"})
+	created, err := svc.Create(context.Background(), &Input{Name: "Bob", Email: "bob@example.com", Password: "secret-pass"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -199,7 +202,7 @@ func TestServiceUpdate(t *testing.T) {
 	repo := newMockUserRepo()
 	svc := newTestService(repo)
 
-	created, _ := svc.Create(context.Background(), Input{Name: "Bob", Email: "bob@example.com", Password: "secret-pass"})
+	created, _ := svc.Create(context.Background(), &Input{Name: "Bob", Email: "bob@example.com", Password: "secret-pass"})
 	self := authkit.Principal{UserID: created.ID, Role: authkit.RoleMember}
 
 	name := "Bobby"
@@ -209,6 +212,15 @@ func TestServiceUpdate(t *testing.T) {
 	}
 	if u.Name != "Bobby" {
 		t.Errorf("name = %q, want Bobby", u.Name)
+	}
+
+	phone := " +20000000000 "
+	u, err = svc.Update(context.Background(), self, created.ID, Patch{Phone: &phone})
+	if err != nil {
+		t.Fatalf("update phone: %v", err)
+	}
+	if u.Phone != "+20000000000" {
+		t.Errorf("phone = %q, want trimmed +20000000000", u.Phone)
 	}
 
 	// A member cannot escalate their own role.
@@ -228,7 +240,7 @@ func TestServiceUpdatePasswordBumpsTokenVersion(t *testing.T) {
 	revoker := &fakeRevoker{}
 	svc := NewService(repo, passwd.NewHasher(4), revoker)
 
-	created, _ := svc.Create(context.Background(), Input{Name: "Dee", Email: "dee@example.com", Password: "secret-pass"})
+	created, _ := svc.Create(context.Background(), &Input{Name: "Dee", Email: "dee@example.com", Password: "secret-pass"})
 	password := "new-secret-pass"
 	updated, err := svc.Update(context.Background(), adminActor, created.ID, Patch{Password: &password})
 	if err != nil {
@@ -251,7 +263,7 @@ func TestServiceUpdatePasswordBumpsTokenVersion(t *testing.T) {
 func TestServiceDisableBumpsTokenVersion(t *testing.T) {
 	revoker := &fakeRevoker{}
 	svc := NewService(newMockUserRepo(), passwd.NewHasher(4), revoker)
-	created, _ := svc.Create(context.Background(), Input{Name: "Eve", Email: "eve@example.com", Password: "secret-pass"})
+	created, _ := svc.Create(context.Background(), &Input{Name: "Eve", Email: "eve@example.com", Password: "secret-pass"})
 
 	disabled := StatusDisabled
 	updated, err := svc.Update(context.Background(), adminActor, created.ID, Patch{Status: &disabled})
@@ -273,7 +285,7 @@ func TestServiceDelete(t *testing.T) {
 	repo := newMockUserRepo()
 	svc := newTestService(repo)
 
-	created, _ := svc.Create(context.Background(), Input{Name: "Cara", Email: "cara@example.com", Password: "secret-pass"})
+	created, _ := svc.Create(context.Background(), &Input{Name: "Cara", Email: "cara@example.com", Password: "secret-pass"})
 
 	if err := svc.Delete(context.Background(), memberA, created.ID); !errors.Is(err, apperr.ErrForbidden) {
 		t.Errorf("member delete should be forbidden, got %v", err)
@@ -290,7 +302,7 @@ func TestServiceCannotDeleteSelf(t *testing.T) {
 	repo := newMockUserRepo()
 	svc := newTestService(repo)
 
-	created, _ := svc.Create(context.Background(), Input{
+	created, _ := svc.Create(context.Background(), &Input{
 		Name: "Root", Email: "root@example.com", Password: "secret-pass", Role: authkit.RoleAdmin,
 	})
 	actor := authkit.Principal{UserID: created.ID, Role: authkit.RoleAdmin}

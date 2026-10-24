@@ -61,6 +61,7 @@ const formRef = ref<FormInstance>()
 const form = reactive({
   name: '',
   email: '',
+  phone: '',
   password: '',
   role: 'member' as User['role'],
 })
@@ -74,6 +75,7 @@ const rules: FormRules = {
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
   ],
+  phone: [{ max: 32, message: '最多 32 个字符', trigger: 'blur' }],
   password: [
     { required: true, message: '请输入初始密码', trigger: 'blur' },
     { min: 8, max: 72, message: '密码长度 8-72 位', trigger: 'blur' },
@@ -85,6 +87,7 @@ const openCreateDialog = () => {
   editingId.value = null
   form.name = ''
   form.email = ''
+  form.phone = ''
   form.password = ''
   form.role = 'member'
   dialogVisible.value = true
@@ -95,6 +98,7 @@ const openEditDialog = (row: User) => {
   editingId.value = row.id
   form.name = row.name
   form.email = row.email
+  form.phone = row.phone
   form.password = ''
   form.role = row.role
   dialogVisible.value = true
@@ -111,13 +115,19 @@ const submitForm = async () => {
       await userApi.create({
         name: form.name,
         email: form.email,
+        phone: form.phone,
         password: form.password,
         role: form.role,
       })
       ElMessage.success('创建成功')
       reset()
     } else if (editingId.value !== null) {
-      await userApi.update(editingId.value, { name: form.name, email: form.email, role: form.role })
+      await userApi.update(editingId.value, {
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        role: form.role,
+      })
       ElMessage.success('保存成功')
     }
     dialogVisible.value = false
@@ -193,6 +203,11 @@ onMounted(loadUsers)
           </template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="220" />
+        <el-table-column label="手机号" min-width="150">
+          <template #default="{ row }">
+            <span class="font-mono text-[var(--text-secondary)]">{{ row.phone || '—' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="角色" width="100">
           <template #default="{ row }">
             <el-tag :type="row.role === 'admin' ? 'warning' : 'info'" size="small">
@@ -248,6 +263,9 @@ onMounted(loadUsers)
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="form.email" placeholder="user@example.com" clearable />
+        </el-form-item>
+        <el-form-item label="手机号（可选）" prop="phone">
+          <el-input v-model="form.phone" placeholder="用于短信通知，可留空" clearable />
         </el-form-item>
         <el-form-item v-if="dialogMode === 'create'" label="初始密码" prop="password">
           <el-input v-model="form.password" type="password" placeholder="8-72 位，交付后请让对方自行修改" show-password />

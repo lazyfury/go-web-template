@@ -28,7 +28,8 @@ func (h *Handler) Create(c *gin.Context) {
 		httpx.Fail(c, apperr.Wrap(apperr.CodeInvalidArgument, validationMessage(err), err))
 		return
 	}
-	created, err := h.svc.Create(c.Request.Context(), Input(req))
+	input := Input(req)
+	created, err := h.svc.Create(c.Request.Context(), &input)
 	if err != nil {
 		httpx.Fail(c, err)
 		return

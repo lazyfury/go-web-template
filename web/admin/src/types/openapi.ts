@@ -264,6 +264,7 @@ export interface components {
             email: string;
             name: string;
             password: string;
+            phone?: string;
             /** @enum {string} */
             role?: "admin" | "member";
         };
@@ -371,6 +372,7 @@ export interface components {
             email?: string | null;
             name?: string | null;
             password?: string | null;
+            phone?: string | null;
             /** @enum {string|null} */
             role?: "admin" | "member" | null;
             /**
@@ -386,6 +388,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             name: string;
+            phone: string;
             /** @enum {string} */
             role: "admin" | "member";
             /**

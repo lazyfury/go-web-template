@@ -55,10 +55,11 @@
 | `internal/user` | 用户域：entity/repo/service/handler/dto/routes 同包分文件 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/auth` | 认证域：登录、access token 签发、refresh 轮换/吊销、改密、bootstrap 管理员 | `entity.go`, `repository.go`, `service.go`, `handler.go`, `dto.go`, `routes.go` |
 | `internal/dict` | 字典/配置域：group=setting，items=dict array；含其他模块用的 `Store` 快捷方法（Replace/Get/GetInto） | `entity.go`, `repository.go`, `service.go`, `values.go`, `handler.go`, `dto.go`, `routes.go` |
+| `internal/message` | 消息/通知域（Phase 1）：内容、站内信收件箱、投递 outbox、模板的 entity/repo；HTTP/worker 后续阶段 | `entity.go`, `repository.go` |
 | `internal/platform/authkit` | 叶子包：JWT 签发/校验（HS256 钉死）、Principal、RBAC 表、gin 中间件 | `token.go`, `principal.go`, `rbac.go`, `middleware.go` |
 | `internal/platform/passwd` | 叶子包：bcrypt 哈希/校验 + 防枚举的 dummy 比较 | `passwd.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
-| `migrations/` | golang-migrate SQL（版本化） | `000001`–`000004`（users/auth），`000005_create_dict_tables.*`（dict） |
+| `migrations/` | golang-migrate SQL（版本化） | `000001`–`000004`（users/auth），`000005`（dict），`000006`（users.phone），`000007_create_message_tables.*`（message） |
 | `docs/` | 生成的 OpenAPI 契约 + 手写排错文档 | `openapi.json`, `troubleshooting.md` |
 
 ## 4. 配置模型
@@ -139,6 +140,18 @@ auth:     {jwt_secret, issuer, access_ttl: 15m,
 | `sort_order` / `status` / `remark` | integer / smallint / varchar(255) | 排序、启停、备注 |
 | `created_at` / `updated_at` / `deleted_at` | timestamptz | 软删除 |
 
+`messages` / `message_recipients` / `message_deliveries` / `message_templates` 表（`migrations/000007_create_message_tables.*`，Phase 1）：
+
+| 表 | 作用 |
+|---|---|
+| `messages` | 消息内容快照（title/body/type/level/link/audience/template_key/created_by/expires_at，软删） |
+| `message_recipients` | 站内信收件箱：`(message_id,user_id)` 唯一，`read_at`/`deleted_at` |
+| `message_deliveries` | 邮件/短信/Webhook 投递 outbox：`channel/target/payload/status/attempts/next_attempt_at/locked_until`，`dedupe_key` 部分唯一 |
+| `message_templates` | 模板：`(template_key,channel,locale)` 部分唯一（`WHERE deleted_at IS NULL`），`variables` 用 TEXT 存 JSON 数组 |
+
+- 投递领取用 `locked_until` 租约 + 条件更新（SQLite 可测，不依赖 `SKIP LOCKED`）。
+- 详细状态机、worker 生命周期与 API 计划见 `docs/design-message.md`。
+
 - 迁移工具：golang-migrate（SQL 文件），`make migrate-up/down/create`。
 - **GORM model 与迁移 SQL 是两套事实来源**，改表必须两处同步；测试库用 `AutoMigrate`（`internal/testutil.NewSQLiteDB(t, &user.User{})`）自动建表。
 - 新表记住：唯一索引要考虑软删除场景；查询保持 `LOWER()` 可移植写法。
@@ -209,7 +222,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 独立包单测（不依赖 gin/gorm）：`platform/apperr`（码表/`From`/`Unwrap`）、`platform/httpx`（信封与错误映射）、`platform/logx`、`platform/config`（优先级/校验）。
 - 业务单测：`internal/user/service_test.go`（fake `Repository`：角色/归属/禁用撤销 token_version）、`internal/auth/service_test.go`（fake `UserStore`+`Repository`+固定时钟：枚举防护、锁定、轮换、重用检测、改密失效）、`internal/dict/service_test.go`（fake `Repository`：key 校验、停用过滤、Replace 整组替换、GetInto 类型解码）。
 - 认证原语：`internal/platform/authkit/authkit_test.go`（HS256 钉死、iss/exp、alg=none、typ 混淆、错误密钥、RBAC 表、中间件 401/403）。
-- 仓储：`internal/user/repository_test.go`、`internal/dict/repository_test.go` 直接对 SQLite 测（软删、部分唯一索引、排序、整组替换）。
+- 仓储：`internal/user/repository_test.go`、`internal/dict/repository_test.go`、`internal/message/repository_test.go` 直接对 SQLite 测（软删、部分唯一索引、排序、收件箱分页、投递租约/重试）。
 - 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/Health，`httptest` 驱动）。
 - 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**：`app.SeedAdmin` → login → bearer → CRUD，覆盖匿名 401、member 403/越权、refresh 轮换与旧 cookie 重用、改密后旧 token 失效。
 - OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、`engine.Routes()` 完整性、禁用时 404、**受保护操作必须带 bearerAuth+401/403，公开端点不得带 security**）。

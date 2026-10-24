@@ -11,6 +11,7 @@ import (
 type CreateRequest struct {
 	Name     string       `json:"name" binding:"required,min=2,max=64"`
 	Email    string       `json:"email" binding:"required,email,max=255"`
+	Phone    string       `json:"phone" binding:"omitempty,max=32"`
 	Password string       `json:"password" binding:"required,min=8,max=72"`
 	Role     authkit.Role `json:"role" binding:"omitempty,oneof=admin member"`
 }
@@ -19,6 +20,7 @@ type CreateRequest struct {
 type UpdateRequest struct {
 	Name     *string       `json:"name" binding:"omitempty,min=2,max=64"`
 	Email    *string       `json:"email" binding:"omitempty,email,max=255"`
+	Phone    *string       `json:"phone" binding:"omitempty,max=32"`
 	Role     *authkit.Role `json:"role" binding:"omitempty,oneof=admin member"`
 	Password *string       `json:"password" binding:"omitempty,min=8,max=72"`
 	Status   *Status       `json:"status" binding:"omitempty,oneof=0 1"`
@@ -41,6 +43,7 @@ type UserDTO struct {
 	ID        uint64       `json:"id"`
 	Name      string       `json:"name"`
 	Email     string       `json:"email"`
+	Phone     string       `json:"phone"`
 	Status    Status       `json:"status" enum:"0,1"`
 	Role      authkit.Role `json:"role" enum:"admin,member"`
 	CreatedAt time.Time    `json:"created_at"`
@@ -52,6 +55,7 @@ func toDTO(user *User) UserDTO {
 		ID:        user.ID,
 		Name:      user.Name,
 		Email:     user.Email,
+		Phone:     user.Phone,
 		Status:    user.Status,
 		Role:      user.Role,
 		CreatedAt: user.CreatedAt,

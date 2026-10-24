@@ -284,6 +284,64 @@ func TestUserCRUD(t *testing.T) {
 	}
 }
 
+func TestUserPhoneRoundTrip(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+
+	w := doJSONAuth(t, h, http.MethodPost, "/api/v1/users", map[string]any{
+		"name": "Phone User", "email": "phone@example.com", "password": "initial-password", "phone": "+10000000000",
+	}, admin.accessToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create with phone = %d, body=%s", w.Code, w.Body.String())
+	}
+	var created struct {
+		ID    uint64 `json:"id"`
+		Phone string `json:"phone"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &created); err != nil {
+		t.Fatalf("decode created user: %v", err)
+	}
+	if created.Phone != "+10000000000" {
+		t.Errorf("created phone = %q", created.Phone)
+	}
+
+	w = doJSONAuth(t, h, http.MethodGet, fmt.Sprintf("/api/v1/users/%d", created.ID), nil, admin.accessToken)
+	var fetched struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &fetched); err != nil {
+		t.Fatalf("decode fetched user: %v", err)
+	}
+	if fetched.Phone != "+10000000000" {
+		t.Errorf("fetched phone = %q", fetched.Phone)
+	}
+
+	w = doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", created.ID), map[string]any{
+		"phone": "+20000000000",
+	}, admin.accessToken)
+	var updated struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &updated); err != nil {
+		t.Fatalf("decode updated user: %v", err)
+	}
+	if updated.Phone != "+20000000000" {
+		t.Errorf("updated phone = %q", updated.Phone)
+	}
+
+	// Empty string clears the optional phone.
+	w = doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", created.ID), map[string]any{
+		"phone": "",
+	}, admin.accessToken)
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &updated); err != nil {
+		t.Fatalf("decode cleared user: %v", err)
+	}
+	if updated.Phone != "" {
+		t.Errorf("cleared phone = %q, want empty", updated.Phone)
+	}
+}
+
 func TestAnonymousRequestsAreRejected(t *testing.T) {
 	env := newTestEnv(t, false)
 	h := env.handler

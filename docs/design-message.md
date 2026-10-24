@@ -50,7 +50,8 @@ HTTP API ──► message.Service ──► messages / message_recipients
 
 ## 3. 数据模型
 
-迁移文件：`migrations/000006_create_message_tables.*`（后续需要 users.phone 时另开迁移）。
+迁移文件：`migrations/000006_add_phone_to_users.*` + `migrations/000007_create_message_tables.*`。
+`users.phone` 用 `VARCHAR(32) NOT NULL DEFAULT ''`（空字符串 = 未设置，避免 NULL 在 DTO/前端表单里的额外分支）。
 
 ### `messages`：消息内容
 
@@ -343,13 +344,14 @@ message:
 
 验收：文档评审通过；不改业务代码。
 
-### Phase 1：表 + entity/repo
+### Phase 1：表 + entity/repo（已完成）
 
-- [ ] `migrations/000006_create_message_tables.*`（messages / recipients / deliveries / templates）
-- [ ] `internal/message/entity.go`
-- [ ] `internal/message/repository.go`
-- [ ] `repository_test.go`（SQLite）：唯一约束、软删、收件箱分页、投递领取租约
-- [ ] `make migrate-up`（真实 PG）验证 up/down
+- [x] `migrations/000006_add_phone_to_users.*`
+- [x] `migrations/000007_create_message_tables.*`（messages / recipients / deliveries / templates）
+- [x] `internal/message/entity.go`
+- [x] `internal/message/repository.go`
+- [x] `repository_test.go`（SQLite）：唯一约束、软删、收件箱分页、投递领取租约
+- [x] `make migrate-up` / `make migrate-down`（真实 PG）验证 000006/000007 up/down
 
 验收：迁移可 up/down；repo 测试覆盖分页、未读过滤、租约领取。
 
@@ -398,7 +400,7 @@ message:
 
 ## 14. 风险与待确认
 
-1. **手机号来源**：是否给 `users` 加 `phone`，还是由发送请求显式提供？建议 Phase 1 先加 nullable `users.phone`（需 user 域配合）。
+1. ~~**手机号来源**：是否给 `users` 加 `phone`，还是由发送请求显式提供？~~ **已定：`users.phone VARCHAR(32) NOT NULL DEFAULT ''`（空 = 未设置），Phase 1 已落地。**
 2. **Webhook 目标**：只允许配置白名单，还是允许 admin 填 URL？建议 v1 白名单，v2 再开放。
 3. **全员广播规模**：当前 fan-out 到 `message_recipients`；用户量超过十万时改成 audience + read receipts。
 4. **实时性**：轮询可接受；若要 SSE，多实例必须 Redis Pub/Sub。

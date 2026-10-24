@@ -97,7 +97,8 @@ func (r *gormRepository) List(ctx context.Context, offset, limit int, keyword st
 }
 
 func (r *gormRepository) Update(ctx context.Context, user *User) error {
-	if err := r.db.WithContext(ctx).Model(user).Updates(user).Error; err != nil {
+	// Select keeps zero values (clearing phone/name) from being skipped.
+	if err := r.db.WithContext(ctx).Model(user).Select(profileColumns).Updates(user).Error; err != nil {
 		if isUniqueViolation(err) {
 			return apperr.Wrap(apperr.CodeConflict, "user already exists", err)
 		}
@@ -106,9 +107,23 @@ func (r *gormRepository) Update(ctx context.Context, user *User) error {
 	return nil
 }
 
+// profileColumns are the non-credential columns a profile update may change.
+var profileColumns = []string{
+	"name",
+	"email",
+	"phone",
+	"role",
+	"status",
+}
+
 // authStateColumns are written explicitly because Updates(struct) skips zero
-// values, and resetting failed_login_attempts to 0 must actually persist.
+// values, and resetting failed_login_attempts to 0 must actually persist. They
+// also include profile columns so a combined profile+password update is not
+// partially lost.
 var authStateColumns = []string{
+	"name",
+	"email",
+	"phone",
 	"password_hash",
 	"role",
 	"status",
