@@ -40,6 +40,13 @@ type UpdateItemRequest struct {
 	Remark    *string    `json:"remark" binding:"omitempty,max=255"`
 }
 
+// ReplaceValuesRequest is the payload for PUT /dicts/:group. Value is either a
+// JSON object (object setting) or a JSON array (array setting); the whole group
+// is replaced in one transaction.
+type ReplaceValuesRequest struct {
+	Value any `json:"value" binding:"required"`
+}
+
 // GroupDTO is the HTTP representation of a group.
 type GroupDTO struct {
 	ID          uint64    `json:"id"`
@@ -94,7 +101,7 @@ func toItemDTO(item *Item) ItemDTO {
 		GroupID:   item.GroupID,
 		Key:       item.Key,
 		Label:     item.Label,
-		Value:     item.EffectiveValue(),
+		Value:     item.Value,
 		ValueType: item.ValueType,
 		Sort:      item.SortOrder,
 		Status:    item.Status,

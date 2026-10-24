@@ -702,6 +702,85 @@ func TestDictCRUD(t *testing.T) {
 	}
 }
 
+func TestDictReplaceValues(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+
+	// Object setting: each field becomes a key/value item (sorted by key).
+	w := doJSONAuth(t, h, http.MethodPut, "/api/v1/dicts/site.basic", map[string]any{
+		"value": map[string]any{
+			"site_url":  "https://example.com",
+			"site_name": "Example",
+		},
+	}, admin.accessToken)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("replace object = %d, body=%s", w.Code, w.Body.String())
+	}
+
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/dicts/site.basic", nil, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read object setting = %d, body=%s", w.Code, w.Body.String())
+	}
+	var items []struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &items); err != nil {
+		t.Fatalf("decode object setting: %v", err)
+	}
+	if len(items) != 2 || items[0].Key != "site_name" || items[0].Value != "Example" ||
+		items[1].Key != "site_url" || items[1].Value != "https://example.com" {
+		t.Fatalf("object setting items = %+v", items)
+	}
+
+	// Array setting: primitive elements keep their order.
+	w = doJSONAuth(t, h, http.MethodPut, "/api/v1/dicts/keywords", map[string]any{
+		"value": []any{"go", "gin", "gorm"},
+	}, admin.accessToken)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("replace array = %d, body=%s", w.Code, w.Body.String())
+	}
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/dicts/keywords", nil, admin.accessToken)
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &items); err != nil {
+		t.Fatalf("decode array setting: %v", err)
+	}
+	if len(items) != 3 || items[0].Key != "go" || items[2].Key != "gorm" {
+		t.Fatalf("array setting items = %+v", items)
+	}
+
+	// Empty values round-trip as empty: the DTO exposes the stored value, not
+	// the key fallback used by dict.Store.GetInto.
+	w = doJSONAuth(t, h, http.MethodPut, "/api/v1/dicts/site.empty", map[string]any{
+		"value": map[string]any{"unset": ""},
+	}, admin.accessToken)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("replace empty value = %d, body=%s", w.Code, w.Body.String())
+	}
+	w = doJSONAuth(t, h, http.MethodGet, "/api/v1/dicts/site.empty", nil, admin.accessToken)
+	if err := json.Unmarshal(decodeEnvelope(t, w).Data, &items); err != nil {
+		t.Fatalf("decode empty value: %v", err)
+	}
+	if len(items) != 1 || items[0].Key != "unset" || items[0].Value != "" {
+		t.Fatalf("empty value items = %+v, want raw empty value", items)
+	}
+
+	// A scalar is not a valid whole-setting value.
+	w = doJSONAuth(t, h, http.MethodPut, "/api/v1/dicts/site.basic", map[string]any{
+		"value": "not-an-object-or-array",
+	}, admin.accessToken)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("scalar replace = %d, want 400", w.Code)
+	}
+
+	// Anonymous and member writes are rejected.
+	if w := doJSON(t, h, http.MethodPut, "/api/v1/dicts/site.basic", map[string]any{
+		"value": map[string]any{"site_name": "Hacked"},
+	}); w.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous replace = %d, want 401", w.Code)
+	}
+}
+
 func TestDictPermissions(t *testing.T) {
 	env := newTestEnv(t, false)
 	h := env.handler
@@ -752,6 +831,7 @@ func TestDictPermissions(t *testing.T) {
 		{http.MethodGet, "/api/v1/dict-groups", nil},
 		{http.MethodPost, "/api/v1/dict-groups", map[string]any{"key": "x.y", "name": "X"}},
 		{http.MethodPatch, fmt.Sprintf("/api/v1/dict-items/%d", item.ID), map[string]any{"label": "Nope"}},
+		{http.MethodPut, "/api/v1/dicts/site.basic", map[string]any{"value": map[string]any{"site_name": "Nope"}}},
 		{http.MethodDelete, fmt.Sprintf("/api/v1/dict-groups/%d", group.ID), nil},
 	} {
 		if w := doJSONAuth(t, h, tc.method, tc.path, tc.body, member.accessToken); w.Code != http.StatusForbidden {

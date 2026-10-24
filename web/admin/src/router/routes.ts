@@ -16,6 +16,8 @@ import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import UsersView from '@/views/UsersView.vue'
 import DictsView from '@/views/DictsView.vue'
+import BasicSettingsView from '@/views/BasicSettingsView.vue'
+import SeoSettingsView from '@/views/SeoSettingsView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
 
 /**
@@ -70,6 +72,22 @@ export const routes: RouteRecordRaw[] = [
         name: 'dicts',
         component: DictsView,
         meta: { title: '字典管理', permission: 'dicts:write' },
+      },
+      {
+        path: 'settings',
+        redirect: '/settings/basic',
+      },
+      {
+        path: 'settings/basic',
+        name: 'settings-basic',
+        component: BasicSettingsView,
+        meta: { title: '基础设置', permission: 'dicts:write' },
+      },
+      {
+        path: 'settings/seo',
+        name: 'settings-seo',
+        component: SeoSettingsView,
+        meta: { title: 'SEO设置', permission: 'dicts:write' },
       },
       // catch-all：未匹配路由渲染 404（保持在后台布局内）
       {

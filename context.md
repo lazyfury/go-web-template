@@ -9,7 +9,7 @@
 - 技术栈：Go 1.26 / Gin / GORM / PostgreSQL / uber-go/zap / viper / golang-migrate / Prometheus / OpenAPI 3.0（routekit 代码生成）/ JWT（golang-jwt v5）+ bcrypt。
 - 认证：邮箱+密码登录 → **JWT access token（15m）+ HttpOnly refresh cookie（滑动 30 天 + 绝对上限 90 天，轮换带 30s 复用宽限）**；RBAC `admin`/`member`；`/api/v1` 除 `/auth/login`、`/auth/refresh` 外全部要求登录。
 - 模块路径：`github.com/example/go-web-template`（真实项目用 `scripts/rename-module.sh` 替换）。
-- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），真实登录（JWT + refresh cookie）/ 权限化菜单 / 仪表盘 / users CRUD / 字典管理；开发时 vite 将 `/api` 代理到 `:8080`。API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`），详见 `web/admin/README.md`。
+- **配套前端**：`web/admin/`（Vue 3 + TS + Vite + Element Plus + UnoCSS），真实登录（JWT + refresh cookie）/ 权限化菜单 / 仪表盘 / users CRUD / 字典管理 / 系统设置（基础设置、SEO 设置）；开发时 vite 将 `/api` 代理到 `:8080`。API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`），详见 `web/admin/README.md`。
 
 ## 2. 架构总览
 
@@ -169,6 +169,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/users/:id` | PATCH | 是 | `users:write` 或 `users:write:self` | 局部更新；member 仅本人且不能改 role/status/password | 200 | 400/401/403/404/409 |
 | `/api/v1/users/:id` | DELETE | 是 | `users:delete` | 软删除；管理员不能删自己 | 204 | 400/401/403/404 |
 | `/api/v1/dicts/:group` | GET | 是 | `dicts:read` | 消费侧取该 setting 的 dict array（仅启用项，按 sort 排序） | 200 `[ItemDTO]` | 400/401/403/404 |
+| `/api/v1/dicts/:group` | PUT | 是 | `dicts:write` | 整组替换 setting：`{"value": {...}}` 或 `{"value": [...]}`，语义同 `dict.Store.Replace` | 204 | 400/401/403 |
 | `/api/v1/dict-groups` | GET | 是 | `dicts:write` | 分组分页列表（含停用，带 item_count） | 200 `GroupListResponse` | 401/403 |
 | `/api/v1/dict-groups` | POST | 是 | `dicts:write` | 新建 setting；`key` 创建后不可改 | 201 `GroupDTO` | 400/401/403/409 |
 | `/api/v1/dict-groups/:id` | GET | 是 | `dicts:write` | 分组详情（带 item_count） | 200 `GroupDTO` | 400/401/403/404 |
@@ -180,7 +181,8 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/dict-items/:id` | DELETE | 是 | `dicts:write` | 软删除 item | 204 | 400/401/403/404 |
 
 - `dicts:read` 授予 admin + member；`dicts:write` 仅 admin。消费侧只返回启用组/项，管理侧可见停用数据。
-- 业务模块不需要走 HTTP：`dict.Store` 提供 `Get` / `GetInto` / `Replace`（见 §10）。
+- `ItemDTO.value` 是**存储原值**（空字符串表示未显式设置）；`dict.Store.GetInto` 解码时才回落 `item_key`，避免前端表单回写时把 key 误固化成 value。
+- 业务模块内部用 `dict.Store` 的 `Get` / `GetInto` / `Replace`（见 §10）；前端/外部系统用 `GET` / `PUT /api/v1/dicts/:group`。
 
 | 端点 | 方法 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|

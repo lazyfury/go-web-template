@@ -203,6 +203,9 @@ export const request = {
   post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     return client.post<ApiEnvelope<T>>(url, data, config).then((r) => unwrap<T>(r))
   },
+  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+    return client.put<ApiEnvelope<T>>(url, data, config).then((r) => unwrap<T>(r))
+  },
   patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     return client.patch<ApiEnvelope<T>>(url, data, config).then((r) => unwrap<T>(r))
   },

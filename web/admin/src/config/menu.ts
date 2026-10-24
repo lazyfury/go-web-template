@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Collection, Odometer, User } from '@element-plus/icons-vue'
+import { Collection, Odometer, Search, Setting, Tools, User } from '@element-plus/icons-vue'
 import type { PermissionKey } from '@/router/routes'
 
 /**
@@ -40,5 +40,15 @@ export const menuConfig: MenuItem[] = [
     icon: Collection,
     // 管理端需要写权限；消费侧读取由各业务页面自行调用 /dicts/:group。
     permission: 'dicts:write',
+  },
+  {
+    path: '/settings',
+    title: '系统设置',
+    icon: Setting,
+    permission: 'dicts:write',
+    children: [
+      { path: '/settings/basic', title: '基础设置', icon: Tools },
+      { path: '/settings/seo', title: 'SEO设置', icon: Search },
+    ],
   },
 ]

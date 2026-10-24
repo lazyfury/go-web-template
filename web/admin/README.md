@@ -26,6 +26,8 @@ pnpm gen:api    # docs/openapi.json → src/types/openapi.ts
 | `/dashboard` | 仪表盘：统计卡 + 销售趋势 + 渠道占比 + 最新用户 | 统计为演示值，最新用户走真实 API |
 | `/users` | 用户管理：搜索 / 分页 / 新建 / 编辑 / 删除 | 全部对接真实 `/api/v1/users` |
 | `/dicts` | 字典管理：左侧 group（setting）列表，右侧维护 dict items | 全部对接真实 `/api/v1/dict-groups`、`/api/v1/dict-items` |
+| `/settings/basic` | 基础设置：站点名称/地址/Logo/联系方式等 | `GET` + `PUT /api/v1/dicts/site.basic` |
+| `/settings/seo` | SEO 设置：标题/关键词/描述/robots/og:image | `GET` + `PUT /api/v1/dicts/site.seo` |
 | 任意未匹配 | 404（后台布局内） | — |
 
 ## 目录结构
@@ -36,14 +38,14 @@ web/admin/src/
 ├── components/
 │   ├── common/     # 通用组件（StatCard / StatusTag）
 │   └── layout/     # 布局组件（AppSidebar / AppHeader / AppTabs）
-├── composables/    # usePagination（分页状态封装）
+├── composables/    # usePagination（分页）/ useSettingGroup（整组 setting 读写）
 ├── config/         # menu.ts 侧栏菜单配置（与路由解耦）
 ├── layouts/        # AdminLayout 主布局
 ├── router/         # 静态路由表 + 登录守卫
 ├── stores/         # pinia：auth（登录态）/ tabs（多标签工作区）
 ├── styles/         # tokens.css 设计令牌 / base.css / element.css（EP 主题接入）
 ├── types/          # 类型与常量（api 信封 / user / auth / dict / openapi 生成）
-└── views/          # 页面（Login / Dashboard / Users / Dicts / NotFound）
+└── views/          # 页面（Login / Dashboard / Users / Dicts / Settings / NotFound）
 ```
 
 ## 范式约定（相对参考项目的修正）
@@ -96,6 +98,8 @@ pnpm gen:api
 后端 RBAC：`admin` = `users:read/write/delete` + `dicts:read/write`；`member` = `users:read:self` + `users:write:self` + `dicts:read`。前端隐藏只是体验，**真正判定在服务端**（40100 未认证 / 40300 无权限）。
 
 ## 字典/配置页
+
+`/settings/basic` 与 `/settings/seo` 是「整组 setting」表单：用 `useSettingGroup(group, defaults)` 读取 `GET /dicts/:group`，保存走 `PUT /dicts/:group`（object → items，整组替换，首次保存自动建组）。
 
 `/dicts` 是 master-detail 布局：
 

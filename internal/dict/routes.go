@@ -33,6 +33,15 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 		routekit.Middleware(authkit.RequirePermission(authkit.PermDictsWrite)),
 	)
 
+	admin.PUT("/dicts/:group", &routekit.Op{
+		ID:        "replaceDictValues",
+		Summary:   "Replace a whole setting with an object or array value (admin)",
+		Params:    []routekit.Param{routekit.Path[string]("group", "Group key, e.g. site.seo")},
+		Request:   routekit.JSON[ReplaceValuesRequest](true),
+		Responses: []routekit.Response{routekit.NoContent()},
+		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeForbidden},
+	}, h.ReplaceValues)
+
 	admin.POST("/dict-groups", &routekit.Op{
 		ID:        "createDictGroup",
 		Summary:   "Create a dict group (admin)",

@@ -180,7 +180,8 @@ export interface paths {
         };
         /** Get the enabled dict array of a group */
         get: operations["getDictValues"];
-        put?: never;
+        /** Replace a whole setting with an object or array value (admin) */
+        put: operations["replaceDictValues"];
         post?: never;
         delete?: never;
         options?: never;
@@ -337,6 +338,9 @@ export interface components {
             refresh_token?: string;
             token_type: string;
             user: components["schemas"]["UserView"];
+        };
+        ReplaceValuesRequest: {
+            value: unknown;
         };
         UpdateGroupRequest: {
             description?: string | null;
@@ -1062,6 +1066,37 @@ export interface operations {
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    replaceDictValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Group key, e.g. site.seo */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceValuesRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];

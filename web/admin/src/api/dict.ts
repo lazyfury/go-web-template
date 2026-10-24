@@ -68,4 +68,12 @@ export const dictApi = {
   values(group: string): Promise<DictItem[]> {
     return request.get<DictItem[]>(`/dicts/${encodeURIComponent(group)}`)
   },
+
+  /**
+   * PUT /api/v1/dicts/:group（管理端）：整组替换。
+   * object → key/value items；array → 按顺序的 items。
+   */
+  replace(group: string, value: unknown): Promise<void> {
+    return request.put<void>(`/dicts/${encodeURIComponent(group)}`, { value })
+  },
 }

@@ -34,6 +34,24 @@ func (h *Handler) GetValues(c *gin.Context) {
 	httpx.OK(c, toItemDTOs(items))
 }
 
+// ReplaceValues handles PUT /api/v1/dicts/:group: whole-setting replacement
+// using the same object/array semantics as dict.Store.Replace.
+func (h *Handler) ReplaceValues(c *gin.Context) {
+	if !requirePrincipal(c) {
+		return
+	}
+	var req ReplaceValuesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, apperr.Wrap(apperr.CodeInvalidArgument, validationMessage(err), err))
+		return
+	}
+	if err := h.svc.Replace(c.Request.Context(), c.Param("group"), req.Value); err != nil {
+		httpx.Fail(c, err)
+		return
+	}
+	httpx.NoContent(c)
+}
+
 // CreateGroup handles POST /api/v1/dict-groups.
 func (h *Handler) CreateGroup(c *gin.Context) {
 	if !requirePrincipal(c) {

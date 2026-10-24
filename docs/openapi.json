@@ -1097,6 +1097,62 @@
             "bearerAuth": []
           }
         ]
+      },
+      "put": {
+        "operationId": "replaceDictValues",
+        "summary": "Replace a whole setting with an object or array value (admin)",
+        "tags": [
+          "dicts"
+        ],
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "Group key, e.g. site.seo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceValuesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/users": {
@@ -1833,6 +1889,15 @@
           "token_type",
           "expires_in",
           "user"
+        ]
+      },
+      "ReplaceValuesRequest": {
+        "type": "object",
+        "properties": {
+          "value": {}
+        },
+        "required": [
+          "value"
         ]
       },
       "UpdateGroupRequest": {
