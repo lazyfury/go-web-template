@@ -16,7 +16,7 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 		ID:        "createUser",
 		Summary:   "Create a user",
 		Request:   routekit.JSON[CreateRequest](true),
-		Responses: []routekit.Response{routekit.Created[User]("created user")},
+		Responses: []routekit.Response{routekit.Created[UserDTO]("created user")},
 		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeConflict},
 	}, h.Create)
 
@@ -35,7 +35,7 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 		ID:        "getUser",
 		Summary:   "Get a user by id",
 		Params:    []routekit.Param{routekit.Path[uint64]("id", "User ID")},
-		Responses: []routekit.Response{routekit.OK[User]("user")},
+		Responses: []routekit.Response{routekit.OK[UserDTO]("user")},
 		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeNotFound},
 	}, h.Get)
 
@@ -44,7 +44,7 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 		Summary:   "Update a user",
 		Params:    []routekit.Param{routekit.Path[uint64]("id", "User ID")},
 		Request:   routekit.JSON[UpdateRequest](true),
-		Responses: []routekit.Response{routekit.OK[User]("user")},
+		Responses: []routekit.Response{routekit.OK[UserDTO]("user")},
 		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeNotFound, apperr.CodeConflict},
 	}, h.Update)
 

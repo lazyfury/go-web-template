@@ -22,12 +22,16 @@
 前置条件：Go ≥ 1.26、Docker。
 
 ```bash
-# 1. 一键起 postgres + 迁移 + 应用（或分步执行下方命令）
+# 1. 一键起 postgres + 迁移 + 应用（compose 按生产式默认关闭文档端点）
 make docker-up
+# 本地想看 Swagger UI 时（会重建 app 容器）：
+# APP_SWAGGER_ENABLED=true make docker-up
 
 # 2. 验证
 curl http://localhost:8080/healthz        # {"status":"ok"}
 curl http://localhost:8080/readyz         # {"status":"ok"}
+
+# 文档端点开启后：
 curl http://localhost:8080/openapi.json       # OpenAPI 3.0 契约
 curl http://localhost:8080/swagger/index.html # Swagger UI
 ```
@@ -112,6 +116,8 @@ go-web-template/
 | `APP_HTTP_MAX_BODY_BYTES` | 请求体大小上限 | `1048576`（1 MiB） |
 | `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔） | `*` |
 | `APP_SWAGGER_ENABLED` | 是否暴露 `/openapi.json` 与 Swagger UI | `true` |
+
+`deploy/docker-compose.yml` 按生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地调试时显式 `APP_SWAGGER_ENABLED=true make docker-up`。
 
 生产环境建议：通过密钥管理注入 `APP_DATABASE_PASSWORD` 等敏感项；将 CORS 收紧为实际域名；`APP_DEBUG=false`、`APP_LOG_FORMAT=json`。
 

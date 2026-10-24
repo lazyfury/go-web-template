@@ -51,7 +51,7 @@ func TestOpenAPIDocument(t *testing.T) {
 			t.Errorf("missing path %q", path)
 		}
 	}
-	for _, schema := range []string{"CreateRequest", "UpdateRequest", "User", "ListResponse"} {
+	for _, schema := range []string{"CreateRequest", "UpdateRequest", "UserDTO", "ListResponse"} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Errorf("missing component schema %q", schema)
 		}
@@ -74,8 +74,8 @@ func TestOpenAPIDocument(t *testing.T) {
 		t.Fatalf("decode POST /users: %v", err)
 	}
 	dataRef := create.Responses["201"].Content["application/json"].Schema.Properties["data"].Ref
-	if dataRef != "#/components/schemas/User" {
-		t.Errorf("201 data $ref = %q, want #/components/schemas/User", dataRef)
+	if dataRef != "#/components/schemas/UserDTO" {
+		t.Errorf("201 data $ref = %q, want #/components/schemas/UserDTO", dataRef)
 	}
 }
 

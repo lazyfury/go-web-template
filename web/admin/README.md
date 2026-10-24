@@ -13,6 +13,7 @@ cd web/admin
 pnpm install
 pnpm dev        # http://localhost:5173，/api 代理到 http://localhost:8080（Go 后端）
 pnpm build      # 类型检查 + 生产构建到 dist/
+pnpm gen:api    # docs/openapi.json → src/types/openapi.ts
 ```
 
 登录页为**演示模式**（mock）：任意用户名 + 4 位以上密码即可登录，见下方「接入真实认证」。
@@ -40,7 +41,7 @@ web/admin/src/
 ├── router/         # 静态路由表 + 登录守卫
 ├── stores/         # pinia：auth（登录态）/ tabs（多标签工作区）
 ├── styles/         # tokens.css 设计令牌 / base.css / element.css（EP 主题接入）
-├── types/          # 类型与常量（api 信封 / user / auth）
+├── types/          # 类型与常量（api 信封 / user / auth / openapi 生成）
 └── views/          # 页面（Login / Dashboard / Users / NotFound）
 ```
 
@@ -63,6 +64,22 @@ web/admin/src/
 - **设计令牌**：`src/styles/tokens.css` —— 品牌色（Indigo）、中性色、圆角、阴影、布局尺寸全部为 CSS 变量，Element Plus 主题变量（`--el-color-primary` 等）映射同一套令牌，保证组件与自定义样式同源。
 - **原子类**：UnoCSS 组合布局与间距；图标用 `i-ep-*` 类（按需编译）。
 - **组件微调**：集中在 `element.css`，页面内不再散落 `:deep()` 覆盖。
+
+## API 类型同步
+
+后端是契约的唯一事实来源：
+
+```bash
+# 仓库根：改了路由/routekit.Op 之后
+make openapi
+
+# web/admin：从 docs/openapi.json 生成 TypeScript 类型
+pnpm gen:api
+```
+
+- 生成物：`src/types/openapi.ts`（提交入库，业务层通过 `src/types/user.ts` 的别名使用）。
+- CI 会跑 `pnpm api:check`：重新生成并 `git diff --exit-code`，防止契约变更后忘记更新前端类型。
+- 业务代码不要手写重复的 `User` / `CreateUserPayload` 等接口，统一从 `components['schemas']` 取。
 
 ## 接入真实认证
 

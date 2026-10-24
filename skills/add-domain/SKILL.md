@@ -74,6 +74,7 @@ func NewService(repo Repository) *Service { return &Service{repo: repo} }
 - 请求 DTO 用 binding tag：`binding:"required,min=2,max=128"`；失败 → `apperr.Wrap(apperr.CodeInvalidArgument, validationMessage(err), err)`。
 - **不要写 Swagger 注解**：请求/响应类型与错误码统一在 `routes.go` 的 `routekit.Op` 里声明，OpenAPI 由启动时反射生成。
 - 响应一律 `httpx.OK/Created/NoContent/Fail`；ID 解析复用包内 `parseID`。列表等复合响应用具体结构体（如 `ListResponse`），不要用 `gin.H`，否则 spec 的 `data` 会退化成空对象。
+- 响应 DTO 放 `internal/<domain>/dto.go`（如 `UserDTO`），不要直接返回 GORM entity；持久化字段（软删时间等）不应出现在 API/OpenAPI。
 - 构造函数参数名不要与 import 包名同名（用 `svc`，否则 `gocritic:importShadow`）。
 
 ## 6. routes（`internal/post/routes.go`）

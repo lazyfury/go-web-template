@@ -69,6 +69,7 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
 - 显式 `-config` 缺失 → 启动失败；默认路径缺失 → 用默认值 + env。
 - 生产建议：密钥走环境变量/密钥管理；`APP_DEBUG=false`、CORS 收紧、`APP_LOG_FORMAT=json`。
+- `deploy/docker-compose.yml` 是生产式编排，默认 `APP_SWAGGER_ENABLED=false`；本地看文档用 `APP_SWAGGER_ENABLED=true make docker-up`。
 
 ## 5. 数据模型与迁移
 
@@ -86,6 +87,7 @@ swagger:  {enabled}   # /openapi.json + Swagger UI
 - 迁移工具：golang-migrate（SQL 文件），`make migrate-up/down/create`。
 - **GORM model 与迁移 SQL 是两套事实来源**，改表必须两处同步；测试库用 `AutoMigrate`（`internal/testutil.NewSQLiteDB(t, &user.User{})`）自动建表。
 - 新表记住：唯一索引要考虑软删除场景；查询保持 `LOWER()` 可移植写法。
+- HTTP 响应使用 `internal/user/dto.go` 的 `UserDTO`/`ListResponse`，GORM entity 不直接作为 API 模型；暴露新字段必须改 DTO，避免 DB 字段意外泄漏。
 
 ## 6. API 契约
 

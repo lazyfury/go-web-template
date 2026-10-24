@@ -1,34 +1,30 @@
 import type { PageParams } from './api'
+import type { components } from './openapi'
 
-/** 用户状态，与后端 model.UserStatus 对齐：1=启用 0=禁用。 */
+type Schemas = components['schemas']
+
+/**
+ * 用户 API 类型由 `docs/openapi.json` 生成（`pnpm gen:api`）。
+ * 后端改 DTO 后先 `make openapi`，再 `pnpm gen:api`，不要手写重复接口。
+ */
+export type User = Schemas['UserDTO']
+
+/** 用户状态，与后端 OpenAPI enum 对齐：1=启用 0=禁用。 */
 export const UserStatus = {
   ACTIVE: 1,
   DISABLED: 0,
 } as const
 
-export type UserStatusValue = (typeof UserStatus)[keyof typeof UserStatus]
-
-/** 用户实体（internal/model.User 的 JSON 形态）。 */
-export interface User {
-  id: number
-  name: string
-  email: string
-  status: UserStatusValue
-  created_at: string
-  updated_at: string
-}
+export type UserStatusValue = User['status']
 
 /** 创建用户请求体（POST /api/v1/users）。 */
-export interface CreateUserPayload {
-  name: string
-  email: string
-}
+export type CreateUserPayload = Schemas['CreateRequest']
 
-/** 更新用户请求体（PATCH /api/v1/users/:id，指针语义：未传字段不更新）。 */
-export interface UpdateUserPayload {
-  name?: string
-  email?: string
-}
+/** 更新用户请求体（PATCH /api/v1/users/:id，未传字段不更新）。 */
+export type UpdateUserPayload = Schemas['UpdateRequest']
+
+/** 用户列表响应。 */
+export type UserPage = Schemas['ListResponse']
 
 /** 用户列表查询参数。 */
 export interface UserListParams extends PageParams {

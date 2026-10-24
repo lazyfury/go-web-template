@@ -20,26 +20,6 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// CreateRequest is the payload for POST /users.
-type CreateRequest struct {
-	Name  string `json:"name" binding:"required,min=2,max=64"`
-	Email string `json:"email" binding:"required,email,max=255"`
-}
-
-// UpdateRequest is the payload for PATCH /users/:id.
-type UpdateRequest struct {
-	Name  *string `json:"name" binding:"omitempty,min=2,max=64"`
-	Email *string `json:"email" binding:"omitempty,email,max=255"`
-}
-
-// ListResponse is the payload for GET /users.
-type ListResponse struct {
-	Items    []User `json:"items"`
-	Total    int64  `json:"total"`
-	Page     int    `json:"page"`
-	PageSize int    `json:"page_size"`
-}
-
 // Create handles POST /api/v1/users.
 func (h *Handler) Create(c *gin.Context) {
 	var req CreateRequest
@@ -52,7 +32,7 @@ func (h *Handler) Create(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	httpx.Created(c, user)
+	httpx.Created(c, toDTO(user))
 }
 
 // Get handles GET /api/v1/users/:id.
@@ -67,7 +47,7 @@ func (h *Handler) Get(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	httpx.OK(c, user)
+	httpx.OK(c, toDTO(user))
 }
 
 // List handles GET /api/v1/users.
@@ -82,7 +62,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 	httpx.OK(c, ListResponse{
-		Items:    users,
+		Items:    toDTOs(users),
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
@@ -106,7 +86,7 @@ func (h *Handler) Update(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	httpx.OK(c, user)
+	httpx.OK(c, toDTO(user))
 }
 
 // Delete handles DELETE /api/v1/users/:id.

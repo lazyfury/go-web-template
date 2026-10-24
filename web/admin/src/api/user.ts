@@ -4,16 +4,16 @@ import type {
   UpdateUserPayload,
   User,
   UserListParams,
+  UserPage,
 } from '@/types/user'
-import type { PageResult } from '@/types/api'
 
 /**
  * 用户领域 API。直接对接 go-web-template 后端 /api/v1/users。
  */
 export const userApi = {
   /** GET /api/v1/users?page&page_size&keyword */
-  list(params: UserListParams): Promise<PageResult<User>> {
-    return request.get<PageResult<User>>('/users', { params })
+  list(params: UserListParams): Promise<UserPage> {
+    return request.get<UserPage>('/users', { params })
   },
 
   /** POST /api/v1/users */
