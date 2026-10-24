@@ -58,8 +58,10 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 	}, h.Get)
 
 	writeAny.PATCH("/:id", &routekit.Op{
-		ID:        "updateUser",
-		Summary:   "Update a user (admin any field, member only own name/email)",
+		ID:      "updateUser",
+		Summary: "Update a user (admin any field, member only own name/phone)",
+		Description: "Members may patch only their own name and phone. Role, status, password and email are admin-only: " +
+			"the email conflict error would otherwise let any member test whether an address is registered.",
 		Params:    []routekit.Param{routekit.Path[uint64]("id", "User ID")},
 		Request:   routekit.JSON[UpdateRequest](true),
 		Responses: []routekit.Response{routekit.OK[UserDTO]("user")},

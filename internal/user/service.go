@@ -110,7 +110,7 @@ func (s *Service) Get(ctx context.Context, actor authkit.Principal, id uint64) (
 // It also returns the normalized page/pageSize so the handler echoes what was
 // actually applied: a request for page_size=100000 used to come back with
 // page_size=100000 in the envelope while only 20 rows were read.
-func (s *Service) List(ctx context.Context, actor authkit.Principal, page, pageSize int, keyword string) ([]User, int64, int, int, error) {
+func (s *Service) List(ctx context.Context, actor authkit.Principal, page, pageSize int, keyword string) (items []User, total int64, normalizedPage, normalizedSize int, err error) {
 	if !actor.IsAdmin() {
 		return nil, 0, 0, 0, forbidden("insufficient permissions")
 	}
@@ -121,16 +121,17 @@ func (s *Service) List(ctx context.Context, actor authkit.Principal, page, pageS
 		pageSize = 20
 	}
 	offset := (page - 1) * pageSize
-	users, total, err := s.repo.List(ctx, offset, pageSize, strings.TrimSpace(keyword))
+	items, total, err = s.repo.List(ctx, offset, pageSize, strings.TrimSpace(keyword))
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
-	return users, total, page, pageSize, nil
+	return items, total, page, pageSize, nil
 }
 
 // Update applies a partial update, rejecting an email owned by another user.
-// Members may only update themselves and may not change role, status or
-// password through this endpoint (password changes go through /auth/password).
+// Members may only update their own name/phone: role, status, password and
+// email are admin-only (email also because the conflict error would let any
+// member probe which addresses are registered).
 func (s *Service) Update(ctx context.Context, actor authkit.Principal, id uint64, patch Patch) (*User, error) {
 	if !canRead(actor, id) {
 		return nil, forbidden("insufficient permissions")
@@ -146,6 +147,13 @@ func (s *Service) Update(ctx context.Context, actor authkit.Principal, id uint64
 	}
 
 	if patch.Email != nil {
+		// A member may not change their own email: the "email already
+		// registered" conflict is an enumeration oracle (any authenticated
+		// member could test whether an address has an account). Email changes
+		// are an admin operation until there is a verified self-service flow.
+		if !actor.IsAdmin() {
+			return nil, forbidden("insufficient permissions")
+		}
 		email := normalizeEmail(*patch.Email)
 		if existing, err := s.repo.FindByEmail(ctx, email); err == nil && existing.ID != id {
 			return nil, apperr.Wrap(apperr.CodeConflict, "email already registered", nil)

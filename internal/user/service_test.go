@@ -333,3 +333,37 @@ func TestServiceListNormalizesPaging(t *testing.T) {
 		}
 	}
 }
+
+// TestServiceMemberCannotChangeEmail 钉住 F9：成员改自己邮箱曾返回 409
+// "email already registered"，等于给所有已登录用户一个邮箱枚举接口。
+func TestServiceMemberCannotChangeEmail(t *testing.T) {
+	repo := newMockUserRepo()
+	svc := newTestService(repo)
+	self := authkit.Principal{UserID: memberA.UserID, Role: authkit.RoleMember}
+	existing := "taken@example.com"
+	free := "free@example.com"
+
+	created, err := svc.Create(context.Background(), &Input{
+		Name: "Member", Email: "member-self@example.com", Password: "password-1234", Role: authkit.RoleMember,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Create(context.Background(), &Input{
+		Name: "Taken", Email: existing, Password: "password-1234", Role: authkit.RoleMember,
+	}); err != nil {
+		t.Fatalf("Create taken: %v", err)
+	}
+
+	// 无论目标邮箱是否已注册，成员都只能拿到 403（不可区分）。
+	for _, email := range []string{existing, free} {
+		_, err := svc.Update(context.Background(), self, created.ID, Patch{Email: &email})
+		if !errors.Is(err, apperr.ErrForbidden) {
+			t.Errorf("member changing email to %q = %v, want forbidden", email, err)
+		}
+	}
+	// 管理员仍可改（此时 409 才有意义）。
+	if _, err := svc.Update(context.Background(), adminActor, created.ID, Patch{Email: &existing}); !errors.Is(err, apperr.ErrConflict) {
+		t.Errorf("admin duplicate email = %v, want conflict", err)
+	}
+}

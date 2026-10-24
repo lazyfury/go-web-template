@@ -413,7 +413,10 @@ export interface paths {
         delete: operations["deleteUser"];
         options?: never;
         head?: never;
-        /** Update a user (admin any field, member only own name/email) */
+        /**
+         * Update a user (admin any field, member only own name/phone)
+         * @description Members may patch only their own name and phone. Role, status, password and email are admin-only: the email conflict error would otherwise let any member test whether an address is registered.
+         */
         patch: operations["updateUser"];
         trace?: never;
     };

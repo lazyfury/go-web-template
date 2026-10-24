@@ -190,7 +190,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/users` | GET | 是 | `users:read` | 列表（admin） | 200 | 401/403 |
 | `/api/v1/users` | POST | 是 | `users:write` | 建用户（须带初始密码） | 201 | 400/401/403/409 |
 | `/api/v1/users/:id` | GET | 是 | `users:read` 或 `users:read:self` | 详情；member 仅本人 | 200 | 400/401/403/404 |
-| `/api/v1/users/:id` | PATCH | 是 | `users:write` 或 `users:write:self` | 局部更新；member 仅本人且不能改 role/status/password | 200 | 400/401/403/404/409 |
+| `/api/v1/users/:id` | PATCH | 是 | `users:write` 或 `users:write:self` | 局部更新；member 仅本人且只能改 name/phone（role/status/password/email 均管理员专属：email 冲突错误会变成邮箱枚举 oracle） | 200 | 400/401/403/404/409 |
 | `/api/v1/users/:id` | DELETE | 是 | `users:delete` | 软删除；管理员不能删自己 | 204 | 400/401/403/404 |
 | `/api/v1/dicts/:group` | GET | 是 | `dicts:read` | 消费侧取该 setting 的 dict array（仅启用项，按 sort 排序） | 200 `[ItemDTO]` | 400/401/403/404 |
 | `/api/v1/dicts/:group` | PUT | 是 | `dicts:write` | 整组替换 setting：`{"value": {...}}` 或 `{"value": [...]}`，语义同 `dict.Store.Replace` | 204 | 400/401/403 |

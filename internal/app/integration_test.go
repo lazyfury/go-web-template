@@ -1284,3 +1284,32 @@ func TestListEchoesNormalizedPaging(t *testing.T) {
 		t.Errorf("page/page_size = %d/%d, want 1/20 (normalized)", body.Data.Page, body.Data.PageSize)
 	}
 }
+
+// TestMemberCannotProbeEmailsViaPatch 是 F9 的对外断言：成员 PATCH 自己的 email
+// 时，无论目标地址是否已注册都必须 403（此前是 200/409 二选一 = 枚举接口）。
+func TestMemberCannotProbeEmailsViaPatch(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+
+	memberID, _ := createUser(t, h, admin.accessToken, "Mia", memberEmail)
+	w := doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", memberID),
+		map[string]string{"password": memberPass}, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set member password = %d", w.Code)
+	}
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	for _, email := range []string{adminEmail, "nobody-free@example.com"} {
+		w := doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", memberID),
+			map[string]string{"email": email}, member.accessToken)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("member patch email=%s = %d, want 403 (no enumeration oracle)", email, w.Code)
+		}
+	}
+	// 自己的 name 仍然可以改。
+	if w := doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", memberID),
+		map[string]string{"name": "Mia Renamed"}, member.accessToken); w.Code != http.StatusOK {
+		t.Errorf("member patch own name = %d, want 200", w.Code)
+	}
+}
