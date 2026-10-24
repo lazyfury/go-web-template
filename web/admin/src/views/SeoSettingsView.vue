@@ -25,7 +25,7 @@ onMounted(load)
 
 <template>
   <div class="app-page p-4 md:p-5">
-    <div class="app-card mx-auto max-w-4xl overflow-hidden">
+    <div class="app-card w-full overflow-hidden">
       <div class="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div>
           <div class="flex items-center gap-2">
