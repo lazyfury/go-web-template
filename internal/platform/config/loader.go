@@ -86,6 +86,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.refresh_max_lifetime", "2160h")
 	v.SetDefault("auth.refresh_reuse_interval", "30s")
 	v.SetDefault("auth.bcrypt_cost", 12)
+	// 每次认证请求都要读用户的 status/role/token_version；短 TTL 缓存省掉这次读。
+	// 本进程内的写（改密/改角色/禁用/删除）都会立即失效，跨副本最多滞后一个 TTL。
+	// 置 0 关闭缓存（每请求一次 DB 读）。
+	v.SetDefault("auth.verify_cache_ttl", "5s")
 	v.SetDefault("auth.login_max_attempts", 5)
 	v.SetDefault("auth.login_lockout", "15m")
 	v.SetDefault("auth.login_rps", 5.0)
@@ -382,6 +386,9 @@ func (c *Config) validateAuth() error {
 	}
 	if c.Auth.BcryptCost < 10 || c.Auth.BcryptCost > 14 {
 		return fmt.Errorf("auth.bcrypt_cost must be between 10 and 14")
+	}
+	if c.Auth.VerifyCacheTTL < 0 || c.Auth.VerifyCacheTTL > time.Minute {
+		return fmt.Errorf("auth.verify_cache_ttl must be between 0 and 1m: a longer window delays revocation on other replicas")
 	}
 	if c.Auth.LoginMaxAttempts <= 0 {
 		return fmt.Errorf("auth.login_max_attempts must be positive")

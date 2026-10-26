@@ -152,6 +152,12 @@ type Auth struct {
 	// BcryptCost is the password hashing cost (10-14).
 	BcryptCost int `mapstructure:"bcrypt_cost"`
 
+	// VerifyCacheTTL memoizes the per-user status/role/token-version read that
+	// every authenticated request needs. In-process writes (password change,
+	// role change, disable, delete) invalidate immediately, so the TTL only
+	// bounds how long another replica can lag behind. 0 disables the cache.
+	VerifyCacheTTL time.Duration `mapstructure:"verify_cache_ttl"`
+
 	// LoginMaxAttempts consecutive failures lock the account for LoginLockout.
 	LoginMaxAttempts int           `mapstructure:"login_max_attempts"`
 	LoginLockout     time.Duration `mapstructure:"login_lockout"`

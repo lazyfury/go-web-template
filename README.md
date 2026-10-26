@@ -189,6 +189,7 @@ go-web-template/
 | `APP_AUTH_REFRESH_MAX_LIFETIME` | 会话绝对上限（从首次登录算，到点强制重登） | `2160h`（90 天） |
 | `APP_AUTH_REFRESH_REUSE_INTERVAL` | 轮换后旧 token 的容忍窗口（多标签页竞态） | `30s` |
 | `APP_AUTH_PASSWORD_RPS` / `APP_AUTH_PASSWORD_BURST` | 改密端点按用户限流（每秒补充 / 突发次数） | `0.2` / `5` |
+| `APP_AUTH_VERIFY_CACHE_TTL` | 认证校验缓存（每请求少一次用户行读）；本进程写立即失效，多副本最多滞后一个 TTL；`0` 关闭 | `5s`（上限 `1m`） |
 | `APP_AUTH_COOKIE_SECURE` | refresh cookie 是否带 `Secure`（本地 http 调试置 `false`；compose 默认 `true`，`make docker-up` 注入 `false`） | `true` |
 | `APP_SEED_PASSWORD` | `cmd/admin` / `make seed-admin` 的管理员密码；`cmd/seeding` 的测试用户密码 | — |
 

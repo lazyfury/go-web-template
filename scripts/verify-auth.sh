@@ -11,6 +11,8 @@
 #      revoked_reason=session_cap（覆盖 config 变更/历史数据）。
 #   F. 签名密钥轮换：jwt_retired_secrets 让旧 access token 活过一轮轮换，
 #      旧密钥退役后立刻 401，新密钥签发的 token 不受影响。
+#   G. 认证校验缓存（auth.verify_cache_ttl=5s）：本进程改密后旧 access token
+#      必须在下一次请求就 401，而不是等 TTL 过期。
 #
 # 前置：postgres 已起且迁移已应用（make db-up && make migrate-up）。
 # 用法: ./scripts/verify-auth.sh        （= make verify-auth）
@@ -183,4 +185,23 @@ start "APP_AUTH_JWT_SECRET=$S2" APP_AUTH_JWT_KEY_ID=k2
 pass "旧密钥退役 → 旧 token 401；新 token 始终 200"
 stop
 
-echo "verify-auth: PASS（A 宽限期 / B 登出立即 / C body 传输 / D 夹紧 / E 上限防御分支 / F 密钥轮换）"
+echo "== G: 认证校验缓存（改密后本进程立即生效）"
+start
+EMAIL_G="verify-auth-g-$(date +%s)@example.com"
+seed "$EMAIL_G"
+TOKEN_G=$(login_cookie "$EMAIL_G")
+[ "$(code -H "Authorization: Bearer $TOKEN_G" "$BASE/api/v1/auth/me")" = "200" ] || fail "改密前 token 应可用"
+NEW_PW='verify-auth-password-2'
+[ "$(code -H "Authorization: Bearer $TOKEN_G" -X PATCH "$BASE/api/v1/auth/password" \
+	-H 'Content-Type: application/json' \
+	-d "$(printf '{"current_password":"%s","new_password":"%s"}' "$PW" "$NEW_PW")")" = "204" ] \
+	|| fail "改密应 204"
+# 缓存 TTL 是 5s：这里立刻断言，才能证明失效走的是「写路径立即失效」而不是 TTL 过期。
+[ "$(code -H "Authorization: Bearer $TOKEN_G" "$BASE/api/v1/auth/me")" = "401" ] \
+	|| fail "改密后旧 access token 应立即 401（缓存未失效）"
+PW="$NEW_PW"
+login_cookie "$EMAIL_G" >/dev/null || fail "新密码应能登录"
+pass "改密后旧 access token 立即 401（缓存写路径失效生效）"
+stop
+
+echo "verify-auth: PASS（A 宽限期 / B 登出立即 / C body 传输 / D 夹紧 / E 上限防御分支 / F 密钥轮换 / G 校验缓存失效）"

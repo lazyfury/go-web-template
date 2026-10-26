@@ -95,6 +95,9 @@ auth:
   # 轮换后的旧 token 在 30s 内重放视为多标签页竞态（容忍），超出则按盗用处理
   refresh_reuse_interval: 30s
   bcrypt_cost: 12
+  # 认证校验缓存：每请求少一次用户行读；本进程写立即失效，多副本最多滞后一个 TTL。
+  # 0 = 关闭（每请求一次 DB 读）。上限 1m。
+  verify_cache_ttl: 5s
   login_max_attempts: 5
   login_lockout: 15m
   login_rps: 5

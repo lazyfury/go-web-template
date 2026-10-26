@@ -90,8 +90,6 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 
 	userRepo := user.NewRepository(db)
 	authRepo := auth.NewRepository(db)
-	userService := user.NewService(userRepo, hasher, sessionRevoker{repo: authRepo})
-	userHandler := user.NewHandler(userService)
 
 	issuer, err := newTokenIssuer(cfg)
 	if err != nil {
@@ -108,9 +106,14 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 			RefreshReuseInterval: cfg.Auth.RefreshReuseInterval,
 			MaxLoginAttempts:     cfg.Auth.LoginMaxAttempts,
 			Lockout:              cfg.Auth.LoginLockout,
+			VerifyCacheTTL:       cfg.Auth.VerifyCacheTTL,
 		},
 		logger,
 	)
+	// The user service writes the columns auth caches (role/status/token
+	// version), so it must invalidate that cache on every write.
+	userService := user.NewService(userRepo, hasher, sessionRevoker{repo: authRepo}, authService)
+	userHandler := user.NewHandler(userService)
 	authHandler := auth.NewHandler(authService, cfg.Auth.CookieSecure, cfg.Auth.RefreshTTL)
 
 	dictRepo := dict.NewRepository(db)

@@ -502,3 +502,31 @@ func TestValidateAllowsWeakRetiredKeyOutsideProduction(t *testing.T) {
 		t.Fatalf("development rejected a weak retired key: %v", err)
 	}
 }
+
+// TestVerifyCacheTTLDefaultAndBounds pins the knob that trades a DB read per
+// authenticated request for a bounded revocation lag on other replicas.
+func TestVerifyCacheTTLDefaultAndBounds(t *testing.T) {
+	if got := Defaults().Auth.VerifyCacheTTL; got != 5*time.Second {
+		t.Errorf("default verify_cache_ttl = %v, want 5s", got)
+	}
+	t.Setenv("APP_AUTH_VERIFY_CACHE_TTL", "0")
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.VerifyCacheTTL != 0 {
+		t.Errorf("verify_cache_ttl = %v, want 0 (cache off)", cfg.Auth.VerifyCacheTTL)
+	}
+
+	for _, ttl := range []string{"-1s", "90s"} {
+		cfg := Defaults()
+		d, err := time.ParseDuration(ttl)
+		if err != nil {
+			t.Fatalf("parse %s: %v", ttl, err)
+		}
+		cfg.Auth.VerifyCacheTTL = d
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("verify_cache_ttl=%s must be rejected", ttl)
+		}
+	}
+}

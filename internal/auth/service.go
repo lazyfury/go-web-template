@@ -38,6 +38,11 @@ type Options struct {
 	RefreshReuseInterval time.Duration
 	MaxLoginAttempts     int
 	Lockout              time.Duration
+	// VerifyCacheTTL memoizes the per-user state that VerifyAccess reads on
+	// every authenticated request. Zero disables the cache (one DB read per
+	// request); a positive value trades a bounded revocation lag on *other*
+	// replicas for that read. In-process writes always invalidate immediately.
+	VerifyCacheTTL time.Duration
 }
 
 // ClientMeta is request context stored with a refresh session for auditing.
@@ -76,6 +81,7 @@ type Service struct {
 	reuseInterval time.Duration
 	maxAttempts   int
 	lockout       time.Duration
+	verifyCache   *verifyCache
 	now           func() time.Time
 }
 
@@ -102,6 +108,7 @@ func NewService(
 		reuseInterval: options.RefreshReuseInterval,
 		maxAttempts:   options.MaxLoginAttempts,
 		lockout:       options.Lockout,
+		verifyCache:   newVerifyCache(options.VerifyCacheTTL),
 		now:           time.Now,
 	}
 }
@@ -323,28 +330,49 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 // VerifyAccess implements authkit.Verifier: it parses the JWT and then checks
 // the live user row, so disabled accounts and password changes take effect
 // immediately instead of waiting for the access token to expire.
+//
+// The row is read through a short-TTL cache (auth.verify_cache_ttl): every write
+// path in this process invalidates the entry, so "immediately" still holds for
+// a single instance; another replica can lag by at most the TTL.
 func (s *Service) VerifyAccess(ctx context.Context, rawToken string) (*authkit.Principal, error) {
 	principal, err := s.issuer.Parse(rawToken)
 	if err != nil {
 		return nil, err
 	}
-	account, err := s.users.FindByID(ctx, principal.UserID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, apperr.New(apperr.CodeUnauthorized, "invalid access token")
+	state, ok := s.verifyCache.get(principal.UserID)
+	if !ok {
+		account, err := s.users.FindByID(ctx, principal.UserID)
+		if err != nil {
+			if errors.Is(err, apperr.ErrNotFound) {
+				return nil, apperr.New(apperr.CodeUnauthorized, "invalid access token")
+			}
+			return nil, err
 		}
-		return nil, err
+		state = authState{
+			role:         account.Role,
+			tokenVersion: account.TokenVersion,
+			active:       account.IsActive(),
+		}
+		s.verifyCache.put(principal.UserID, state)
 	}
-	if !account.IsActive() || account.TokenVersion != principal.TokenVersion {
+	if !state.active || state.tokenVersion != principal.TokenVersion {
 		return nil, apperr.New(apperr.CodeUnauthorized, "invalid access token")
 	}
-	if !account.Role.Valid() {
+	if !state.role.Valid() {
 		return nil, apperr.New(apperr.CodeUnauthorized, "invalid access token")
 	}
 	// The database is authoritative for the role, so a role change does not
 	// require waiting for the token to expire.
-	principal.Role = account.Role
+	principal.Role = state.role
 	return principal, nil
+}
+
+// InvalidateAuthState drops the cached authorization state of one user, so a
+// change made through another service (role, status, password, delete) is
+// visible on the next request instead of after verify_cache_ttl. The composition
+// root wires it into the user service.
+func (s *Service) InvalidateAuthState(userID uint64) {
+	s.verifyCache.invalidate(userID)
 }
 
 // Me returns the authenticated user.
@@ -373,6 +401,8 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint64, currentPass
 	if err := s.users.SaveAuthState(ctx, account); err != nil {
 		return err
 	}
+	// The bump above must be visible on the next request, not after the TTL.
+	s.verifyCache.invalidate(account.ID)
 	if err := s.revokeAllSessions(ctx, account.ID, now, RevokePassword); err != nil {
 		return err
 	}
@@ -422,7 +452,8 @@ func (s *Service) SeedAdmin(ctx context.Context, name, email, password string, r
 	if err := s.users.SaveAuthState(ctx, account); err != nil {
 		return nil, err
 	}
-	// A credential reset must invalidate previous sessions.
+	// A credential reset must invalidate previous sessions and any cached state.
+	s.verifyCache.invalidate(account.ID)
 	if err := s.revokeAllSessions(ctx, account.ID, now, RevokePassword); err != nil {
 		return nil, err
 	}

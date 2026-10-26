@@ -133,6 +133,9 @@ for i in $(seq 1 6); do curl -s --noproxy '*' -w ' [%{http_code}]\n' -X POST \
   要彻底消除需改成按 IP+账号退避而非硬锁，属于策略变更。
 - **access token 无状态**：登出/改密后旧 access token 最多再用到自然过期（≤ `auth.access_ttl`）。
   需要"立刻失效"就走改密/禁用（`token_version++`）。
+- **多副本吊销窗口（接受）**：`auth.verify_cache_ttl`（默认 5s）让另一台副本最多滞后一个 TTL 才看到
+  改密/禁用/删除；本进程内一律即时失效（`auth.Service.InvalidateAuthState` + `user.Service` 的写路径）。
+  宁可把窗口写在这里，也不假装它是 0；要严格即时就把 TTL 置 0（换取每请求一读）。
 - **SSRF（已修，2026-10 复测）**：`WebhookSender` 的私网拦截从「只检查配置里的 URL」改成**拨号时校验真实对端地址**
   （`net.Dialer.Control`），因此 302 跳转与 DNS rebinding 都打不到私网；同时禁用出站代理（否则真实目标藏在代理后面）
   并把重定向收敛到 5 跳。本次仍**未做**真实公网端点的黑盒验证（无可用外网 webhook 目标），只有单测背书：

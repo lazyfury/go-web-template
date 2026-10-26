@@ -1537,3 +1537,44 @@ func TestAccessTokenSurvivesASigningKeyRotation(t *testing.T) {
 		t.Errorf("token signed by the new key = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
 }
+
+// TestAuthStateChangesApplyImmediately pins the composition-root wiring of the
+// access-token cache: user-service writes must invalidate it, so a disable, a
+// role change or a delete is visible on the very next request even though
+// auth.verify_cache_ttl is 5s in this configuration.
+func TestAuthStateChangesApplyImmediately(t *testing.T) {
+	env := newTestEnv(t, false)
+	h := env.handler
+	admin := env.loginAdmin(t)
+
+	memberID := env.createMember(t, admin, memberEmail, "Mia", "")
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	// Prime the cache: a couple of authenticated requests, then change the row
+	// through the user service.
+	for i := 0; i < 2; i++ {
+		if w := doJSONAuth(t, h, http.MethodGet, "/api/v1/auth/me", nil, member.accessToken); w.Code != http.StatusOK {
+			t.Fatalf("member me = %d, body=%s", w.Code, w.Body.String())
+		}
+	}
+	if w := doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", memberID),
+		map[string]string{"role": string(authkit.RoleAdmin)}, admin.accessToken); w.Code != http.StatusOK {
+		t.Fatalf("promote member = %d, body=%s", w.Code, w.Body.String())
+	}
+	// The cached member role must be gone: listing users is admin-only.
+	if w := doJSONAuth(t, h, http.MethodGet, "/api/v1/users", nil, member.accessToken); w.Code != http.StatusOK {
+		t.Errorf("promoted member list = %d, want 200 (stale cached role)", w.Code)
+	}
+
+	// Disabling bumps token_version: the access token must die immediately.
+	if w := doJSONAuth(t, h, http.MethodGet, "/api/v1/auth/me", nil, member.accessToken); w.Code != http.StatusOK {
+		t.Fatalf("me after promotion = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONAuth(t, h, http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", memberID),
+		map[string]int{"status": int(user.StatusDisabled)}, admin.accessToken); w.Code != http.StatusOK {
+		t.Fatalf("disable member = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONAuth(t, h, http.MethodGet, "/api/v1/auth/me", nil, member.accessToken); w.Code != http.StatusUnauthorized {
+		t.Errorf("disabled member me = %d, want 401", w.Code)
+	}
+}

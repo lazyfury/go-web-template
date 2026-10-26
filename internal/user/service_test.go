@@ -104,7 +104,7 @@ func (f *fakeRevoker) RevokeUserSessions(_ context.Context, userID uint64) error
 
 func newTestService(repo Repository) *Service {
 	// cost 4 keeps the tests fast; production uses auth.bcrypt_cost (12).
-	return NewService(repo, passwd.NewHasher(4), &fakeRevoker{})
+	return NewService(repo, passwd.NewHasher(4), &fakeRevoker{}, nil)
 }
 
 var (
@@ -238,7 +238,7 @@ func TestServiceUpdate(t *testing.T) {
 func TestServiceUpdatePasswordBumpsTokenVersion(t *testing.T) {
 	repo := newMockUserRepo()
 	revoker := &fakeRevoker{}
-	svc := NewService(repo, passwd.NewHasher(4), revoker)
+	svc := NewService(repo, passwd.NewHasher(4), revoker, nil)
 
 	created, _ := svc.Create(context.Background(), &Input{Name: "Dee", Email: "dee@example.com", Password: "secret-pass"})
 	password := "new-secret-pass"
@@ -262,7 +262,7 @@ func TestServiceUpdatePasswordBumpsTokenVersion(t *testing.T) {
 
 func TestServiceDisableBumpsTokenVersion(t *testing.T) {
 	revoker := &fakeRevoker{}
-	svc := NewService(newMockUserRepo(), passwd.NewHasher(4), revoker)
+	svc := NewService(newMockUserRepo(), passwd.NewHasher(4), revoker, nil)
 	created, _ := svc.Create(context.Background(), &Input{Name: "Eve", Email: "eve@example.com", Password: "secret-pass"})
 
 	disabled := StatusDisabled
@@ -365,5 +365,49 @@ func TestServiceMemberCannotChangeEmail(t *testing.T) {
 	// 管理员仍可改（此时 409 才有意义）。
 	if _, err := svc.Update(context.Background(), adminActor, created.ID, Patch{Email: &existing}); !errors.Is(err, apperr.ErrConflict) {
 		t.Errorf("admin duplicate email = %v, want conflict", err)
+	}
+}
+
+type fakeInvalidator struct{ invalidated []uint64 }
+
+func (f *fakeInvalidator) InvalidateAuthState(userID uint64) {
+	f.invalidated = append(f.invalidated, userID)
+}
+
+// TestServiceInvalidatesCachedAuthState pins every write that can change what
+// the access-token check sees. A missing call here would leave a disabled or
+// deleted user authenticated for one cache TTL.
+func TestServiceInvalidatesCachedAuthState(t *testing.T) {
+	repo := newMockUserRepo()
+	invalidator := &fakeInvalidator{}
+	svc := NewService(repo, passwd.NewHasher(4), &fakeRevoker{}, invalidator)
+
+	created, err := svc.Create(context.Background(), &Input{Name: "Ivy", Email: "ivy@example.com", Password: "secret-pass"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// A role change does not revoke sessions, but it does change the cached role.
+	member := authkit.RoleMember
+	if _, err := svc.Update(context.Background(), adminActor, created.ID, Patch{Role: &member}); err != nil {
+		t.Fatalf("Update role: %v", err)
+	}
+	// A profile-only edit leaves the auth state intact; invalidating anyway is
+	// the cheap, impossible-to-forget choice.
+	name := "Ivy Renamed"
+	if _, err := svc.Update(context.Background(), adminActor, created.ID, Patch{Name: &name}); err != nil {
+		t.Fatalf("Update name: %v", err)
+	}
+	if err := svc.Delete(context.Background(), adminActor, created.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if len(invalidator.invalidated) != 3 {
+		t.Fatalf("invalidated = %v, want one entry per write", invalidator.invalidated)
+	}
+	for _, id := range invalidator.invalidated {
+		if id != created.ID {
+			t.Errorf("invalidated user %d, want %d", id, created.ID)
+		}
 	}
 }

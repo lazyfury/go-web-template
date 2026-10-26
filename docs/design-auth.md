@@ -282,7 +282,7 @@ P2 是破坏性节点：现有集成测试与 `scripts/smoke.sh` 都会因 401 �
 ## 14. 风险与已知限制
 
 - access token 无状态：吊销/禁用最坏延迟 = access TTL（15m）；改密可即时失效（`token_version`）。
-- 每次请求多一次 DB 查询校验状态（`users.status`/`token_version`）；高 QPS 需加本地缓存（带短 TTL），模板阶段先不做。
+- 每次请求多一次 DB 查询校验状态（`users.status`/`token_version`）：默认由 `auth.verify_cache_ttl`（5s）摊掉，本进程写（改密/改角色/禁用/删除）**立即失效**（`auth.Service.InvalidateAuthState`，由 `user.Service` 的 Update/Delete 调用）；多副本下另一台最多滞后一个 TTL，这就是这个缓存开着的全部代价。置 0 回到每请求一次 DB 读。
 - 登录限流默认在进程内存（`ratelimit.backend=memory`）；多副本切 `ratelimit.backend=redis`（见 `context.md` ADR 16），否则实际限额 = 配置值 × 副本数。账号**锁定**本就在 `users.locked_until`，天然多副本一致。
 - HS256 密钥环已支持轮换：`authkit.NewTokenIssuerWithKeys` 首个密钥签字、其余只验；`auth.jwt_key_id` 写进 token 的 `kid` 头，`auth.jwt_retired_secrets` 装退役密钥（见 §15）。轮换期间不会全量掉线；`kid` 只是选钥提示，从不参与信任判定。
 - 未做：非对称算法（RS256/EdDSA）与 JWKS 端点。密钥仍靠环境注入，每把密钥都是全对称的（泄漏 = 可自签）；要发给第三方验证时再上公钥体系。

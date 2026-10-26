@@ -39,19 +39,41 @@ type SessionRevoker interface {
 	RevokeUserSessions(ctx context.Context, userID uint64) error
 }
 
+// AuthStateInvalidator drops any cached authorization state (status, role,
+// token version) for a user, so the change is visible on the next request
+// instead of after the cache TTL. A nil implementation means nothing is cached.
+//
+// It exists separately from SessionRevoker because the two have different
+// triggers: a role change invalidates cached state but kills no session, while
+// a delete kills both.
+type AuthStateInvalidator interface {
+	InvalidateAuthState(userID uint64)
+}
+
 // Service implements the user use-cases. It depends on the Repository
 // interface only, so business rules are unit-testable without a database.
 type Service struct {
-	repo    Repository
-	hasher  *passwd.Hasher
-	revoker SessionRevoker
-	now     func() time.Time
+	repo        Repository
+	hasher      *passwd.Hasher
+	revoker     SessionRevoker
+	invalidator AuthStateInvalidator
+	now         func() time.Time
 }
 
-// NewService creates a Service backed by the given repository and session
-// revoker (nil disables revocation, which is only useful in narrow tests).
-func NewService(repo Repository, hasher *passwd.Hasher, revoker SessionRevoker) *Service {
-	return &Service{repo: repo, hasher: hasher, revoker: revoker, now: time.Now}
+// NewService creates a Service backed by the given repository, session revoker
+// and auth-state invalidator (nil disables revocation/invalidation, which is
+// only useful in narrow tests).
+func NewService(repo Repository, hasher *passwd.Hasher, revoker SessionRevoker, invalidator AuthStateInvalidator) *Service {
+	return &Service{repo: repo, hasher: hasher, revoker: revoker, invalidator: invalidator, now: time.Now}
+}
+
+// invalidateAuthState forgets cached authorization state after a write that can
+// change it. Call it even when the process did not change the column itself:
+// a role change still makes the cached role wrong.
+func (s *Service) invalidateAuthState(userID uint64) {
+	if s.invalidator != nil {
+		s.invalidator.InvalidateAuthState(userID)
+	}
 }
 
 // Create provisions a user with credentials and rejects duplicate emails.
@@ -221,6 +243,9 @@ func (s *Service) Update(ctx context.Context, actor authkit.Principal, id uint64
 	} else if err := s.repo.Update(ctx, user); err != nil {
 		return nil, err
 	}
+	// A profile-only edit leaves the cached authorization state correct, but
+	// invalidating unconditionally keeps this call site impossible to get wrong.
+	s.invalidateAuthState(user.ID)
 	return s.repo.FindByID(ctx, id)
 }
 
@@ -232,7 +257,13 @@ func (s *Service) Delete(ctx context.Context, actor authkit.Principal, id uint64
 	if actor.UserID == id {
 		return forbidden("cannot delete your own account")
 	}
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	// The row is gone: a cached entry would keep the account authenticated for
+	// up to the cache TTL.
+	s.invalidateAuthState(id)
+	return nil
 }
 
 // canRead reports whether actor may access the user row id.

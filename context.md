@@ -98,7 +98,7 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
            message_retention: 2160h}        # 过期消息再留 90 天（无 expires_at 永不删）
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_JWT_KEY_ID`/`APP_AUTH_JWT_RETIRED_SECRETS`（密钥轮换：`kid` + 只验不签的旧密钥，逗号分隔）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_JWT_KEY_ID`/`APP_AUTH_JWT_RETIRED_SECRETS`（密钥轮换：`kid` + 只验不签的旧密钥，逗号分隔）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_VERIFY_CACHE_TTL`（认证校验缓存，默认 5s，0=关闭）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `APP_AUTH_JWT_SECRET` **显式置空**按「没设置」处理（不会被 viper 忽略后回落到 `configs/config.yaml` 的开发默认值，否则报错会误导成占位值问题）；`auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
 - **签名密钥轮换**（`authkit.TokenIssuer` 的密钥环，首个签字、其余只验）：
@@ -290,6 +290,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 15. **消息/通知 SQL-first（无通用 event bus）**：`messages` 存内容快照，`message_recipients` 是站内信收件箱与已读状态，`message_deliveries` 是邮件/短信/Webhook 的投递 outbox，`message_templates` 存模板。发送在一事务内写 message + recipients + deliveries；`message.Worker` 由 `cmd/server` 通过 errgroup 启动，领取 `message_deliveries` 并调用 SMTP/Twilio/Webhook sender，失败按指数退避重试（failed → 再次领取），超过 `max_attempts` 变 dead。不做通用 event bus；未来跨域事件用 `outbox_events` + dispatcher。Redis 只作为可选加速层，不是消息事实来源。详见 `docs/design-message.md`。
 
 16. **Redis 是可选的跨副本加速层**：`ratelimit.backend=memory|redis`，默认 memory（模板只要求 PostgreSQL 就能跑）。切到 redis 后 token bucket 在 Lua 里原子记账、时间取 Redis `TIME`（唯一所有副本都认的钟）、空桶用 `PEXPIRE` 回收，因此 N 个副本等价于一个限流器。启动时 `PING` 失败直接退出（不允许静默退化成每副本一份额度）；运行期存储不可用则 fail-open + 指标 + 限频日志，且账号锁定仍在 DB（`users.locked_until`），认证安全不依赖 Redis。`/readyz` 不探 Redis：它挂掉只影响限流精度，不该摘掉全部流量。
+17. **认证校验缓存是「本进程写立即失效」型**：`auth.Service.VerifyAccess` 每次认证请求都要读用户的 `status/role/token_version`，默认用 `auth.verify_cache_ttl=5s` 的本地缓存摊掉这次读（`internal/auth/verify_cache.go`）。正确性靠**写路径显式失效**保障：`auth.Service`（改密/seed）与 `user.Service`（Update 的任意分支、Delete）都调用 `InvalidateAuthState`，所以单副本下「改密/禁用/删除/改角色 → 下一次请求即生效」仍然成立。跨副本只能靠 TTL：另一台机器最多滞后 `verify_cache_ttl`（上限 1m，超过启动失败）。失败/不存在**不缓存**（不做负缓存，避免把临时 DB 错误放大成一个 TTL），条目数上限 8192 且到期惰性删除。置 0 即关闭缓存。代价写清楚：这是「多一次 DB 读」与「跨副本吊销窗口」的显式交易，不是免费的。
 
 ## 10. 扩展指南
 
@@ -337,7 +338,7 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 - access token 无状态：吊销/禁用最坏延迟 = `access_ttl`（15m）；改密/禁用通过 `token_version` 即时生效。
 - 多标签页共享一个 cookie jar：`refresh_reuse_interval` 期间旧 token 重放会被容忍并只保留最新 token；窗口外仍会判定为盗用并全量吊销（默认 30s，可按需调大）。
 - 会话寿命 = `min(闲置 refresh_ttl, 自登录起 refresh_max_lifetime)`：想"更久不用重登"就调这两个值，不要调 `access_ttl`。
-- `VerifyAccess` 每请求查一次用户行（status/token_version/role 即时生效）；高 QPS 需要本地短 TTL 缓存。
+- `VerifyAccess` 默认通过 `auth.verify_cache_ttl`（默认 5s）缓存用户的 status/role/token_version：单副本内任何写（改密/改角色/禁用/删除）都会**立即失效**，多副本下另一台最多滞后一个 TTL（置 0 关闭缓存，回到每请求一次 DB 读）。
 - HS256 单密钥：轮换需要多密钥 + `kid`，当前不支持；轮换会全量掉线（重新登录即可）。
 - 无忘记密码/邮箱验证流程：密码只能由管理员 PATCH 重置或本人 `PATCH /auth/password`。
 - `Timeout` 只注入 ctx deadline：handler 若不检查 ctx，响应仍会返回成功；需要保证中断的路径必须显式处理 `ctx.Err()`。
