@@ -13,6 +13,8 @@
 #      旧密钥退役后立刻 401，新密钥签发的 token 不受影响。
 #   G. 认证校验缓存（auth.verify_cache_ttl=5s）：本进程改密后旧 access token
 #      必须在下一次请求就 401，而不是等 TTL 过期。
+#   H. X-Forwarded-For 端到端：不信任代理时轮换 XFF 骗不出新桶；把 127.0.0.1
+#      配成可信代理后，同一 XFF 才共用一个桶（429 仍会触发）。
 #
 # 前置：postgres 已起且迁移已应用（make db-up && make migrate-up）。
 # 用法: ./scripts/verify-auth.sh        （= make verify-auth）
@@ -204,4 +206,42 @@ login_cookie "$EMAIL_G" >/dev/null || fail "新密码应能登录"
 pass "改密后旧 access token 立即 401（缓存写路径失效生效）"
 stop
 
-echo "verify-auth: PASS（A 宽限期 / B 登出立即 / C body 传输 / D 夹紧 / E 上限防御分支 / F 密钥轮换 / G 校验缓存失效）"
+echo "== H: X-Forwarded-For（不信任代理 vs 可信代理）"
+# 登录每次要跑 ~200ms bcrypt，默认 rps=5 基本能一直续上桶；这里把额度压到
+# burst=3 / rps=0.1，让「桶被耗尽」成为可观测信号。
+XFF_LIMIT="APP_AUTH_LOGIN_RPS=0.1 APP_AUTH_LOGIN_BURST=3"
+login_probe() { # $1 = XFF ；回显状态码（未知邮箱，避免触发账号锁定）
+	code -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
+		-H "X-Forwarded-For: $1" \
+		-d '{"email":"xff-probe@example.invalid","password":"wrong-password"}'
+}
+
+# 默认不信任任何代理：XFF 被忽略，轮换它也换不了桶 → 突发行照样 429。
+start $XFF_LIMIT
+SAW_429=0
+for i in $(seq 1 6); do
+	[ "$(login_probe "203.0.113.$i")" = "429" ] && SAW_429=1 && break
+done
+[ "$SAW_429" = "1" ] || fail "未信任代理时轮换 X-Forwarded-For 骗到了新限流桶（应出现 429）"
+pass "不信任代理：轮换 XFF 拿不到新桶（429 仍然出现）"
+stop
+
+# 127.0.0.1 配成可信代理：XFF 生效，轮换它 = 换桶，所以不再 429；
+# 但同一个 XFF 打满突发量后照样 429（说明限流本身没被关掉）。
+start $XFF_LIMIT APP_HTTP_TRUSTED_PROXIES=127.0.0.1
+SAW_429=0
+for i in $(seq 1 6); do
+	[ "$(login_probe "198.51.100.$i")" = "429" ] && SAW_429=1
+done
+[ "$SAW_429" = "0" ] || fail "可信代理下轮换 XFF 应各用各的桶，不应 429"
+pass "可信代理：每个 XFF 独立成桶（轮换不触发 429）"
+
+SAW_429=0
+for i in $(seq 1 6); do
+	[ "$(login_probe '198.51.100.7')" = "429" ] && SAW_429=1 && break
+done
+[ "$SAW_429" = "1" ] || fail "同一 XFF 打满突发量后应 429"
+pass "可信代理：同一 XFF 打满突发量 → 429"
+stop
+
+echo "verify-auth: PASS（A 宽限期 / B 登出立即 / C body 传输 / D 夹紧 / E 上限防御分支 / F 密钥轮换 / G 校验缓存失效 / H XFF 端到端）"

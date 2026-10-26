@@ -229,7 +229,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	return &App{
 		db:            db,
 		engine:        engine,
-		server:        web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), cfg.HTTPServer, engine, logger),
+		server:        web.NewServer(fmt.Sprintf(":%d", cfg.App.Port), &cfg.HTTPServer, engine, logger),
 		openapi:       api.Registry(),
 		messageWorker: messageWorker,
 		housekeeper:   housekeeper,

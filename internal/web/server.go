@@ -21,14 +21,16 @@ type Server struct {
 
 // NewServer creates a Server from an address, the HTTP timeout settings and a
 // handler. It deliberately takes the narrow HTTPServer config (not the whole
-// config tree) so the lifecycle only depends on what it uses.
-func NewServer(addr string, cfg config.HTTPServer, handler http.Handler, logger *zap.Logger) *Server {
+// config tree) so the lifecycle only depends on what it uses; the pointer keeps
+// the signature cheap as that struct grows.
+func NewServer(addr string, cfg *config.HTTPServer, handler http.Handler, logger *zap.Logger) *Server {
 	httpServer := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		IdleTimeout:  cfg.IdleTimeout,
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       cfg.ReadTimeout,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
 	return &Server{
 		http:            httpServer,

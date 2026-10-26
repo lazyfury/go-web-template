@@ -9,6 +9,8 @@ app:
 
 http:
   read_timeout: 10s
+  # header 阶段的单独超时：slowloris 不能靠一点点发头把连接挂到 read_timeout（上限 = read_timeout）
+  read_header_timeout: 5s
   write_timeout: 10s
   idle_timeout: 60s
   shutdown_timeout: 10s

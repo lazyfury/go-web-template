@@ -34,10 +34,15 @@ type App struct {
 
 // HTTPServer holds net/http server timeouts.
 type HTTPServer struct {
-	ReadTimeout     time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout    time.Duration `mapstructure:"write_timeout"`
-	IdleTimeout     time.Duration `mapstructure:"idle_timeout"`
-	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
+	ReadTimeout time.Duration `mapstructure:"read_timeout"`
+	// ReadHeaderTimeout bounds the request-header phase on its own. ReadTimeout
+	// already covers the whole read, but a separate header deadline is what lets
+	// the server drop a slowloris client early without shortening the time
+	// allowed for a legitimately large body.
+	ReadHeaderTimeout time.Duration `mapstructure:"read_header_timeout"`
+	WriteTimeout      time.Duration `mapstructure:"write_timeout"`
+	IdleTimeout       time.Duration `mapstructure:"idle_timeout"`
+	ShutdownTimeout   time.Duration `mapstructure:"shutdown_timeout"`
 	// RequestTimeout bounds handler execution via the request context (the
 	// /api/v1 chain). Handlers/repositories must honor ctx.
 	RequestTimeout time.Duration `mapstructure:"request_timeout"`

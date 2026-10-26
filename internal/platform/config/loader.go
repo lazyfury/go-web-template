@@ -26,6 +26,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.port", 8080)
 
 	v.SetDefault("http.read_timeout", "10s")
+	// 单独的 header 阶段超时：不给 slowloris 一点一点发头把连接挂满 read_timeout 的机会。
+	v.SetDefault("http.read_header_timeout", "5s")
 	v.SetDefault("http.write_timeout", "10s")
 	v.SetDefault("http.idle_timeout", "60s")
 	v.SetDefault("http.shutdown_timeout", "10s")
@@ -279,6 +281,12 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPServer.ReadTimeout <= 0 || c.HTTPServer.WriteTimeout <= 0 {
 		return fmt.Errorf("http read/write timeouts must be positive")
+	}
+	if c.HTTPServer.ReadHeaderTimeout <= 0 {
+		return fmt.Errorf("http.read_header_timeout must be positive")
+	}
+	if c.HTTPServer.ReadHeaderTimeout > c.HTTPServer.ReadTimeout {
+		return fmt.Errorf("http.read_header_timeout must not exceed http.read_timeout")
 	}
 	if c.HTTPServer.RequestTimeout <= 0 {
 		return fmt.Errorf("http.request_timeout must be positive")

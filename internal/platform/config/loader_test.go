@@ -530,3 +530,32 @@ func TestVerifyCacheTTLDefaultAndBounds(t *testing.T) {
 		}
 	}
 }
+
+// TestReadHeaderTimeoutDefaultAndBounds pins the slowloris guard: the header
+// phase gets its own deadline, and it may not outlive the whole read deadline.
+func TestReadHeaderTimeoutDefaultAndBounds(t *testing.T) {
+	if got := Defaults().HTTPServer.ReadHeaderTimeout; got != 5*time.Second {
+		t.Errorf("default read_header_timeout = %v, want 5s", got)
+	}
+
+	for _, ttl := range []string{"0s", "-1s", "11s"} {
+		cfg := Defaults()
+		d, err := time.ParseDuration(ttl)
+		if err != nil {
+			t.Fatalf("parse %s: %v", ttl, err)
+		}
+		cfg.HTTPServer.ReadHeaderTimeout = d
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("read_header_timeout=%s must be rejected", ttl)
+		}
+	}
+
+	t.Setenv("APP_HTTP_READ_HEADER_TIMEOUT", "3s")
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPServer.ReadHeaderTimeout != 3*time.Second {
+		t.Errorf("read_header_timeout = %v, want 3s", cfg.HTTPServer.ReadHeaderTimeout)
+	}
+}

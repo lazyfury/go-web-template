@@ -141,15 +141,21 @@ for i in $(seq 1 6); do curl -s --noproxy '*' -w ' [%{http_code}]\n' -X POST \
   并把重定向收敛到 5 跳。本次仍**未做**真实公网端点的黑盒验证（无可用外网 webhook 目标），只有单测背书：
   `internal/message/sender_test.go` 的 `TestWebhookDialControlRejectsNonPublicAddresses` /
   `TestWebhookClientBlocksRedirectToPrivateTarget` / `TestWebhookClientCapsRedirects`。
-- **未覆盖**：slowloris、反代多级 `X-Forwarded-For` 的真实端到端（仅单测覆盖）、会话绝对上限的
-  长周期行为（仅 `verify-auth` 的 3s 压缩验证）。
+- **slowloris（已修，2026-10 复测）**：`http.Server` 现在显式设置 `ReadHeaderTimeout`
+  （`http.read_header_timeout`，默认 5s，不得超过 `read_timeout`），header 阶段不再能霸占整条 read deadline。
+  回归钉在 `internal/web/server_test.go`（字段真接线）与 `loader_test.go`（默认值与上限）；
+  stdlib 自己负责剩余行为，本次未做真实慢连接压测。
+- **反代多级 XFF（已做端到端）**：`make verify-auth` 的 H 段跑真实进程：默认「不信任任何代理」时
+  轮换 `X-Forwarded-For` 骗不到新限流桶（仍 429）；把 `127.0.0.1` 配成可信代理后，每个 XFF 才独立成桶，
+  且同一 XFF 打满突发量仍 429。单一反代的真实压测仍未做（只有这两条断言）。
+- **未覆盖**：会话绝对上限的长周期行为（仅 `verify-auth` 的 3s 压缩验证）。
 
 ## 6. 复测手册
 
 ```bash
 make check                      # lint/gofmt/vet/race/build/OpenAPI 黄金文件/tidy
 make audit                      # 6 项机械门（含鉴权矩阵回归、govulncheck）
-make verify-auth                # 真实进程 + 真实 PG：宽限期/登出立即/上限夹紧
+make verify-auth                # 真实进程 + 真实 PG：宽限期/登出立即/上限夹紧/密钥轮换/校验缓存/XFF
 make docker-up                  # 起编排（自动生成 .local/jwt-secret、关 metrics/swagger）
 
 BASE=http://127.0.0.1:8080      # curl 必须 --noproxy '*'（本机 all_proxy 会挂住）

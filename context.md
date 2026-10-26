@@ -73,7 +73,7 @@
 
 ```yaml
 app:      {name, env, debug, port: 8080}
-http:     {read_timeout, write_timeout, idle_timeout, shutdown_timeout, request_timeout, max_body_bytes}
+http:     {read_timeout, read_header_timeout, write_timeout, idle_timeout, shutdown_timeout, request_timeout, max_body_bytes}
 database: {driver: postgres, host, port, user, password, dbname, sslmode, max_open_conns, max_idle_conns, conn_max_lifetime, log_level}
 log:      {level: info|debug|warn|error, format: json|console}
 cors:     {allowed_origins, allowed_methods, allowed_headers, exposed_headers, allow_credentials, max_age}
@@ -85,7 +85,7 @@ auth:     {jwt_secret, issuer, access_ttl: 15m,
            refresh_max_lifetime: 2160h,  # 会话绝对上限（从首次登录算）
            refresh_reuse_interval: 30s,  # 轮换后旧 token 的宽限期（多标签页竞态）
            bcrypt_cost: 12, login_max_attempts: 5, login_lockout: 15m,
-           login_rps: 5, login_burst: 10, cookie_secure}
+           login_rps: 5, login_burst: 10, verify_cache_ttl: 5s, cookie_secure}
 message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
           retry_base: 30s, delivery_timeout: 30s,
           webhook_urls: [], webhook_secret, webhook_allow_private: false,
@@ -98,7 +98,7 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
            message_retention: 2160h}        # 过期消息再留 90 天（无 expires_at 永不删）
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_JWT_KEY_ID`/`APP_AUTH_JWT_RETIRED_SECRETS`（密钥轮换：`kid` + 只验不签的旧密钥，逗号分隔）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_VERIFY_CACHE_TTL`（认证校验缓存，默认 5s，0=关闭）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_READ_HEADER_TIMEOUT`（header 阶段超时，防 slowloris）、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_JWT_KEY_ID`/`APP_AUTH_JWT_RETIRED_SECRETS`（密钥轮换：`kid` + 只验不签的旧密钥，逗号分隔）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_VERIFY_CACHE_TTL`（认证校验缓存，默认 5s，0=关闭）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `APP_AUTH_JWT_SECRET` **显式置空**按「没设置」处理（不会被 viper 忽略后回落到 `configs/config.yaml` 的开发默认值，否则报错会误导成占位值问题）；`auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
 - **签名密钥轮换**（`authkit.TokenIssuer` 的密钥环，首个签字、其余只验）：

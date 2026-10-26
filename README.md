@@ -175,6 +175,7 @@ go-web-template/
 | `APP_LOG_FORMAT` | json / console | `json` |
 | `APP_RATELIMIT_RPS` / `APP_RATELIMIT_BURST` | 每 IP 限流速率 / 突发 | `100` / `200` |
 | `APP_HTTP_REQUEST_TIMEOUT` | 单请求 ctx deadline（`/api/v1`） | `15s` |
+| `APP_HTTP_READ_HEADER_TIMEOUT` | 请求头阶段超时（防 slowloris；不得超过 `APP_HTTP_READ_TIMEOUT`） | `5s` |
 | `APP_HTTP_MAX_BODY_BYTES` | 请求体大小上限 | `1048576`（1 MiB） |
 | `APP_HTTP_TRUSTED_PROXIES` | 可信反向代理（IP/CIDR，逗号分隔）；**空 = 不信任任何代理**，`X-Forwarded-For` 被忽略 | 空 |
 | `APP_CORS_ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔；**跨域带 cookie 时不能用 `*`**） | `*` |
