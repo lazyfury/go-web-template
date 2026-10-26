@@ -1,6 +1,6 @@
-# 认证与权限设计（提案 · 未实现）
+# 认证与权限设计（已实现 · 设计取舍）
 
-> 状态：**已实现（P0–P4）**，P5 加固项（登录指标/清理任务/密钥轮换）待做。
+> 状态：**已实现（P0–P4）**，P5 加固项（登录指标/清理任务/密钥轮换）已做前两项，密钥轮换待做。
 > 代码入口：`internal/auth`（域）、`internal/platform/authkit`（JWT/RBAC/中间件）、`internal/platform/passwd`（bcrypt）、
 > `internal/app/app.go`（装配）、`migrations/000002~000003`、`web/admin/src/{api,stores}/auth.ts`。
 > 架构/契约的权威事实仍以 `context.md`（§2/§5/§6/§9/§11）为准；本文档只保留设计取舍与威胁模型。
@@ -283,7 +283,7 @@ P2 是破坏性节点：现有集成测试与 `scripts/smoke.sh` 都会因 401 �
 
 - access token 无状态：吊销/禁用最坏延迟 = access TTL（15m）；改密可即时失效（`token_version`）。
 - 每次请求多一次 DB 查询校验状态（`users.status`/`token_version`）；高 QPS 需加本地缓存（带短 TTL），模板阶段先不做。
-- 登录限流仍是单实例内存态（与现有 `RateLimit` 同问题），多副本需 Redis。
+- 登录限流默认在进程内存（`ratelimit.backend=memory`）；多副本切 `ratelimit.backend=redis`（见 `context.md` ADR 16），否则实际限额 = 配置值 × 副本数。账号**锁定**本就在 `users.locked_until`，天然多副本一致。
 - HS256 单密钥：轮换需多密钥 + `kid`（后续扩展），否则轮换瞬间全量掉线。
 - 用户表加了敏感列，`UserDTO` 已隔离，但 `SELECT *` 的仓储查询要把 `password_hash` 保持 `json:"-"` 且不做 DTO 透传。
 - 现有用户 `password_hash=''`，升级后需 bootstrap；忘记密码流程本期不做（管理员重置）。
