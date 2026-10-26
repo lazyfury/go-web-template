@@ -269,7 +269,7 @@ type Sender interface {
 | `InboxSender` | 无 | 站内信直接读写 `message_recipients`，可同步完成，不必进 deliveries |
 | `MailSender` | SMTP / 邮件服务商 | 发件人、超时、HTML 转义、附件暂不做 |
 | `SMSSender` | Twilio / 阿里云 / 腾讯云 | 手机号来源：`users.phone`（空 = 无目标，发送请求直接 400） |
-| `WebhookSender` | HTTP | HMAC 签名、超时、重试、响应体截断、**禁止私网地址** |
+| `WebhookSender` | HTTP | HMAC 签名、超时、重试、响应体截断、**禁止私网地址**（拨号时按真实对端 IP 校验 → 302/rebinding 也无效）、重定向上限 5 跳、不走代理 |
 
 收件人解析（消费侧窄接口，组合根用 user 表实现）：
 

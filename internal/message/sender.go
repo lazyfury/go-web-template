@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -72,15 +73,70 @@ func NewMailSender(opts *MailOptions) Sender {
 }
 
 // NewWebhookSender creates a webhook sender.
+//
+// The default client enforces the SSRF policy on every dialed address rather
+// than only on the configured URL, so redirects and DNS rebinding cannot reach
+// a private address either. A caller-supplied Client owns its own policy.
 func NewWebhookSender(opts WebhookOptions) Sender {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 30 * time.Second
 	}
 	client := opts.Client
 	if client == nil {
-		client = &http.Client{Timeout: opts.Timeout}
+		client = newWebhookClient(opts.Timeout, opts.AllowPrivate, isBlockedIP)
 	}
 	return &webhookSender{opts: opts, client: client}
+}
+
+// webhookRedirectLimit caps how many redirect hops one webhook may follow.
+const webhookRedirectLimit = 5
+
+func newWebhookClient(timeout time.Duration, allowPrivate bool, blocked func(net.IP) bool) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil // a proxy would hide the real target from the dial guard
+	transport.DialContext = (&net.Dialer{
+		Timeout:   timeout,
+		KeepAlive: 30 * time.Second,
+		Control:   webhookDialControl(allowPrivate, blocked),
+	}).DialContext
+	transport.TLSHandshakeTimeout = timeout
+	transport.ResponseHeaderTimeout = timeout
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= webhookRedirectLimit {
+				return fmt.Errorf("webhook stopped after %d redirects", webhookRedirectLimit)
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("webhook redirect to unsupported scheme %q", req.URL.Scheme)
+			}
+			return nil
+		},
+	}
+}
+
+// webhookDialControl rejects non-public peer addresses at connect time. The
+// check runs on the address actually dialed, so it also covers redirect hosts
+// and names that resolve to a private address after the pre-flight lookup.
+func webhookDialControl(allowPrivate bool, blocked func(net.IP) bool) func(string, string, syscall.RawConn) error {
+	if allowPrivate {
+		return nil
+	}
+	return func(_, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return fmt.Errorf("invalid webhook dial address")
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			return fmt.Errorf("webhook target resolves to an invalid address")
+		}
+		if blocked(ip) {
+			return fmt.Errorf("webhook target resolves to a private address")
+		}
+		return nil
+	}
 }
 
 // NewTwilioSender creates a Twilio SMS sender.

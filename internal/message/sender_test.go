@@ -7,11 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestWebhookSenderSignsAndPosts(t *testing.T) {
@@ -55,6 +58,101 @@ func TestWebhookSenderRejectsPrivateTarget(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("private target should be blocked")
+	}
+}
+
+// TestIsBlockedIP pins the guard's address classification, including IPv4-in-IPv6
+// forms that would otherwise slip past a naive string prefix check.
+func TestIsBlockedIP(t *testing.T) {
+	blocked := []string{
+		"127.0.0.1", "::1", "::ffff:127.0.0.1",
+		"10.0.0.5", "172.16.0.1", "192.168.1.1", "::ffff:10.0.0.5",
+		"169.254.169.254", "fe80::1", "0.0.0.0", "224.0.0.1", "ff02::1",
+	}
+	for _, raw := range blocked {
+		if !isBlockedIP(net.ParseIP(raw)) {
+			t.Errorf("isBlockedIP(%s) = false, want true", raw)
+		}
+	}
+	allowed := []string{"8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"}
+	for _, raw := range allowed {
+		if isBlockedIP(net.ParseIP(raw)) {
+			t.Errorf("isBlockedIP(%s) = true, want false", raw)
+		}
+	}
+}
+
+// TestWebhookDialControlRejectsNonPublicAddresses covers the dial-time guard that
+// makes redirects and DNS rebinding ineffective.
+func TestWebhookDialControlRejectsNonPublicAddresses(t *testing.T) {
+	control := webhookDialControl(false, isBlockedIP)
+	for _, address := range []string{"127.0.0.1:80", "[::1]:80", "169.254.169.254:80", "192.168.1.1:443"} {
+		if err := control("tcp", address, nil); err == nil {
+			t.Errorf("control(%s) allowed a private address", address)
+		}
+	}
+	for _, address := range []string{"8.8.8.8:443", "[2606:4700:4700::1111]:443"} {
+		if err := control("tcp", address, nil); err != nil {
+			t.Errorf("control(%s) = %v, want nil", address, err)
+		}
+	}
+	if err := control("tcp", "not-an-address", nil); err == nil {
+		t.Error("control accepted an address without a port")
+	}
+}
+
+// deliveryRequest builds the same kind of request the sender sends, so tests do
+// not fall back to the context-less Client.Get/Post helpers.
+func deliveryRequest(t *testing.T, target string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+// TestWebhookClientBlocksRedirectToPrivateTarget pins that a public endpoint
+// cannot bounce the worker at a private address: the guard runs on the redirect
+// hop's dial, not just on the configured target.
+func TestWebhookClientBlocksRedirectToPrivateTarget(t *testing.T) {
+	metadata := net.IPv4(169, 254, 169, 254)
+	client := newWebhookClient(5*time.Second, false, func(ip net.IP) bool { return ip.Equal(metadata) })
+	defer client.CloseIdleConnections()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer server.Close()
+
+	resp, err := client.Do(deliveryRequest(t, server.URL))
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("redirect to a private address should be blocked")
+	}
+	if !strings.Contains(err.Error(), "private address") {
+		t.Errorf("error = %v, want a private-address rejection", err)
+	}
+}
+
+func TestWebhookClientCapsRedirects(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Redirect(w, r, "/loop", http.StatusFound)
+	}))
+	defer server.Close()
+
+	client := newWebhookClient(5*time.Second, true, isBlockedIP)
+	defer client.CloseIdleConnections()
+	resp, err := client.Do(deliveryRequest(t, server.URL))
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("a redirect loop should be capped")
+	}
+	if got := atomic.LoadInt32(&hits); got != webhookRedirectLimit {
+		t.Errorf("server saw %d requests, want %d", got, webhookRedirectLimit)
 	}
 }
 
