@@ -76,6 +76,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("metrics.enabled", true)
 
 	v.SetDefault("auth.jwt_secret", "")
+	// 轮换支持：kid 标在当前密钥上；旧密钥放 jwt_retired_secrets（只验不签），
+	// 轮换后旧 access token 自然过期即可。
+	v.SetDefault("auth.jwt_key_id", "")
+	v.SetDefault("auth.jwt_retired_secrets", []string{})
 	v.SetDefault("auth.issuer", "go-web-template")
 	v.SetDefault("auth.access_ttl", "15m")
 	v.SetDefault("auth.refresh_ttl", "720h")
@@ -141,6 +145,16 @@ func (c *Config) normalize() {
 	for i, proxy := range c.HTTPServer.TrustedProxies {
 		c.HTTPServer.TrustedProxies[i] = strings.TrimSpace(proxy)
 	}
+	c.Auth.JWTKeyID = strings.TrimSpace(c.Auth.JWTKeyID)
+	c.Auth.JWTSecret = strings.TrimSpace(c.Auth.JWTSecret)
+	// 列表来自 YAML 或逗号分隔的环境变量，两边都可能有空白/空项。
+	retired := make([]string, 0, len(c.Auth.JWTRetiredSecrets))
+	for _, secret := range c.Auth.JWTRetiredSecrets {
+		if secret = strings.TrimSpace(secret); secret != "" {
+			retired = append(retired, secret)
+		}
+	}
+	c.Auth.JWTRetiredSecrets = retired
 }
 
 // Load reads the configuration from a YAML file (optional) and environment
@@ -351,6 +365,9 @@ func (c *Config) validateAuth() error {
 	if c.Auth.Issuer == "" {
 		return fmt.Errorf("auth.issuer must not be empty")
 	}
+	if err := c.validateJWTKeys(); err != nil {
+		return err
+	}
 	if c.Auth.AccessTTL <= 0 {
 		return fmt.Errorf("auth.access_ttl must be positive")
 	}
@@ -377,6 +394,33 @@ func (c *Config) validateAuth() error {
 	}
 	if c.Auth.PasswordRPS <= 0 || c.Auth.PasswordBurst <= 0 {
 		return fmt.Errorf("auth.password_rps and auth.password_burst must be positive")
+	}
+	return nil
+}
+
+// validateJWTKeys enforces the rotation ring's invariants: a retired key is a
+// trusted key that can still mint valid tokens, so it may not be weaker than
+// the active one, and configuring the active secret twice (a copy/paste during
+// rotation) would silently widen the set of accepted tokens.
+func (c *Config) validateJWTKeys() error {
+	seen := make(map[string]int, len(c.Auth.JWTRetiredSecrets))
+	for i, secret := range c.Auth.JWTRetiredSecrets {
+		if secret == c.Auth.JWTSecret && c.Auth.JWTSecret != "" {
+			return fmt.Errorf("auth.jwt_retired_secrets[%d] repeats auth.jwt_secret: keep only the previous key here", i)
+		}
+		if _, dup := seen[secret]; dup {
+			return fmt.Errorf("auth.jwt_retired_secrets contains a duplicate key")
+		}
+		seen[secret] = i
+		if !c.IsProduction() {
+			continue
+		}
+		if len(secret) < minJWTSecretBytes {
+			return fmt.Errorf("auth.jwt_retired_secrets must be at least %d bytes in production: a retired key still verifies access tokens", minJWTSecretBytes)
+		}
+		if isPlaceholderSecret(secret) {
+			return fmt.Errorf("auth.jwt_retired_secrets still uses a placeholder shipped in this repository")
+		}
 	}
 	return nil
 }

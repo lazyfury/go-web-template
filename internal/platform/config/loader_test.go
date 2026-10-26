@@ -384,3 +384,121 @@ func TestEmptyJWTSecretEnvDoesNotFallBackToTheRepoDefault(t *testing.T) {
 		t.Errorf("error = %v, want it to name APP_AUTH_JWT_SECRET and `make docker-up`", err)
 	}
 }
+
+// TestJWTKeyRingFromEnv pins the rotation knobs: the kid is trimmed, a
+// comma-separated retired-secret list is split and trimmed, and blank entries
+// disappear instead of becoming a key of length zero.
+func TestJWTKeyRingFromEnv(t *testing.T) {
+	active := strings.Repeat("a", minJWTSecretBytes)
+	retiredA := strings.Repeat("b", minJWTSecretBytes)
+	retiredB := strings.Repeat("c", minJWTSecretBytes)
+	t.Setenv("APP_AUTH_JWT_SECRET", active)
+	t.Setenv("APP_AUTH_JWT_KEY_ID", "  k2  ")
+	t.Setenv("APP_AUTH_JWT_RETIRED_SECRETS", " "+retiredA+" , ,"+retiredB+" ")
+
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.JWTKeyID != "k2" {
+		t.Errorf("jwt_key_id = %q, want k2", cfg.Auth.JWTKeyID)
+	}
+	want := []string{retiredA, retiredB}
+	if len(cfg.Auth.JWTRetiredSecrets) != len(want) {
+		t.Fatalf("retired secrets = %v, want %v", cfg.Auth.JWTRetiredSecrets, want)
+	}
+	for i, secret := range want {
+		if cfg.Auth.JWTRetiredSecrets[i] != secret {
+			t.Errorf("retired[%d] = %q, want %q", i, cfg.Auth.JWTRetiredSecrets[i], secret)
+		}
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid key ring rejected: %v", err)
+	}
+}
+
+func TestRetiredSecretsDefaultToEmpty(t *testing.T) {
+	t.Setenv("APP_AUTH_JWT_RETIRED_SECRETS", "")
+	if cfg := Defaults(); len(cfg.Auth.JWTRetiredSecrets) != 0 {
+		t.Errorf("default retired secrets = %v, want none", cfg.Auth.JWTRetiredSecrets)
+	}
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load with empty env: %v", err)
+	}
+	if len(cfg.Auth.JWTRetiredSecrets) != 0 {
+		t.Errorf("retired secrets = %v, want none", cfg.Auth.JWTRetiredSecrets)
+	}
+}
+
+// TestValidateRejectsBadJWTKeyRing covers the rotation footguns: a weak or
+// placeholder retired key still verifies access tokens, and re-listing the
+// active secret (a copy/paste during a rotation) widens the accepted set for
+// no reason.
+func TestValidateRejectsBadJWTKeyRing(t *testing.T) {
+	active := "Qk3f9vT2zR7pLmW1sXc8nB4hYd6gJa0eUq5rItOy"
+	cases := []struct {
+		name   string
+		secret string
+		mutate func(*Config)
+		want   string
+	}{
+		{
+			name:   "short retired key in production",
+			secret: active,
+			mutate: func(cfg *Config) { cfg.Auth.JWTRetiredSecrets = []string{"too-short"} },
+			want:   "at least",
+		},
+		{
+			name:   "placeholder retired key in production",
+			secret: active,
+			mutate: func(cfg *Config) {
+				cfg.Auth.JWTRetiredSecrets = []string{"dev-only-insecure-secret-change-me-32b"}
+			},
+			want: "placeholder",
+		},
+		{
+			name:   "retired key repeats the active secret",
+			secret: active,
+			mutate: func(cfg *Config) { cfg.Auth.JWTRetiredSecrets = []string{active} },
+			want:   "repeats",
+		},
+		{
+			name:   "duplicate retired key",
+			secret: active,
+			mutate: func(cfg *Config) {
+				cfg.Auth.JWTRetiredSecrets = []string{
+					"r1-secret-that-is-long-enough-for-hs256",
+					"r1-secret-that-is-long-enough-for-hs256",
+				}
+			},
+			want: "duplicate",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.App.Env = "production"
+			cfg.Auth.JWTSecret = tc.secret
+			tc.mutate(cfg)
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("%s: validation accepted the key ring", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestValidateAllowsWeakRetiredKeyOutsideProduction keeps local development
+// usable: only production enforces the 32-byte floor.
+func TestValidateAllowsWeakRetiredKeyOutsideProduction(t *testing.T) {
+	cfg := Defaults()
+	cfg.Auth.JWTSecret = "dev-only-insecure-secret-change-me-32b"
+	cfg.Auth.JWTRetiredSecrets = []string{"old-dev-secret"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("development rejected a weak retired key: %v", err)
+	}
+}

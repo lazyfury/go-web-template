@@ -93,7 +93,10 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	userService := user.NewService(userRepo, hasher, sessionRevoker{repo: authRepo})
 	userHandler := user.NewHandler(userService)
 
-	issuer := authkit.NewTokenIssuer(cfg.Auth.JWTSecret, cfg.Auth.Issuer, cfg.Auth.AccessTTL)
+	issuer, err := newTokenIssuer(cfg)
+	if err != nil {
+		return nil, err
+	}
 	authService := auth.NewService(
 		userRepo,
 		authRepo,
@@ -247,6 +250,21 @@ func (r sessionRevoker) RevokeUserSessions(ctx context.Context, userID uint64) e
 	return r.repo.RevokeAllForUser(ctx, userID, time.Now(), auth.RevokeAdmin)
 }
 
+// newTokenIssuer builds the access-token key ring: auth.jwt_secret signs, and
+// auth.jwt_retired_secrets keep verification working across a rotation.
+func newTokenIssuer(cfg *config.Config) (*authkit.TokenIssuer, error) {
+	keys := make([]authkit.Key, 0, 1+len(cfg.Auth.JWTRetiredSecrets))
+	keys = append(keys, authkit.Key{ID: cfg.Auth.JWTKeyID, Secret: []byte(cfg.Auth.JWTSecret)})
+	for _, secret := range cfg.Auth.JWTRetiredSecrets {
+		keys = append(keys, authkit.Key{Secret: []byte(secret)})
+	}
+	issuer, err := authkit.NewTokenIssuerWithKeys(keys, cfg.Auth.Issuer, cfg.Auth.AccessTTL)
+	if err != nil {
+		return nil, fmt.Errorf("build token issuer: %w", err)
+	}
+	return issuer, nil
+}
+
 // SeedOptions configures the bootstrap administrator created by cmd/admin.
 type SeedOptions struct {
 	Name     string
@@ -262,7 +280,10 @@ func SeedAdmin(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts SeedOpt
 		return nil, fmt.Errorf("auth.jwt_secret is required (set APP_AUTH_JWT_SECRET)")
 	}
 	hasher := passwd.NewHasher(cfg.Auth.BcryptCost)
-	issuer := authkit.NewTokenIssuer(cfg.Auth.JWTSecret, cfg.Auth.Issuer, cfg.Auth.AccessTTL)
+	issuer, err := newTokenIssuer(cfg)
+	if err != nil {
+		return nil, err
+	}
 	service := auth.NewService(
 		user.NewRepository(db),
 		auth.NewRepository(db),

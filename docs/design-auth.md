@@ -284,6 +284,30 @@ P2 是破坏性节点：现有集成测试与 `scripts/smoke.sh` 都会因 401 �
 - access token 无状态：吊销/禁用最坏延迟 = access TTL（15m）；改密可即时失效（`token_version`）。
 - 每次请求多一次 DB 查询校验状态（`users.status`/`token_version`）；高 QPS 需加本地缓存（带短 TTL），模板阶段先不做。
 - 登录限流默认在进程内存（`ratelimit.backend=memory`）；多副本切 `ratelimit.backend=redis`（见 `context.md` ADR 16），否则实际限额 = 配置值 × 副本数。账号**锁定**本就在 `users.locked_until`，天然多副本一致。
-- HS256 单密钥：轮换需多密钥 + `kid`（后续扩展），否则轮换瞬间全量掉线。
+- HS256 密钥环已支持轮换：`authkit.NewTokenIssuerWithKeys` 首个密钥签字、其余只验；`auth.jwt_key_id` 写进 token 的 `kid` 头，`auth.jwt_retired_secrets` 装退役密钥（见 §15）。轮换期间不会全量掉线；`kid` 只是选钥提示，从不参与信任判定。
+- 未做：非对称算法（RS256/EdDSA）与 JWKS 端点。密钥仍靠环境注入，每把密钥都是全对称的（泄漏 = 可自签）；要发给第三方验证时再上公钥体系。
 - 用户表加了敏感列，`UserDTO` 已隔离，但 `SELECT *` 的仓储查询要把 `password_hash` 保持 `json:"-"` 且不做 DTO 透传。
 - 现有用户 `password_hash=''`，升级后需 bootstrap；忘记密码流程本期不做（管理员重置）。
+
+## 15. 签名密钥轮换
+
+密钥环是 `authkit.TokenIssuer`：`keys[0]` 签新 token，其余只验。配置入口：
+`auth.jwt_secret`（当前密钥）+ `auth.jwt_key_id`（写进 `kid` 头）+ `auth.jwt_retired_secrets`（退役密钥，逗号分隔的环境变量亦可）。
+
+轮换步骤（零掉线）：
+
+1. 生成新密钥 `S2`，把 `S1` 挪到退役列表：
+   ```bash
+   APP_AUTH_JWT_SECRET="$S2" APP_AUTH_JWT_KEY_ID=k2 \
+   APP_AUTH_JWT_RETIRED_SECRETS="$S1"   # 可在滚动发布期间分批生效
+   ```
+   此时：新登录拿到 `kid=k2` 的 token；老 token（`kid=k1`）仍能验签，不会把在线用户踢下线。
+2. 等 `auth.access_ttl`（默认 15m）过后，旧 access token 全部自然过期。
+3. 清空 `APP_AUTH_JWT_RETIRED_SECRETS` → 旧密钥退役，再拿 `S1` 签的 token 立即 401。
+
+约束与边界：
+
+- `kid` 只用于**选钥加速与排障**，不参与信任判定：伪造 `kid` 只会换来签名不匹配（`TestTokenKeyRingIgnoresForgedKeyID`）。
+- 退役密钥在 `production` 同样要求 ≥32 字节且非占位值，且不能与当前密钥重复——它仍能验签，等于半个签名权。
+- refresh token 与 JWT 无关（数据库存 SHA-256），轮换签名密钥不影响 refresh 流程。
+- 真实验证：`make verify-auth` 的 F 段（起真进程 + 真 PG，覆盖「轮换后旧 token 200 → 退役后 401 → 新 token 始终 200」）。

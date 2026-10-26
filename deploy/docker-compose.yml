@@ -97,6 +97,11 @@ services:
       # 会让 `make db-up` / `make smoke` / `docker compose down` 这些只需要 DB 的
       # 命令一起失败。
       APP_AUTH_JWT_SECRET: "${APP_AUTH_JWT_SECRET:-}"
+      # 密钥轮换：新密钥走 JWT_SECRET，旧密钥暂放 JWT_RETIRED_SECRETS（只验不签，
+      # 逗号分隔）；JWT_KEY_ID 会写进新 token 的 kid 头，方便排查是哪把密钥签的。
+      # 旧密钥放够 auth.access_ttl（默认 15m）就可以从列表里删掉了。
+      APP_AUTH_JWT_KEY_ID: "${APP_AUTH_JWT_KEY_ID:-}"
+      APP_AUTH_JWT_RETIRED_SECRETS: "${APP_AUTH_JWT_RETIRED_SECRETS:-}"
       # 默认 true（这是会随编排进生产的那份配置）：Secure cookie 只能走 https。
       # 本地 http 调试由 `make docker-up` 显式注入 false（浏览器才会回传 refresh
       # cookie）；手工 `docker compose up` 且用浏览器直连 http 时同样需要显式置 false。

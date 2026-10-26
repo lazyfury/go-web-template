@@ -1497,3 +1497,43 @@ func TestRateLimitIsSharedAcrossReplicasWithRedisBackend(t *testing.T) {
 		t.Fatalf("replica B status = %d, want 429 (bucket must be shared via Redis)", code)
 	}
 }
+
+// TestAccessTokenSurvivesASigningKeyRotation pins the wiring of
+// auth.jwt_retired_secrets: after switching the signing key, a token issued by
+// the previous key still works until it expires, and newly issued tokens are
+// rejected by a process that only knows the old key (i.e. the rotation really
+// happened).
+func TestAccessTokenSurvivesASigningKeyRotation(t *testing.T) {
+	env := newTestEnvWithConfig(t, func(cfg *config.Config) {
+		cfg.Auth.JWTKeyID = "k1"
+	})
+	admin := env.loginAdmin(t)
+
+	rotatedCfg := *env.cfg
+	rotatedCfg.Auth.JWTSecret = "rotated-integration-secret-32-bytes!"
+	rotatedCfg.Auth.JWTKeyID = "k2"
+	rotatedCfg.Auth.JWTRetiredSecrets = []string{env.cfg.Auth.JWTSecret}
+	application, err := app.NewWithDB(&rotatedCfg, zap.NewNop(), env.db)
+	if err != nil {
+		t.Fatalf("assemble rotated app: %v", err)
+	}
+	t.Cleanup(func() { _ = application.Close() })
+	// Shares env.db on purpose: this is the same database, only the key ring
+	// changed. Close() is idempotent, so the cleanup order is harmless.
+	after := &testEnv{app: application, db: env.db, cfg: &rotatedCfg, handler: application.Handler()}
+
+	w := doJSONAuth(t, after.handler, http.MethodGet, "/api/v1/auth/me", nil, admin.accessToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("pre-rotation token after rotation = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	fresh := after.login(t, adminEmail, adminPassword, http.StatusOK)
+	w = doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/auth/me", nil, fresh.accessToken)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("token signed by the new key on the old app = %d, want 401", w.Code)
+	}
+	w = doJSONAuth(t, after.handler, http.MethodGet, "/api/v1/auth/me", nil, fresh.accessToken)
+	if w.Code != http.StatusOK {
+		t.Errorf("token signed by the new key = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+}

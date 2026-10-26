@@ -182,6 +182,8 @@ go-web-template/
 | `APP_SWAGGER_ENABLED` | 是否暴露 `/openapi.json` 与 Swagger UI | `true`（compose 默认 `false`） |
 | `APP_METRICS_ENABLED` | 是否暴露 Prometheus 抓取端点 `/metrics`（含 Go 版本与路由画像） | `true`（compose 默认 `false`） |
 | `APP_AUTH_JWT_SECRET` | JWT 签名密钥（HS256，≥32 字节；**生产必填**，且拒绝仓库自带的任何默认值/占位值） | 空（启动失败）；`make docker-up` 自动注入 `.local/jwt-secret` |
+| `APP_AUTH_JWT_KEY_ID` | 新签发 token 的 `kid` 头（可选；密钥轮换时用来区分是哪把密钥签的） | 空（不写 `kid`） |
+| `APP_AUTH_JWT_RETIRED_SECRETS` | 只验不签的旧密钥（逗号分隔），轮换期间让旧 access token 自然过期；生产同样要求 ≥32 字节 | 空 |
 | `APP_AUTH_ACCESS_TTL` | access token 有效期 | `15m` |
 | `APP_AUTH_REFRESH_TTL` | refresh 滑动有效期（每次刷新重置） | `720h`（30 天） |
 | `APP_AUTH_REFRESH_MAX_LIFETIME` | 会话绝对上限（从首次登录算，到点强制重登） | `2160h`（90 天） |

@@ -98,9 +98,14 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
            message_retention: 2160h}        # 过期消息再留 90 天（无 expires_at 永不删）
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_MAX_BODY_BYTES`、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_JWT_KEY_ID`/`APP_AUTH_JWT_RETIRED_SECRETS`（密钥轮换：`kid` + 只验不签的旧密钥，逗号分隔）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `APP_AUTH_JWT_SECRET` **显式置空**按「没设置」处理（不会被 viper 忽略后回落到 `configs/config.yaml` 的开发默认值，否则报错会误导成占位值问题）；`auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
+- **签名密钥轮换**（`authkit.TokenIssuer` 的密钥环，首个签字、其余只验）：
+  1. 新密钥写入 `APP_AUTH_JWT_SECRET`，`APP_AUTH_JWT_KEY_ID=k2`；
+  2. 旧密钥写进 `APP_AUTH_JWT_RETIRED_SECRETS`（逗号分隔）→ 旧 access token 继续可用，**不会全量掉线**；
+  3. 等 `auth.access_ttl`（默认 15m）过去，清空 `RETIRED_SECRETS` 完成退役（旧 token 立即 401）。
+  `kid` 只是选钥提示，不参与信任判定（伪造 `kid` 只会换来签名不匹配）；退休密钥在 `production` 同样要求 ≥32 字节且非占位值（它仍能验签）。真实验证：`make verify-auth` 的 F 段。
 - 所有时长键用字符串（`"10s"`）；viper 默认挂 `StringToTimeDuration` 钩子。
 - 显式 `-config` 缺失 → 启动失败；默认路径缺失 → 用默认值 + env。
 - 安全演练与已知取舍：见 `docs/security-review-2026-10.md`（F1–F12 的发现、复现命令与修复 commit）。

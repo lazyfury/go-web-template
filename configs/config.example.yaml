@@ -71,6 +71,10 @@ metrics:
 auth:
   # HS256 签名密钥：生产环境必填且 >=32 字节（APP_AUTH_JWT_SECRET），开发环境可用默认值
   jwt_secret: CHANGE_ME_use_a_random_32+_byte_secret
+  # 轮换：新签发的 token 头里带 kid=<jwt_key_id>；旧密钥放 jwt_retired_secrets
+  # （只验不签，逗号分隔），等 access_ttl 过去后再从列表里删掉。留空 = 不轮换。
+  jwt_key_id: ""
+  jwt_retired_secrets: []
   issuer: go-web-template
   access_ttl: 15m
   # 滑动续期：每次 /auth/refresh 都会续到 30 天，活跃用户不会被迫重登

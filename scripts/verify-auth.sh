@@ -9,6 +9,8 @@
 #   D. 会话绝对上限：expires_at 被夹到 session_started_at+max_lifetime。
 #   E. 上限的防御分支：配置收紧后旧 token 未被夹紧 → 401 session expired +
 #      revoked_reason=session_cap（覆盖 config 变更/历史数据）。
+#   F. 签名密钥轮换：jwt_retired_secrets 让旧 access token 活过一轮轮换，
+#      旧密钥退役后立刻 401，新密钥签发的 token 不受影响。
 #
 # 前置：postgres 已起且迁移已应用（make db-up && make migrate-up）。
 # 用法: ./scripts/verify-auth.sh        （= make verify-auth）
@@ -152,4 +154,33 @@ UID_E=$(pg "select id from users where email='$EMAIL_E'")
 pass "会话超上限 → 401 session expired（revoked_reason=session_cap）"
 stop
 
-echo "verify-auth: PASS（A 宽限期 / B 登出立即 / C body 传输 / D 夹紧 / E 上限防御分支）"
+echo "== F: 签名密钥轮换（jwt_key_id + jwt_retired_secrets）"
+S1='verify-auth-secret-one-32-bytes-abc'
+S2='verify-auth-secret-two-32-bytes-xyz'
+EMAIL_F="verify-auth-f-$(date +%s)@example.com"
+start "APP_AUTH_JWT_SECRET=$S1" APP_AUTH_JWT_KEY_ID=k1
+seed "$EMAIL_F"
+TOKEN_OLD=$(login_cookie "$EMAIL_F")
+[ "$(code -H "Authorization: Bearer $TOKEN_OLD" "$BASE/api/v1/auth/me")" = "200" ] || fail "轮换前 token 应可用"
+stop
+
+# 轮换：新密钥签发，旧密钥只验不签（JWT_RETIRED_SECRETS 走逗号分隔的 env 列表）
+start "APP_AUTH_JWT_SECRET=$S2" APP_AUTH_JWT_KEY_ID=k2 "APP_AUTH_JWT_RETIRED_SECRETS=$S1"
+[ "$(code -H "Authorization: Bearer $TOKEN_OLD" "$BASE/api/v1/auth/me")" = "200" ] \
+	|| fail "轮换后旧 access token 应仍可验（jwt_retired_secrets）"
+TOKEN_NEW=$(login_cookie "$EMAIL_F")
+[ "$(code -H "Authorization: Bearer $TOKEN_NEW" "$BASE/api/v1/auth/me")" = "200" ] \
+	|| fail "新密钥签发的 token 应可用"
+pass "轮换期间旧 token 仍 200（不造成全量掉线）"
+stop
+
+# 旧密钥退役：旧 token 立即 401，新 token 不受影响
+start "APP_AUTH_JWT_SECRET=$S2" APP_AUTH_JWT_KEY_ID=k2
+[ "$(code -H "Authorization: Bearer $TOKEN_OLD" "$BASE/api/v1/auth/me")" = "401" ] \
+	|| fail "旧密钥退役后旧 token 应 401"
+[ "$(code -H "Authorization: Bearer $TOKEN_NEW" "$BASE/api/v1/auth/me")" = "200" ] \
+	|| fail "旧密钥退役后新 token 仍应 200"
+pass "旧密钥退役 → 旧 token 401；新 token 始终 200"
+stop
+
+echo "verify-auth: PASS（A 宽限期 / B 登出立即 / C body 传输 / D 夹紧 / E 上限防御分支 / F 密钥轮换）"

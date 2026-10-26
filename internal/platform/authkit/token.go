@@ -26,34 +26,72 @@ type Claims struct {
 	Type         string `json:"typ"`
 }
 
+// Key is one HMAC-SHA256 signing key. ID is stamped as the JWT "kid" header on
+// issued tokens; it may be empty for keys that exist only to verify tokens
+// signed before a rotation.
+type Key struct {
+	ID     string
+	Secret []byte
+}
+
 // TokenIssuer issues and verifies HS256 access tokens.
 //
 // The signing method is pinned on both sides (never trust the "alg" header),
 // the issuer is validated and expiration is mandatory: a token crafted with
 // alg=none, HS512 or another issuer is rejected before any claim is read.
+//
+// The ring's first key signs; the remaining keys are verification-only, which is
+// what makes a rotation non-disruptive: put the new secret first, keep the old
+// one behind it, and tokens issued before the switch stay valid until they
+// expire on their own.
 type TokenIssuer struct {
-	secret []byte
+	keys   []Key
+	byID   map[string][]byte
 	issuer string
 	ttl    time.Duration
 	now    func() time.Time
 }
 
-// NewTokenIssuer builds an issuer. ttl must be positive.
+// NewTokenIssuer builds a single-key issuer. ttl must be positive.
 func NewTokenIssuer(secret, issuer string, ttl time.Duration) *TokenIssuer {
 	return &TokenIssuer{
-		secret: []byte(secret),
+		keys:   []Key{{Secret: []byte(secret)}},
+		byID:   map[string][]byte{},
 		issuer: issuer,
 		ttl:    ttl,
 		now:    time.Now,
 	}
 }
 
+// NewTokenIssuerWithKeys builds an issuer over a key ring: keys[0] signs, the
+// rest only verify. Secrets must be non-empty and non-empty ids must be unique.
+func NewTokenIssuerWithKeys(keys []Key, issuer string, ttl time.Duration) (*TokenIssuer, error) {
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("authkit: at least one signing key is required")
+	}
+	ring := make([]Key, 0, len(keys))
+	byID := make(map[string][]byte, len(keys))
+	for i, key := range keys {
+		if len(key.Secret) == 0 {
+			return nil, fmt.Errorf("authkit: signing key %d has an empty secret", i)
+		}
+		if key.ID != "" {
+			if _, dup := byID[key.ID]; dup {
+				return nil, fmt.Errorf("authkit: duplicate signing key id %q", key.ID)
+			}
+			byID[key.ID] = key.Secret
+		}
+		ring = append(ring, Key{ID: key.ID, Secret: append([]byte(nil), key.Secret...)})
+	}
+	return &TokenIssuer{keys: ring, byID: byID, issuer: issuer, ttl: ttl, now: time.Now}, nil
+}
+
 // TTL returns the access-token lifetime.
 func (i *TokenIssuer) TTL() time.Duration { return i.ttl }
 
-// Issue signs an access token for the given user.
+// Issue signs an access token for the given user with the ring's first key.
 func (i *TokenIssuer) Issue(userID uint64, role Role, tokenVersion int) (string, error) {
-	if len(i.secret) == 0 {
+	if len(i.keys) == 0 || len(i.keys[0].Secret) == 0 {
 		return "", fmt.Errorf("authkit: empty signing secret")
 	}
 	if !role.Valid() {
@@ -71,19 +109,50 @@ func (i *TokenIssuer) Issue(userID uint64, role Role, tokenVersion int) (string,
 		TokenVersion: tokenVersion,
 		Type:         TokenTypeAccess,
 	}
+	key := i.keys[0]
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString(i.secret)
+	if key.ID != "" {
+		token.Header["kid"] = key.ID
+	}
+	signed, err := token.SignedString(key.Secret)
 	if err != nil {
 		return "", fmt.Errorf("authkit: sign token: %w", err)
 	}
 	return signed, nil
 }
 
-// Parse verifies an access token and returns the principal it carries. Any
-// failure is reported as apperr.CodeUnauthorized with a stable message that
-// does not reveal *why* the token was rejected.
+// Parse verifies an access token against the key ring and returns the principal
+// it carries. Any failure is reported as apperr.CodeUnauthorized with a stable
+// message that does not reveal *why* the token was rejected.
 func (i *TokenIssuer) Parse(raw string) (*Principal, error) {
-	parser := jwt.NewParser(
+	var claims *Claims
+	var verifyErr error
+	for _, key := range i.candidateKeys(raw) {
+		claims = &Claims{}
+		_, err := i.parser().ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) {
+			return key.Secret, nil
+		})
+		if err != nil {
+			// Prefer the specific reason: an expired token must keep saying so
+			// instead of degrading into a signature mismatch on the next key.
+			if verifyErr == nil || errors.Is(err, jwt.ErrTokenExpired) {
+				verifyErr = err
+			}
+			continue
+		}
+		return principalFromClaims(claims)
+	}
+	if verifyErr == nil {
+		verifyErr = fmt.Errorf("authkit: no verification key")
+	}
+	if errors.Is(verifyErr, jwt.ErrTokenExpired) {
+		return nil, apperr.Wrap(apperr.CodeUnauthorized, "access token expired", verifyErr)
+	}
+	return nil, apperr.Wrap(apperr.CodeUnauthorized, "invalid access token", verifyErr)
+}
+
+func (i *TokenIssuer) parser() *jwt.Parser {
+	return jwt.NewParser(
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 		jwt.WithIssuer(i.issuer),
 		jwt.WithExpirationRequired(),
@@ -92,18 +161,30 @@ func (i *TokenIssuer) Parse(raw string) (*Principal, error) {
 		// Same clock as Issue, so tests can move time deterministically.
 		jwt.WithTimeFunc(i.now),
 	)
+}
 
-	claims := &Claims{}
-	if _, err := parser.ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) {
-		return i.secret, nil
-	}); err != nil {
-		switch {
-		case errors.Is(err, jwt.ErrTokenExpired):
-			return nil, apperr.Wrap(apperr.CodeUnauthorized, "access token expired", err)
-		default:
-			return nil, apperr.Wrap(apperr.CodeUnauthorized, "invalid access token", err)
-		}
+// candidateKeys returns the keys worth trying for raw. A token whose "kid" names
+// a known key only needs that one; anything else (no kid, unknown kid, tokens
+// issued before the rotation) falls back to the whole ring. The header is never
+// trusted: a forged "kid" only costs a signature mismatch.
+func (i *TokenIssuer) candidateKeys(raw string) []Key {
+	unverified, _, err := new(jwt.Parser).ParseUnverified(raw, &Claims{})
+	if err != nil {
+		return i.keys
 	}
+	kid, _ := unverified.Header["kid"].(string)
+	if kid == "" {
+		return i.keys
+	}
+	secret, ok := i.byID[kid]
+	if !ok {
+		return i.keys
+	}
+	return []Key{{ID: kid, Secret: secret}}
+}
+
+// principalFromClaims turns already-verified claims into a principal.
+func principalFromClaims(claims *Claims) (*Principal, error) {
 	if claims.Type != TokenTypeAccess {
 		return nil, apperr.New(apperr.CodeUnauthorized, "invalid access token")
 	}

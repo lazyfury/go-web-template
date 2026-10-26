@@ -125,7 +125,15 @@ type Auth struct {
 	// JWTSecret signs access tokens (HMAC-SHA256). Production requires at
 	// least 32 bytes; a short or empty secret fails startup.
 	JWTSecret string `mapstructure:"jwt_secret"`
-	Issuer    string `mapstructure:"issuer"`
+	// JWTKeyID is stamped as the JWT "kid" header on newly issued tokens.
+	// Optional; empty omits the header. It lets a rotation be traced per token
+	// (which key signed it) and gives verification a fast path.
+	JWTKeyID string `mapstructure:"jwt_key_id"`
+	// JWTRetiredSecrets are verification-only keys: put the previous secret here
+	// when rotating jwt_secret so access tokens issued before the switch keep
+	// working until they expire. Drop them once access_ttl has passed.
+	JWTRetiredSecrets []string `mapstructure:"jwt_retired_secrets"`
+	Issuer            string   `mapstructure:"issuer"`
 
 	// AccessTTL bounds the stateless access token lifetime.
 	AccessTTL time.Duration `mapstructure:"access_ttl"`
