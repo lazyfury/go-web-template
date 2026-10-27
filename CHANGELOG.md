@@ -22,6 +22,16 @@
 
 ### Fixed
 
+- 退出登录不再「看起来没反应」：原来 `authApi.logout()` 是 fire-and-forget，导航到 `/login` 时
+  store 里还留着 access token，守卫又把它弹回 `/dashboard`，直到下一次请求 401 才被动重定向。
+  现在 `useLogout` 先等后端吊销 + 本地清态，再带 `redirect` 跳登录页（并发点击只执行一次，
+  后端不可达也照样离开当前页）。
+- 401 语义收窄：`/auth/login`、`/auth/refresh`、`/auth/logout`、`/auth/password` 上的 401 是业务结果
+  （改密时「当前密码错误」也是 401），不再触发刷新重放、清会话和跳登录——否则输错一次当前密码
+  就会被当成掉线踢回登录页。
+- 登录页 `?redirect=` 与「登录过期」跳转统一走 `safeRedirectTarget`：只接受站内路径，
+  拒绝 `//evil.example`、外部 URL、控制字符与回到 `/login` 自身；并发 401 只跳一次，不再把
+  `redirect` 叠成 `/login?redirect=/login?...`。
 - 侧栏只按父级权限过滤：无 `messages:manage` 的角色会看到模板/投递入口，点进去被守卫弹回仪表盘。
   现在子项各自声明权限并按权限过滤，父级只在有可见子项时渲染。
 - 投递领取的第二条腿（租约过期的 sending 行）缺少索引，真实 PG 上退化为全表扫描；

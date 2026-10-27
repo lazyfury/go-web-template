@@ -4,6 +4,7 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authApi } from '@/api/auth'
 import { notifyError } from '@/utils/feedback'
+import { safeRedirectTarget } from '@/utils/redirect'
 
 const router = useRouter()
 const route = useRoute()
@@ -35,8 +36,8 @@ const handleLogin = async () => {
   try {
     await authApi.login({ email: form.email.trim(), password: form.password })
     ElMessage.success('登录成功')
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
-    router.replace(redirect)
+    // 只接受站内路径：`?redirect=//evil.com` 之类一律回仪表盘。
+    router.replace(safeRedirectTarget(route.query.redirect))
   } catch (error) {
     notifyError(error, '登录失败')
   } finally {

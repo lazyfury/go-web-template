@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './routes'
 import { useAuthStore } from '@/stores/auth'
 import { setAuthExpiredHandler } from '@/api/http'
+import { safeRedirectTarget } from '@/utils/redirect'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -40,11 +41,18 @@ router.afterEach((to) => {
   document.title = title ? `${title} · Admin Console` : 'Admin Console'
 })
 
-/** 登录过期：清空本地登录态并在 SPA 内跳转登录页（覆盖 http 层默认整页跳转）。 */
+/**
+ * 登录过期：清空本地登录态并在 SPA 内跳转登录页（覆盖 http 层默认整页跳转）。
+ *
+ * 幂等：并发多个 401 时只跳一次；已经在登录页就不再跳，
+ * 否则 `redirect` 参数会被反复叠加成 `/login?redirect=/login?...`。
+ */
 setAuthExpiredHandler(() => {
   useAuthStore().clearAuth()
-  const current = router.currentRoute.value.fullPath
-  router.replace({ path: '/login', query: { redirect: current } })
+  const current = router.currentRoute.value
+  if (current.path === '/login') return
+  const redirect = safeRedirectTarget(current.fullPath)
+  router.replace({ path: '/login', query: { redirect } })
 })
 
 export default router
