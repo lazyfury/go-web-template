@@ -91,6 +91,31 @@ export const refreshSession = (): Promise<boolean> => {
 }
 
 /* ------------------------------------------------------------------ */
+/* 401 语义：哪些端点上的 401 不是「会话过期」                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 这些端点的 401 是**业务结果**，不是「登录态失效」：
+ * - /auth/login：邮箱或密码错；
+ * - /auth/refresh：refresh cookie 无效（bootstrap/单飞刷新自己处理）；
+ * - /auth/logout：会话本就已经失效，清本地态即可；
+ * - /auth/password：**当前密码错**（后端按 401 返回，避免泄露账号状态）。
+ *
+ * 对它们既不能刷新（refresh 自己 401 会递归）、也不能清会话/跳登录：
+ * 否则「改密时输错当前密码」会被当成掉线直接踢回登录页。
+ */
+const SESSIONLESS_401_PATHS = new Set(['/auth/login', '/auth/refresh', '/auth/logout', '/auth/password'])
+
+/** shouldRefreshSession 判断一次 401 是否值得走「刷新 + 重放」。 */
+export const shouldRefreshSession = (url: string | undefined, retried: boolean): boolean => {
+  if (retried) return false
+  if (!url) return true
+  // 精确匹配到路径本身（去掉 query），避免 /auth/password-reset 之类被误判。
+  const path = url.split('?')[0]
+  return !SESSIONLESS_401_PATHS.has(path)
+}
+
+/* ------------------------------------------------------------------ */
 /* 登录过期处理：默认整页跳转；router 模块可覆盖为 SPA 内跳转            */
 /* ------------------------------------------------------------------ */
 
@@ -161,20 +186,20 @@ client.interceptors.response.use(
     // 登录态失效：业务码 40100 或 HTTP 401
     const code = isEnvelope(payload) ? payload.code : status
     const unauthorized = status === 401 || code === BusinessCode.UNAUTHORIZED
+    const message = extractErrorMessage(payload, error.message || '请求失败')
     if (!unauthorized || !config) {
-      const message = extractErrorMessage(payload, error.message || '请求失败')
       return Promise.reject(new ApiError(message, code, status))
     }
 
-    // 登录/刷新自身 401 不触发刷新（避免递归），直接按登录过期处理。
-    const isAuthEndpoint = config.url?.startsWith('/auth/login') || config.url?.startsWith('/auth/refresh')
+    // 登录/刷新/登出/改密的 401 是业务结果：交给调用方展示，不刷新也不跳转。
+    if (!shouldRefreshSession(config.url, Boolean(config._retried))) {
+      return Promise.reject(new ApiError(message, code, status))
+    }
 
     // 401 且尚未重试：先用 refresh cookie 换新 token，成功则重放原请求一次。
-    if (!isAuthEndpoint && !config._retried) {
-      config._retried = true
-      if (await refreshSession()) {
-        return client.request(config)
-      }
+    config._retried = true
+    if (await refreshSession()) {
+      return client.request(config)
     }
 
     handleAuthExpired()
