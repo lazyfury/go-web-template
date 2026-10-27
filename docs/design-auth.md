@@ -1,6 +1,6 @@
 # 认证与权限设计（已实现 · 设计取舍）
 
-> 状态：**已实现（P0–P4）**，P5 加固项（登录指标/清理任务/密钥轮换）已做前两项，密钥轮换待做。
+> 状态：**已实现（P0–P5）**（登录指标、保留期清理、`kid` 密钥环轮换均已落地；轮换操作步骤见 `context.md` §4「签名密钥轮换」）。
 > 代码入口：`internal/auth`（域）、`internal/platform/authkit`（JWT/RBAC/中间件）、`internal/platform/passwd`（bcrypt）、
 > `internal/app/app.go`（装配）、`migrations/000002~000003`、`web/admin/src/{api,stores}/auth.ts`。
 > 架构/契约的权威事实仍以 `context.md`（§2/§5/§6/§9/§11）为准；本文档只保留设计取舍与威胁模型。

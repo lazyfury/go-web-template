@@ -339,7 +339,7 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 - 多标签页共享一个 cookie jar：`refresh_reuse_interval` 期间旧 token 重放会被容忍并只保留最新 token；窗口外仍会判定为盗用并全量吊销（默认 30s，可按需调大）。
 - 会话寿命 = `min(闲置 refresh_ttl, 自登录起 refresh_max_lifetime)`：想"更久不用重登"就调这两个值，不要调 `access_ttl`。
 - `VerifyAccess` 默认通过 `auth.verify_cache_ttl`（默认 5s）缓存用户的 status/role/token_version：单副本内任何写（改密/改角色/禁用/删除）都会**立即失效**，多副本下另一台最多滞后一个 TTL（置 0 关闭缓存，回到每请求一次 DB 读）。
-- HS256 单密钥：轮换需要多密钥 + `kid`，当前不支持；轮换会全量掉线（重新登录即可）。
+- HS256 单密钥体系 + `kid` 密钥环轮换：新密钥签、旧密钥（`auth.jwt_retired_secrets`）只验不签，因此轮换**不再全量掉线**；代价是必须记得在 `auth.access_ttl` 之后把退休密钥删掉。缺失的只有非对称算法（RS256/ES256）与 JWKS 端点。
 - 无忘记密码/邮箱验证流程：密码只能由管理员 PATCH 重置或本人 `PATCH /auth/password`。
 - `Timeout` 只注入 ctx deadline：handler 若不检查 ctx，响应仍会返回成功；需要保证中断的路径必须显式处理 `ctx.Err()`。
 - 测试库为每测试独立的命名内存 SQLite（`internal/testutil`），可并行；但仍需避免依赖真实 PostgreSQL 特性。
