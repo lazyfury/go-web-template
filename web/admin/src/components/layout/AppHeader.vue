@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { authApi } from '@/api/auth'
+import { useRoute } from 'vue-router'
 import MessageBell from '@/components/layout/MessageBell.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useLogout } from '@/composables/useLogout'
 
 defineProps<{
   isCollapse: boolean
@@ -15,8 +14,8 @@ const emit = defineEmits<{
 }>()
 
 const route = useRoute()
-const router = useRouter()
 const authStore = useAuthStore()
+const { logout: handleLogout, loggingOut } = useLogout()
 
 const pageTitle = computed(() => route.meta.title ?? '')
 const userName = computed(() => authStore.user?.name ?? 'Admin')
@@ -24,11 +23,6 @@ const userRole = computed(() => (authStore.user?.role === 'admin' ? '管理员' 
 const userEmail = computed(() => authStore.user?.email ?? 'admin@admin.local')
 const avatarText = computed(() => userName.value.slice(0, 1).toUpperCase())
 
-const handleLogout = () => {
-  authApi.logout()
-  ElMessage.success('已退出登录')
-  router.replace('/login')
-}
 </script>
 
 <template>
@@ -74,9 +68,9 @@ const handleLogout = () => {
               <div class="mt-0.5 text-xs text-[var(--text-muted)]">{{ userRole }}</div>
               <div class="mt-0.5 text-xs text-[var(--text-muted)]">{{ userEmail }}</div>
             </div>
-            <el-dropdown-item divided @click="handleLogout">
+            <el-dropdown-item divided :disabled="loggingOut" @click="handleLogout">
               <span class="i-ep-switch-button mr-1.5 text-sm text-[var(--danger)]" />
-              <span class="text-[var(--danger)]">退出登录</span>
+              <span class="text-[var(--danger)]">{{ loggingOut ? '正在退出…' : '退出登录' }}</span>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
