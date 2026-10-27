@@ -19,6 +19,9 @@ GOVULNCHECK   ?= $(shell [ -x "$(TOOL_BIN)/govulncheck" ] && echo "$(TOOL_BIN)/g
 # 覆盖率统计范围：默认 package 归属会让「被集成测试覆盖的 handler/routes」显示 0%，
 # 合并 internal/... 才能看到真实覆盖率。
 COVERPKG   ?= ./internal/...
+# 覆盖率下限（总量，口径 = COVERPKG）：低于它就当回归，不接受「数字看着还行」。
+# 抬高时只改这里；不要为了让红灯变绿而降低阈值。
+COVER_MIN  ?= 74
 MIGRATE_URL ?= postgres://postgres:postgres@127.0.0.1:5432/go_web_template?sslmode=disable
 
 # 工具版本：Makefile 是唯一来源，升级时只改这里
@@ -28,7 +31,7 @@ GOVULNCHECK_VERSION   ?= v1.9.0
 MIGRATE_VERSION       ?= v4.20.1
 
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
-        build run dev test test-race coverage coverage-func vet lint fmt fmt-check tidy \
+        build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
         migrate-up migrate-down migrate-create \
         docker-build jwt-secret docker-up docker-down docker-logs clean
@@ -111,7 +114,7 @@ db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postg
 
 check: lint gate ## 提交前唯一门槛 = lint + gate
 
-gate: fmt-check vet test-race build tidy-check ## 本地校验链（不含 golangci-lint）
+gate: fmt-check vet test-race cover-check build tidy-check ## 本地校验链（不含 golangci-lint）
 
 fmt-check: ## 校验 gofmt（docs/ 含生成物与 Markdown，豁免）
 	@unformatted=$$(gofmt -l . | grep -v '^docs/' || true); \
@@ -147,6 +150,14 @@ coverage: ## 生成 HTML 覆盖率报告（会打开浏览器）
 coverage-func: ## 覆盖率文本摘要（agent/人类友好，不开浏览器）
 	$(GO) test ./... -coverpkg=$(COVERPKG) -coverprofile=coverage.out >/dev/null
 	$(GO) tool cover -func=coverage.out
+
+cover-check: ## 覆盖率下限校验（make check 的一部分，阈值见 COVER_MIN）
+	$(GO) test ./... -count=1 -coverpkg=$(COVERPKG) -coverprofile=coverage.out >/dev/null
+	@total=$$($(GO) tool cover -func=coverage.out | tail -1 | awk '{gsub(/%/,"",$$3); print $$3}'); \
+	awk -v total="$$total" -v min="$(COVER_MIN)" 'BEGIN { \
+		printf "coverage %.1f%% (floor %s%%)\n", total, min; \
+		if (total + 0 < min + 0) { print "FAIL: coverage below floor"; exit 1 } \
+	}'
 
 openapi: ## 重新生成 OpenAPI 契约（改了路由元数据后必须跑）
 	$(GO) test ./internal/app -run TestOpenAPIGolden -update

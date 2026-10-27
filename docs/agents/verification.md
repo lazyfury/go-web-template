@@ -6,7 +6,7 @@
 
 | 门 | 何时跑 | 覆盖什么 |
 |---|---|---|
-| `make check` | **每次提交前（必跑）** | golangci-lint、gofmt 校验、go vet、race 测试、build、OpenAPI 黄金文件、`go mod tidy` 同步 |
+| `make check` | **每次提交前（必跑）** | golangci-lint、gofmt 校验、go vet、race 测试、覆盖率下限（`make cover-check`，`COVER_MIN`）、build、OpenAPI 黄金文件、`go mod tidy` 同步 |
 | `make audit` | auth/JWT/鉴权/迁移 SQL 改动、发布前 | 密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、govulncheck |
 | `make smoke` / `make verify-auth` | 有 postgres 时；改认证/会话后必跑 `verify-auth` | 真实进程 + 真实 PG 的端到端行为；`smoke` 覆盖探针/登录/权限/CRUD/refresh/OpenAPI |
 
