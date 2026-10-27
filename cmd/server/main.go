@@ -61,6 +61,23 @@ func main() {
 		}
 	}()
 
+	// Log schema state once, so "which version is actually deployed" is in the
+	// first lines of every container log (and not only behind /readyz).
+	if status, err := application.SchemaStatus(ctx); err != nil {
+		logger.Warn("inspect database schema", zap.Error(err))
+	} else {
+		logger.Info("database schema",
+			zap.Int64("applied_version", status.Applied),
+			zap.Int64("required_version", status.Required),
+			zap.Bool("dirty", status.Dirty),
+			zap.Bool("migrations_table", status.Found),
+			zap.Bool("ready", status.OK()),
+		)
+		if !status.OK() {
+			logger.Warn("database schema is not ready; /readyz will report 503", zap.String("reason", status.Reason()))
+		}
+	}
+
 	// Root goroutines live here: HTTP, the message worker and the rate-limiter
 	// sweeper share one lifecycle. A failure in any of them cancels the others;
 	// App itself never starts goroutines.

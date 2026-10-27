@@ -108,7 +108,10 @@
 | 症状 | 原因与处理 |
 |---|---|
 | `connection refused` (5432) | postgres 未起 / 网络模式不对（compose 内用服务名，裸容器用 host.docker.internal） |
-| `readyz` 503 | DB 不可达；先 `docker compose ps` 看 postgres 状态 |
+| `readyz` 503 `reason=database unreachable` | DB 不可达；先 `docker compose ps` 看 postgres 状态 |
+| `readyz` 503 `reason=schema behind` | 迁移没跑或没跑全：`make migrate-up`（响应里的 `applied_version`/`required_version` 就是差距）；发布流程要把迁移和应用放同一批次 |
+| `readyz` 503 `reason=schema migration dirty` | golang-migrate 上次升级中途失败；按它的提示手工修数据后 `migrate force <version>`，不要直接删 `schema_migrations` |
+| `readyz` 503 `reason=schema not applied` | 空库：先 `make migrate-up`，再 `make seed-admin` |
 | 容器反复重启（healthcheck 失败） | `make docker-logs`；多半是 DB 连不上（env 是否指向服务名）或端口冲突 |
 | 镜像启动即退 | `docker run --rm -e APP_LOG_FORMAT=console -it go-web-template:dev` 前台看日志 |
 | 构建慢 | 分层缓存：依赖层在前，源码 COPY 在后 |

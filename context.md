@@ -237,7 +237,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | 端点 | 方法 | 说明 | 成功 | 失败 |
 |---|---|---|---|---|
 | `/healthz` | GET | 存活探针（不依赖外部） | 200 | — |
-| `/readyz` | GET | 就绪探针（ping DB） | 200 | 503 |
+| `/readyz` | GET | 就绪探针（ping DB + 迁移版本校验） | 200 | 503（DB 不可达 / 迁移落后 / dirty / 未初始化，响应带 `reason`；落后时附 `applied_version`/`required_version`） |
 | `/metrics` | GET | Prometheus 指标 | 200 | — |
 | `/openapi.json` | GET | OpenAPI 3.0 文档（`swagger.enabled` 控制） | 200 | — |
 | `/swagger/*any` | GET | Swagger UI，读取 `/openapi.json`（`swagger.enabled` 控制） | 200 | — |
@@ -336,7 +336,8 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 ## 11. 已知限制
 
 - 限流桶默认是单实例内存态；多副本必须把 `ratelimit.backend` 切成 `redis`（`APP_REDIS_ADDR`），否则每个副本各有一份额度，实际限额 = 配置值 × 副本数。登录**锁定**状态本来就在 `users.locked_until`（DB），天然多副本一致；Redis 只承载限流桶。
-- Redis 只做跨副本加速层，不是事实来源：`/readyz` 只探 DB，Redis 抖动不会摘流量，限流按 fail-open 处理（见 §8 中间件）。
+- Redis 只做跨副本加速层，不是事实来源：`/readyz` 只探 DB 与迁移版本，Redis 抖动不会摘流量，限流按 fail-open 处理（见 §8 中间件）。
+- `/readyz` 的迁移校验只比对**版本号与 dirty 位**（`dbx.RequiredSchemaVersion`，与 `migrations/*.up.sql` 的最大编号由单测钉死），不做列/索引级 diff；`schema_migrations` 表不存在但核心表存在时按「AutoMigrate/其它工具建库」放行（测试与本地库即如此），两者都不存在才 503。
 - access token 无状态：吊销/禁用最坏延迟 = `access_ttl`（15m）；改密/禁用通过 `token_version` 即时生效。
 - 多标签页共享一个 cookie jar：`refresh_reuse_interval` 期间旧 token 重放会被容忍并只保留最新 token；窗口外仍会判定为盗用并全量吊销（默认 30s，可按需调大）。
 - 会话寿命 = `min(闲置 refresh_ttl, 自登录起 refresh_max_lifetime)`：想"更久不用重登"就调这两个值，不要调 `access_ttl`。

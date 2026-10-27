@@ -195,7 +195,25 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		limiterOptions = append(limiterOptions, web.WithRateLimitStore(redisx.NewRateLimitStore(redisClient)))
 	}
 	limiters := web.NewLimiters(limiterOptions...)
-	engine, api := web.New(cfg, logger, web.NewHealth(sqlDB), options.Version, limiters)
+	// Readiness also reports schema drift: a deployment that skipped
+	// `make migrate-up` must leave the load balancer instead of answering 500
+	// on every business request. The transport layer gets a narrow probe, not
+	// the DB handle, so web stays free of data-access imports.
+	schemaProbe := func(ctx context.Context) (web.SchemaStatus, error) {
+		status, err := dbx.InspectSchema(ctx, db)
+		if err != nil {
+			return web.SchemaStatus{}, err
+		}
+		return web.SchemaStatus{
+			Applied:    status.Applied,
+			Required:   status.Required,
+			Dirty:      status.Dirty,
+			Found:      status.Found,
+			CoreTables: status.CoreTables,
+		}, nil
+	}
+	health := web.NewHealth(sqlDB, web.WithSchemaProbe(schemaProbe))
+	engine, api := web.New(cfg, logger, health, options.Version, limiters)
 
 	// Public auth endpoints: login is throttled per IP, refresh is not.
 	loginGuard := limiters.Middleware("login", true, clientIPKey, cfg.Auth.LoginRPS, cfg.Auth.LoginBurst)
@@ -302,6 +320,12 @@ func SeedAdmin(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts SeedOpt
 		logger,
 	)
 	return service.SeedAdmin(context.Background(), opts.Name, opts.Email, opts.Password, opts.Role)
+}
+
+// SchemaStatus reports the migration state of the database. cmd/server logs it
+// once at startup; the same inspector backs the /readyz schema check.
+func (a *App) SchemaStatus(ctx context.Context) (dbx.SchemaStatus, error) {
+	return dbx.InspectSchema(ctx, a.db)
 }
 
 // Handler exposes the HTTP handler (tests use it with httptest).

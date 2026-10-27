@@ -1578,3 +1578,50 @@ func TestAuthStateChangesApplyImmediately(t *testing.T) {
 		t.Errorf("disabled member me = %d, want 401", w.Code)
 	}
 }
+
+// TestReadinessDetectsSchemaDrift proves the probe is wired to the real
+// database handle: a database that is one migration behind (or dirty) must stop
+// receiving traffic instead of answering 500 on every business request.
+func TestReadinessDetectsSchemaDrift(t *testing.T) {
+	env := newTestEnv(t, false)
+	mustExec(t, env.db, "CREATE TABLE schema_migrations (version bigint, dirty boolean)")
+
+	status := doJSON(t, env.handler, http.MethodGet, "/readyz", nil)
+	if status.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz without a version row = %d, want 503, body=%s", status.Code, status.Body.String())
+	}
+
+	mustExec(t, env.db, "INSERT INTO schema_migrations (version, dirty) VALUES (?, ?)", 1, false)
+	status = doJSON(t, env.handler, http.MethodGet, "/readyz", nil)
+	if status.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz on an behind schema = %d, want 503, body=%s", status.Code, status.Body.String())
+	}
+	var body struct {
+		Reason          string `json:"reason"`
+		AppliedVersion  int64  `json:"applied_version"`
+		RequiredVersion int64  `json:"required_version"`
+	}
+	if err := json.Unmarshal(status.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode readyz body: %v", err)
+	}
+	if body.Reason != "schema behind" || body.AppliedVersion != 1 || body.RequiredVersion == 0 {
+		t.Errorf("readyz body = %+v", body)
+	}
+
+	mustExec(t, env.db, "UPDATE schema_migrations SET version = ?, dirty = ?", body.RequiredVersion, false)
+	if status := doJSON(t, env.handler, http.MethodGet, "/readyz", nil); status.Code != http.StatusOK {
+		t.Fatalf("readyz on the required version = %d, want 200, body=%s", status.Code, status.Body.String())
+	}
+
+	mustExec(t, env.db, "UPDATE schema_migrations SET dirty = ?", true)
+	if status := doJSON(t, env.handler, http.MethodGet, "/readyz", nil); status.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz on a dirty schema = %d, want 503, body=%s", status.Code, status.Body.String())
+	}
+}
+
+func mustExec(t *testing.T, db *gorm.DB, sql string, args ...any) {
+	t.Helper()
+	if err := db.Exec(sql, args...).Error; err != nil {
+		t.Fatalf("exec %q: %v", sql, err)
+	}
+}
