@@ -37,11 +37,12 @@ export const menuConfig: MenuItem[] = [
     path: '/message-admin',
     title: '消息管理',
     icon: Promotion,
-    permission: 'messages:send',
+    // 父级不声明权限：三个子页要求的权限不同（发送 vs 模板/投递管理），
+    // 由子项各自声明，父级可见性由「是否有可见子项」决定（见 AppSidebar）。
     children: [
-      { path: '/messages/send', title: '发送消息', icon: Promotion },
-      { path: '/message-templates', title: '消息模板', icon: Tickets },
-      { path: '/message-deliveries', title: '投递记录', icon: List },
+      { path: '/messages/send', title: '发送消息', icon: Promotion, permission: 'messages:send' },
+      { path: '/message-templates', title: '消息模板', icon: Tickets, permission: 'messages:manage' },
+      { path: '/message-deliveries', title: '投递记录', icon: List, permission: 'messages:manage' },
     ],
   },
   {

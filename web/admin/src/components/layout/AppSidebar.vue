@@ -10,8 +10,21 @@ defineProps<{
 
 const auth = useAuthStore()
 
-/** 按当前角色权限过滤菜单：无权限的入口不渲染（后端仍会二次校验）。 */
-const visibleMenu = computed(() => menuConfig.filter((item) => !item.permission || auth.can(item.permission)))
+/**
+ * 按当前角色权限过滤菜单：无权限的入口不渲染（后端仍会二次校验）。
+ *
+ * 子项也必须逐个过滤：父级不声明权限时（例如「消息管理」下发送与模板/投递
+ * 权限不同），只按父级过滤会把无权限的子页渲染出来，点进去又被路由守卫弹回
+ * 仪表盘。父级只在至少有一个可见子项时保留。
+ */
+const canSee = (item: MenuItem) => !item.permission || auth.can(item.permission)
+
+const visibleMenu = computed(() =>
+  menuConfig
+    .filter(canSee)
+    .map((item) => (item.children?.length ? { ...item, children: item.children.filter(canSee) } : item))
+    .filter((item) => !item.children || item.children.length > 0),
+)
 
 const hasChildren = (item: MenuItem) => Boolean(item.children?.length)
 </script>
