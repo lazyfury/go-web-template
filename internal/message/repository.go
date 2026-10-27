@@ -277,14 +277,18 @@ func (r *gormRepository) ListSent(ctx context.Context, offset, limit int) ([]Sen
 	}
 
 	var items []SentMessage
+	// One join + aggregate instead of two correlated subqueries per row: on a
+	// 20-row page that used to be 40 extra index lookups. Grouping by the
+	// primary key keeps the other message columns selectable on PostgreSQL
+	// (functional dependency) and is accepted by SQLite.
 	err := r.db.WithContext(ctx).
 		Table("messages").
 		Select(`messages.*,
-			(SELECT COUNT(*) FROM message_recipients
-			 WHERE message_id = messages.id AND deleted_at IS NULL) AS recipient_count,
-			(SELECT COUNT(*) FROM message_recipients
-			 WHERE message_id = messages.id AND read_at IS NOT NULL AND deleted_at IS NULL) AS read_count`).
+			COUNT(recipients.id) AS recipient_count,
+			COUNT(recipients.read_at) AS read_count`).
+		Joins("LEFT JOIN message_recipients AS recipients ON recipients.message_id = messages.id AND recipients.deleted_at IS NULL").
 		Where("messages.deleted_at IS NULL").
+		Group("messages.id").
 		Order("messages.id DESC").
 		Offset(offset).
 		Limit(limit).
