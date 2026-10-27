@@ -79,7 +79,7 @@ Go Web 单体模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → se
 | `make smoke` / `make verify-auth` | 有 postgres 时；auth 改动必跑 `verify-auth` | 真实进程 + 真实 PG 端到端 |
 
 - **禁止未运行就声称通过**：贴真实输出最后几行。
-- 前端改动：`pnpm typecheck` / `pnpm build` / `pnpm api:check`。
+- 前端改动：`make web-check`（eslint + vue-tsc + vitest + `pnpm api:check` + build 一次跑完）。
 - 详细边界、证据要求、子集验证：`docs/agents/verification.md`。
 
 ### 3.4 子 agent（默认不拆）

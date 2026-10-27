@@ -34,7 +34,7 @@ MIGRATE_VERSION       ?= v4.20.1
         build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
         migrate-up migrate-down migrate-create \
-        docker-build jwt-secret docker-up docker-down docker-logs clean
+        web-check docker-build jwt-secret docker-up docker-down docker-logs clean
 
 help: ## 显示所有命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -175,6 +175,9 @@ tidy-check: ## 校验 go.mod/go.sum 已 tidy（未 tidy 时自动整理并提示
 vuln: ## 依赖漏洞扫描
 	@./scripts/check-tools.sh govulncheck
 	$(GOVULNCHECK) ./...
+
+web-check: ## 前端门：eslint + vue-tsc + vitest + API 类型未漂移 + 构建（改 web/admin 时跑）
+	cd web/admin && pnpm lint && pnpm typecheck && pnpm test && pnpm api:check && pnpm build
 
 audit: ## 安全/SQL 静态审计 + 鉴权矩阵回归（auth/迁移改动、发布前跑）
 	@./scripts/audit.sh

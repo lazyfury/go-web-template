@@ -1,5 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import UnoCSS from 'unocss/vite'
 
@@ -10,6 +10,12 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
+  },
+  // 单元测试：纯逻辑（store/菜单/路由约束），不需要浏览器；SFC 走同一个 vue 插件。
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts'],
+    restoreMocks: true,
   },
   server: {
     port: 5173,

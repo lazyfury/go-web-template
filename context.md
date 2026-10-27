@@ -269,7 +269,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 路由矩阵：`internal/app/route_matrix_test.go` 给**每一个**已注册路由声明「匿名 401 / member 结果 / admin 结果 / 非法 JSON 400」四列，并由 `TestRouteMatrixCoversEveryRegisteredRoute` 保证新路由必须分类（漏写 = 红）。这是 401/403 契约的防漂移钉子，不靠覆盖率数字兜底。
 - 覆盖率下限：`make cover-check`（口径 `COVERPKG=./internal/...`，阈值 `COVER_MIN`，默认 74）已并入 `make check`；低于阈值即失败。
 - OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、`engine.Routes()` 完整性、禁用时 404、**受保护操作必须带 bearerAuth+401/403，公开端点不得带 security**）。
-- 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移，`pnpm build` 做 vue-tsc + vite 构建。
+- 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移；`pnpm lint`（ESLint 10 + eslint-plugin-vue essential）、`pnpm test`（vitest + jsdom：`tabs` store 的持久化/去重、菜单与路由的权限一致性）、`pnpm typecheck`/`pnpm build`（vue-tsc + vite）。一条命令：`make web-check`。
 - 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见；每个测试用独立命名内存库，可并行。
 - 跑法：`make check`（提交前唯一门槛）；纯 Go 改动最快闭环 `make test`；端到端 `make smoke`（需 postgres）。
 
