@@ -588,3 +588,21 @@ func TestMaxHeaderBytesDefaultAndBounds(t *testing.T) {
 		t.Errorf("max_header_bytes = %d, want 8192", cfg.HTTPServer.MaxHeaderBytes)
 	}
 }
+
+// TestMessageLeaseMustCoverDeliveryTimeout keeps the two knobs from drifting
+// apart: a lease shorter than one send lets another replica reclaim a row that
+// is still in flight (the worker renews before sending, but the lease has to
+// cover that send).
+func TestMessageLeaseMustCoverDeliveryTimeout(t *testing.T) {
+	cfg := Defaults()
+	cfg.Message.Lease = 30 * time.Second
+	cfg.Message.DeliveryTimeout = time.Minute
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("lease shorter than delivery_timeout must be rejected")
+	}
+
+	cfg.Message.Lease = time.Minute
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("lease == delivery_timeout must be accepted: %v", err)
+	}
+}

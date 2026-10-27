@@ -9,7 +9,7 @@ var (
 	deliveryAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "message_delivery_attempts_total",
-			Help: "External delivery attempts by channel and result (sent, failed, dead, no_sender).",
+			Help: "External delivery attempts by channel and result (sent, failed, dead, no_sender, lease_lost).",
 		},
 		[]string{"channel", "result"},
 	)

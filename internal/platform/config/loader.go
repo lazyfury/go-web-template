@@ -320,6 +320,12 @@ func (c *Config) Validate() error {
 		if c.Message.BatchSize <= 0 {
 			return fmt.Errorf("message.batch_size must be positive")
 		}
+		// A lease shorter than one send means the row can be reclaimed while it
+		// is still in flight; the worker renews before sending, but the lease
+		// must still cover a whole delivery attempt.
+		if c.Message.Lease < c.Message.DeliveryTimeout {
+			return fmt.Errorf("message.lease must be at least message.delivery_timeout")
+		}
 	}
 	if c.Message.Mail.Host != "" && c.Message.Mail.From == "" {
 		return fmt.Errorf("message.mail.from is required when mail.host is set")

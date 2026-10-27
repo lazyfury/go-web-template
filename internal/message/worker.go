@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -116,6 +117,28 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 
 func (w *Worker) process(ctx context.Context, delivery *Delivery) {
 	channel := string(delivery.Channel)
+	// Re-take the lease immediately before touching the row. A batch is claimed
+	// in one go, but the rows are sent one by one, so with a slow channel the
+	// lease taken at claim time can expire before the last row is processed.
+	// Another replica is then allowed to claim it, and without this check both
+	// would send. Losing the lease is a normal outcome, not an error: skip the
+	// row and let its new owner do the work.
+	if err := w.repo.RenewLease(ctx, delivery.ID, delivery.LockedUntil, w.opts.Lease, w.opts.Now()); err != nil {
+		if errors.Is(err, ErrLeaseLost) {
+			deliveryAttemptsTotal.WithLabelValues(channel, "lease_lost").Inc()
+			w.opts.Logger.Warn("message delivery lease lost; skipping send",
+				zap.Uint64("delivery_id", delivery.ID),
+				zap.String("channel", channel),
+			)
+			return
+		}
+		w.opts.Logger.Error("renew message delivery lease failed",
+			zap.Uint64("delivery_id", delivery.ID),
+			zap.Error(err),
+		)
+		return
+	}
+
 	sender, ok := w.senders[delivery.Channel]
 	if !ok {
 		deliveryAttemptsTotal.WithLabelValues(channel, "no_sender").Inc()

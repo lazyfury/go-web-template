@@ -13,9 +13,26 @@ type workerRepo struct {
 	Repository
 	claim      []Delivery
 	claimErr   error
+	renewErr   error
+	renews     []leaseRenewal
+	events     *[]string
 	sent       []uint64
 	providerID []string
 	failed     []failedDelivery
+}
+
+type leaseRenewal struct {
+	id       uint64
+	previous *time.Time
+	until    time.Time
+}
+
+func (r *workerRepo) RenewLease(_ context.Context, id uint64, previous *time.Time, lease time.Duration, now time.Time) error {
+	r.renews = append(r.renews, leaseRenewal{id: id, previous: previous, until: now.Add(lease)})
+	if r.events != nil {
+		*r.events = append(*r.events, "renew")
+	}
+	return r.renewErr
 }
 
 type failedDelivery struct {
@@ -48,12 +65,16 @@ type fakeSender struct {
 	id      string
 	err     error
 	calls   []Delivery
+	events  *[]string
 }
 
 func (s *fakeSender) Channel() Channel { return s.channel }
 
 func (s *fakeSender) Send(_ context.Context, delivery *Delivery) (string, error) {
 	s.calls = append(s.calls, *delivery)
+	if s.events != nil {
+		*s.events = append(*s.events, "send")
+	}
 	if s.err != nil {
 		return "", s.err
 	}
@@ -189,6 +210,20 @@ func TestWorkerRecordsDeliveryMetrics(t *testing.T) {
 		t.Errorf("webhook/dead delta = %v, want at least 1", dead)
 	}
 
+	leaseLost := delta("email", "lease_lost", func() {
+		repo := &workerRepo{
+			claim:    []Delivery{{ID: 9, Channel: ChannelEmail, Attempts: 1, MaxAttempts: 2}},
+			renewErr: ErrLeaseLost,
+		}
+		worker := fixedWorker(repo, map[Channel]Sender{ChannelEmail: &fakeSender{channel: ChannelEmail, id: "p9"}}, now)
+		if err := worker.RunOnce(context.Background()); err != nil {
+			t.Fatalf("RunOnce(lease lost): %v", err)
+		}
+	})
+	if leaseLost < 1 {
+		t.Errorf("email/lease_lost delta = %v, want at least 1", leaseLost)
+	}
+
 	noSender := delta("webhook", "no_sender", func() {
 		repo := &workerRepo{claim: []Delivery{{ID: 4, Channel: ChannelWebhook, Attempts: 1, MaxAttempts: 2}}}
 		worker := fixedWorker(repo, nil, now)
@@ -198,5 +233,56 @@ func TestWorkerRecordsDeliveryMetrics(t *testing.T) {
 	})
 	if noSender < 1 {
 		t.Errorf("webhook/no_sender delta = %v, want at least 1", noSender)
+	}
+}
+
+// TestWorkerRenewsLeaseBeforeSending pins the ordering that prevents duplicate
+// deliveries: the row is re-leased immediately before the send, so a batch that
+// takes longer than message.lease cannot let another replica claim a row that
+// this process is already sending.
+func TestWorkerRenewsLeaseBeforeSending(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	var events []string
+	repo := &workerRepo{
+		claim:  []Delivery{{ID: 7, Channel: ChannelEmail, Attempts: 1, MaxAttempts: 3}},
+		events: &events,
+	}
+	sender := &fakeSender{channel: ChannelEmail, id: "provider-7", events: &events}
+	worker := fixedWorker(repo, map[Channel]Sender{ChannelEmail: sender}, now)
+
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if len(repo.renews) != 1 || repo.renews[0].id != 7 {
+		t.Fatalf("renews = %+v, want one renewal for delivery 7", repo.renews)
+	}
+	if !repo.renews[0].until.Equal(now.Add(time.Minute)) {
+		t.Errorf("renewed until %v, want %v", repo.renews[0].until, now.Add(time.Minute))
+	}
+	if len(events) != 2 || events[0] != "renew" || events[1] != "send" {
+		t.Errorf("events = %v, want renew before send", events)
+	}
+}
+
+// TestWorkerSkipsSendAfterLosingLease covers the reclaim race: the row was
+// taken over (or finished) by someone else, so this worker must not send, must
+// not mark it sent and must not record a failure against the new owner.
+func TestWorkerSkipsSendAfterLosingLease(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	repo := &workerRepo{
+		claim:    []Delivery{{ID: 8, Channel: ChannelSMS, Attempts: 1, MaxAttempts: 3}},
+		renewErr: ErrLeaseLost,
+	}
+	sender := &fakeSender{channel: ChannelSMS, id: "provider-8"}
+	worker := fixedWorker(repo, map[Channel]Sender{ChannelSMS: sender}, now)
+
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if len(sender.calls) != 0 {
+		t.Errorf("sender calls = %+v, want none", sender.calls)
+	}
+	if len(repo.sent) != 0 || len(repo.failed) != 0 {
+		t.Errorf("sent = %+v failed = %+v, want no state change", repo.sent, repo.failed)
 	}
 }

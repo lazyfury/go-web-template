@@ -381,7 +381,7 @@ message:
 - [x] worker 单测：fake clock + fake sender（成功/失败/重试/dead/cancel）
 - [x] `make smoke` 验证进程优雅退出
 
-实现细节：失败投递写入 `status=failed + next_attempt_at`，worker 到点后重新领取；`sending` 租约过期也可被回收。Webhook 支持 HMAC-SHA256、超时与私网 IP 拦截；SMTP 使用连接 deadline；Twilio 使用 Messages API。未配置 sender 的 channel 直接标 dead（`sender not configured`）。
+实现细节：失败投递写入 `status=failed + next_attempt_at`，worker 到点后重新领取；`sending` 租约过期也可被回收。**每次真正发送前都会续租**（`Repository.RenewLease`，条件更新 `status=sending AND locked_until=<领取时的值>`）：批是整体领取、逐条发送的，慢 channel 会让后段行的租约在发送前过期，另一副本就能重新领取——续租失败（`ErrLeaseLost`）时本进程直接跳过该行，不发送、不改状态，由新 owner 完成。配置层强制 `message.lease >= message.delivery_timeout`。**投递是 at-least-once**：Webhook 接收方应按 `X-Delivery-ID` 幂等（配合 `X-Signature` 验签），SMTP/SMS 依赖供应商侧去重。Webhook 支持 HMAC-SHA256、超时与私网 IP 拦截；SMTP 使用连接 deadline；Twilio 使用 Messages API。未配置 sender 的 channel 直接标 dead（`sender not configured`）。
 
 验收：无 Redis 也能发送；worker 可取消；失败重试与 dead 状态正确；`make check` 全绿。
 

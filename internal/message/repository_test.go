@@ -492,3 +492,56 @@ func TestPurgeExpiredMessagesCascadesOnlyExpiredOnes(t *testing.T) {
 }
 
 func ptrTime(v time.Time) *time.Time { return &v }
+
+// TestRenewLeaseOnlyWhileOwned covers the reclaim guard: renewal extends the
+// lease only while the row still carries the value this process claimed.
+func TestRenewLeaseOnlyWhileOwned(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+
+	msg := &Message{Title: "Renew", Body: "body", Type: TypeSystem, Level: LevelInfo, Audience: AudienceUsers}
+	drafts := []DeliveryDraft{{RecipientIndex: -1, Channel: ChannelEmail, Target: "a@example.com", Payload: `{}`, MaxAttempts: 3, DedupeKey: "renew"}}
+	if err := repo.CreateMessage(ctx, msg, nil, drafts, now); err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	claimed, err := repo.ClaimDeliveries(ctx, now, 10, time.Minute)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim = %+v err=%v", claimed, err)
+	}
+	delivery := claimed[0]
+	if delivery.LockedUntil == nil {
+		t.Fatal("claimed delivery has no lease")
+	}
+
+	renewedAt := now.Add(30 * time.Second)
+	if err := repo.RenewLease(ctx, delivery.ID, delivery.LockedUntil, 5*time.Minute, renewedAt); err != nil {
+		t.Fatalf("renew: %v", err)
+	}
+	stored, err := repo.FindDeliveryByID(ctx, delivery.ID)
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	wantUntil := renewedAt.Add(5 * time.Minute).Truncate(time.Second)
+	if stored.LockedUntil == nil || !stored.LockedUntil.Equal(wantUntil) {
+		t.Fatalf("locked_until = %v, want %v", stored.LockedUntil, wantUntil)
+	}
+	if stored.Status != DeliverySending || stored.Attempts != 1 {
+		t.Errorf("renew must not change status/attempts: %+v", stored)
+	}
+
+	// A stale lease value means another worker reclaimed the row in the
+	// meantime: the renewal must not resurrect ownership.
+	stale := wantUntil.Add(-time.Minute)
+	if err := repo.RenewLease(ctx, delivery.ID, &stale, time.Minute, now.Add(2*time.Minute)); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("renew with stale lease = %v, want ErrLeaseLost", err)
+	}
+
+	// A finished row is not renewable either, even with the right lease value.
+	if err := repo.MarkDeliverySent(ctx, delivery.ID, "provider", now.Add(3*time.Minute)); err != nil {
+		t.Fatalf("mark sent: %v", err)
+	}
+	if err := repo.RenewLease(ctx, delivery.ID, nil, time.Minute, now.Add(4*time.Minute)); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("renew sent delivery = %v, want ErrLeaseLost", err)
+	}
+}

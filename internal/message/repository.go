@@ -12,6 +12,10 @@ import (
 	"github.com/example/go-web-template/internal/platform/apperr"
 )
 
+// ErrLeaseLost means another worker owns (or already finished) the delivery:
+// the lease value changed since this process claimed it. Callers must not send.
+var ErrLeaseLost = errors.New("delivery lease lost")
+
 // DeliveryDraft describes an external delivery before the message and its
 // recipients have IDs. RecipientIndex points into the recipients slice; use -1
 // for deliveries that are not tied to one inbox recipient (for example a
@@ -55,6 +59,12 @@ type Repository interface {
 
 	FindDeliveryByID(ctx context.Context, id uint64) (*Delivery, error)
 	ClaimDeliveries(ctx context.Context, now time.Time, limit int, lease time.Duration) ([]Delivery, error)
+	// RenewLease extends the lease of a delivery this process is about to send.
+	// It only succeeds while the row is still owned by the caller (status
+	// sending and the lease value unchanged since it was claimed), so a worker
+	// that was reclaimed by another replica skips the send instead of producing
+	// a duplicate. Returns ErrLeaseLost in that case.
+	RenewLease(ctx context.Context, id uint64, previousLockedUntil *time.Time, lease time.Duration, now time.Time) error
 	MarkDeliverySent(ctx context.Context, id uint64, providerMessageID string, now time.Time) error
 	MarkDeliveryFailed(ctx context.Context, id uint64, reason string, nextAttempt time.Time, dead bool, now time.Time) error
 	ListDeliveries(ctx context.Context, offset, limit int, status *DeliveryStatus, channel *Channel) ([]Delivery, int64, error)
@@ -329,7 +339,10 @@ func (r *gormRepository) ClaimDeliveries(ctx context.Context, now time.Time, lim
 		}
 
 		for i := range candidates {
-			lockedUntil := now.Add(lease)
+			// Truncate to the precision both PostgreSQL (microseconds) and the
+			// in-memory copy agree on, so RenewLease can match the exact value
+			// it read back instead of comparing nanoseconds with microseconds.
+			lockedUntil := now.Add(lease).Truncate(time.Second)
 			res := tx.Model(&Delivery{}).
 				Where(
 					"id = ? AND ((status IN ? AND next_attempt_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until < ?))",
@@ -357,6 +370,26 @@ func (r *gormRepository) ClaimDeliveries(ctx context.Context, now time.Time, lim
 		return nil, apperr.Wrap(apperr.CodeDatabase, "claim deliveries failed", err)
 	}
 	return claimed, nil
+}
+
+// RenewLease extends the lease only while this process still owns the row.
+func (r *gormRepository) RenewLease(ctx context.Context, id uint64, previousLockedUntil *time.Time, lease time.Duration, now time.Time) error {
+	lockedUntil := now.Add(lease).Truncate(time.Second)
+	query := r.db.WithContext(ctx).Model(&Delivery{}).
+		Where("id = ? AND status = ?", id, DeliverySending)
+	if previousLockedUntil != nil {
+		query = query.Where("locked_until = ?", *previousLockedUntil)
+	} else {
+		query = query.Where("locked_until IS NULL")
+	}
+	res := query.Updates(map[string]any{"locked_until": lockedUntil, "updated_at": now})
+	if res.Error != nil {
+		return apperr.Wrap(apperr.CodeDatabase, "renew delivery lease failed", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrLeaseLost
+	}
+	return nil
 }
 
 func (r *gormRepository) MarkDeliverySent(ctx context.Context, id uint64, providerMessageID string, now time.Time) error {

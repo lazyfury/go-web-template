@@ -86,7 +86,7 @@ auth:     {jwt_secret, issuer, access_ttl: 15m,
            refresh_reuse_interval: 30s,  # 轮换后旧 token 的宽限期（多标签页竞态）
            bcrypt_cost: 12, login_max_attempts: 5, login_lockout: 15m,
            login_rps: 5, login_burst: 10, verify_cache_ttl: 5s, cookie_secure}
-message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,
+message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,  # lease >= delivery_timeout（Validate 强制）
           retry_base: 30s, delivery_timeout: 30s,
           webhook_urls: [], webhook_secret, webhook_allow_private: false,
           mail: {host, port: 587, username, password, from},
