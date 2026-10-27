@@ -48,6 +48,10 @@ type HTTPServer struct {
 	RequestTimeout time.Duration `mapstructure:"request_timeout"`
 	// MaxBodyBytes caps the request body size; 0 disables the check.
 	MaxBodyBytes int64 `mapstructure:"max_body_bytes"`
+	// MaxHeaderBytes caps the request-header size. stdlib defaults to 1 MiB,
+	// which is far more than this API's headers ever need: a bigger budget only
+	// buys an attacker more per-connection memory before the parser rejects it.
+	MaxHeaderBytes int `mapstructure:"max_header_bytes"`
 	// TrustedProxies lists the reverse proxies (IP or CIDR) that may set
 	// X-Forwarded-For / X-Real-IP. Empty means "trust nobody": the client IP
 	// comes from the TCP peer, so a caller cannot choose its own rate-limit

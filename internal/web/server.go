@@ -31,6 +31,7 @@ func NewServer(addr string, cfg *config.HTTPServer, handler http.Handler, logger
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
+		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 	}
 	return &Server{
 		http:            httpServer,

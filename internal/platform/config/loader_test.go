@@ -23,6 +23,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.HTTPServer.MaxBodyBytes != 1<<20 {
 		t.Errorf("default max body bytes = %d, want 1MiB", cfg.HTTPServer.MaxBodyBytes)
 	}
+	if cfg.HTTPServer.MaxHeaderBytes != 16<<10 {
+		t.Errorf("default max header bytes = %d, want 16KiB", cfg.HTTPServer.MaxHeaderBytes)
+	}
 }
 
 func TestLoadFromFile(t *testing.T) {
@@ -557,5 +560,31 @@ func TestReadHeaderTimeoutDefaultAndBounds(t *testing.T) {
 	}
 	if cfg.HTTPServer.ReadHeaderTimeout != 3*time.Second {
 		t.Errorf("read_header_timeout = %v, want 3s", cfg.HTTPServer.ReadHeaderTimeout)
+	}
+}
+
+// TestMaxHeaderBytesDefaultAndBounds pins the header budget: 0 would silently
+// restore stdlib's 1 MiB, which is the half of the slowloris surface that
+// read_header_timeout does not cover.
+func TestMaxHeaderBytesDefaultAndBounds(t *testing.T) {
+	if got := Defaults().HTTPServer.MaxHeaderBytes; got != 16<<10 {
+		t.Errorf("default max_header_bytes = %d, want 16KiB", got)
+	}
+
+	for _, value := range []int{0, -1, 1<<20 + 1} {
+		cfg := Defaults()
+		cfg.HTTPServer.MaxHeaderBytes = value
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("max_header_bytes=%d must be rejected", value)
+		}
+	}
+
+	t.Setenv("APP_HTTP_MAX_HEADER_BYTES", "8192")
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPServer.MaxHeaderBytes != 8192 {
+		t.Errorf("max_header_bytes = %d, want 8192", cfg.HTTPServer.MaxHeaderBytes)
 	}
 }

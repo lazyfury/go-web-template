@@ -15,6 +15,8 @@ http:
   shutdown_timeout: 10s
   request_timeout: 15s
   max_body_bytes: 1048576  # 1 MiB
+  # 请求头上限（stdlib 默认 1 MiB 太大）：本 API 的头远不到 16 KiB
+  max_header_bytes: 16384  # 16 KiB（1..1048576）
   # 可信反向代理（IP/CIDR，逗号分隔）。默认空 = 不信任任何代理：客户端 IP 取 TCP 对端，
   # X-Forwarded-For 一律忽略。否则调用方可自选限流桶、伪造访问日志里的 IP。
   # 部署在 nginx/traefik 之后时填代理网段，例如 ["10.0.0.0/8"]。

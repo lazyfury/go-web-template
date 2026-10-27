@@ -22,9 +22,13 @@ func TestNewServerWiresTimeouts(t *testing.T) {
 		WriteTimeout:      11 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ShutdownTimeout:   9 * time.Second,
+		MaxHeaderBytes:    8 << 10,
 	}
 	server := NewServer("127.0.0.1:0", &cfg, http.NotFoundHandler(), zap.NewNop())
 
+	if got := server.http.MaxHeaderBytes; got != cfg.MaxHeaderBytes {
+		t.Errorf("MaxHeaderBytes = %d, want %d", got, cfg.MaxHeaderBytes)
+	}
 	if got := server.http.ReadHeaderTimeout; got != cfg.ReadHeaderTimeout {
 		t.Errorf("ReadHeaderTimeout = %v, want %v", got, cfg.ReadHeaderTimeout)
 	}
