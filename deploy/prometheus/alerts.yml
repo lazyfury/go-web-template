@@ -1,0 +1,139 @@
+# Prometheus 告警规则：go-web-template
+#
+# 安装（任选其一）：
+#   - 直接并入 Prometheus：`rule_files: [ "deploy/prometheus/alerts.yml" ]`
+#   - 走 prometheus-operator：包成 PrometheusRule（spec.groups 原样搬过去）
+#
+# 标签约定：本文件的告警都带 `service="go-web-template"`，方便统一路由。
+# 阈值是模板的起点，不是普适真理：先按自己的流量基线调 `for` 与阈值再上线。
+groups:
+  - name: go-web-template.availability
+    rules:
+      - alert: AppDown
+        expr: up{job="go-web-template"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: go-web-template
+        annotations:
+          summary: "go-web-template 实例掉线"
+          description: "{{ $labels.instance }} 连续 2 分钟抓取失败。先看 /healthz 与容器状态，再看启动日志（配置/迁移失败会 fail-fast）。"
+
+      - alert: High5xxRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: go-web-template
+        annotations:
+          summary: "5xx 比例 > 5%（持续 10 分钟）"
+          description: "看访问日志里的 request_id 与错误码；数据库不可达时 /readyz 会 503（reason=database unreachable）。"
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "HTTP p95 延迟 > 1s（持续 10 分钟）"
+          description: "分辨是 DB（慢查询日志 log_level=info 可看）还是外部通道（message_delivery_duration_seconds）。"
+
+  - name: go-web-template.auth
+    rules:
+      # 复用检测是唯一「可能是攻击」的认证信号：refresh token 在宽限期外被重放，
+      # 服务端已经吊销该用户全部会话，这里只负责把人叫醒。
+      - alert: RefreshTokenReuseDetected
+        expr: increase(auth_refresh_total{result="reuse"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: go-web-template
+        annotations:
+          summary: "检测到 refresh token 重用（疑似令牌泄露）"
+          description: "同账号全部会话已被吊销。查访问日志里该 request_id 与来源 IP，必要时让用户改密并检查 XSS/客户端存储。"
+
+      - alert: LoginFailureSpike
+        expr: sum(rate(auth_login_total{result=~"bad_password|unknown_email"}[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "登录失败速率 > 5/s（持续 10 分钟）"
+          description: "先排除客户端事故；限流按 IP 生效，若来源分散说明需要上游 WAF 或按账号退避。"
+
+      - alert: AccountLockoutSpike
+        expr: increase(auth_account_lockouts_total[15m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "15 分钟内 > 3 个账号被锁定"
+          description: "可能是撞库或有人在拿已知邮箱做定向锁定（15m 不可续期）。见 docs/security-review-2026-10.md 的残留风险。"
+
+  - name: go-web-template.message
+    rules:
+      - alert: DeliveryDead
+        expr: increase(message_delivery_attempts_total{result="dead"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "有投递进入 dead（重试预算耗尽）"
+          description: "查 message-deliveries 的 last_error 与 sender 配置（SMTP/Twilio/Webhook）；dead 行不会自动重试，可用 POST /message-deliveries/:id/retry。"
+
+      - alert: DeliveryFailureRatio
+        expr: |
+          sum(rate(message_delivery_attempts_total{result="failed"}[15m]))
+            /
+          clamp_min(sum(rate(message_delivery_attempts_total[15m])), 0.001) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "外部投递失败率 > 20%"
+          description: "按 channel 拆：email 多为 SMTP 凭证/网络，sms 多为供应商限流，webhook 多为对端 4xx/5xx 或私网拦截。"
+
+      # 租约丢失说明「发送慢到租约过期」或副本间抢同一批任务：不会丢消息
+      # （新 owner 会重发），但会表现为重复投递。
+      - alert: DeliveryLeaseLost
+        expr: increase(message_delivery_attempts_total{result="lease_lost"}[15m]) > 5
+        for: 10m
+        labels:
+          severity: info
+          service: go-web-template
+        annotations:
+          summary: "投递租约频繁丢失"
+          description: "检查 message.lease 与 message.delivery_timeout 的比值、sender 超时与副本数量；接收方需按 X-Delivery-ID 幂等。"
+
+  - name: go-web-template.operations
+    rules:
+      - alert: HousekeepingTaskFailing
+        expr: increase(housekeeping_task_failures_total[1h]) > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "保留期清理任务失败"
+          description: "表会无界增长；查该 task 的日志（表名在 label 里），常见原因是锁等待超过 retention.timeout。"
+
+      - alert: RateLimitStoreErrors
+        expr: increase(ratelimit_store_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "Redis 限流存储不可用（已 fail-open）"
+          description: "限流退化为按副本放行，认证仍安全（账号锁定在 DB）。查 redis 连通性与 APP_REDIS_ADDR。"

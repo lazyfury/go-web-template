@@ -34,7 +34,7 @@ MIGRATE_VERSION       ?= v4.20.1
         build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
         migrate-up migrate-down migrate-create \
-        web-check docker-build jwt-secret docker-up docker-down docker-logs clean
+        web-check docker-build image-scan jwt-secret docker-up docker-down docker-logs clean
 
 help: ## 显示所有命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -227,6 +227,13 @@ jwt-secret: ## 生成/复用本地编排的 JWT 密钥（.local/jwt-secret，git
 
 docker-build: ## 构建镜像
 	docker build -t $(APP_NAME):$(VERSION) .
+
+# 镜像漏洞扫描：trivy 跑在容器里，不需要本机安装。首次运行会拉镜像（需要网络）。
+# 只卡 HIGH/CRITICAL（--exit-code 1）；base 镜像 digest pin 与镜像签名不在本模板范围。
+TRIVY_IMAGE ?= aquasec/trivy:0.61.0
+image-scan: docker-build ## 扫描镜像 HIGH/CRITICAL 漏洞（trivy，需要网络）
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(TRIVY_IMAGE) \
+		image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(APP_NAME):$(VERSION)
 
 docker-up: jwt-secret ## 一键启动 postgres + redis + migrate + app（自动注入 JWT 密钥）
 	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
