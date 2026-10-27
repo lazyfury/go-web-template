@@ -64,7 +64,7 @@
 | `internal/platform/authkit` | 叶子包：JWT 签发/校验（HS256 钉死）、Principal、RBAC 表、gin 中间件 | `token.go`, `principal.go`, `rbac.go`, `middleware.go` |
 | `internal/platform/passwd` | 叶子包：bcrypt 哈希/校验 + 防枚举的 dummy 比较 | `passwd.go` |
 | `internal/testutil` | 测试共享（内存 SQLite，显式传 models） | `db.go` |
-| `migrations/` | golang-migrate SQL（版本化） | `000001`–`000004`（users/auth），`000005`（dict），`000006`（users.phone），`000007_create_message_tables.*`（message） |
+| `migrations/` | golang-migrate SQL（版本化） | `000001`–`000004`（users/auth），`000005`（dict），`000006`（users.phone），`000007_create_message_tables.*`（message），`000008_add_delivery_lease_index.*`（投递领取索引） |
 | `docs/` | 生成的 OpenAPI 契约 + 手写排错文档 | `openapi.json`, `troubleshooting.md` |
 
 ## 4. 配置模型
@@ -172,7 +172,8 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
 | `message_deliveries` | 邮件/短信/Webhook 投递 outbox：`channel/target/payload/status/attempts/next_attempt_at/locked_until`，`dedupe_key` 部分唯一 |
 | `message_templates` | 模板：`(template_key,channel,locale)` 部分唯一（`WHERE deleted_at IS NULL`），`variables` 用 TEXT 存 JSON 数组 |
 
-- 投递领取用 `locked_until` 租约 + 条件更新（SQLite 可测，不依赖 `SKIP LOCKED`）。
+- 投递领取用 `locked_until` 租约 + 条件更新（SQLite 可测，不依赖 `SKIP LOCKED`）；worker 发送前 `RenewLease` 条件续租，丢掉租约就跳过（防重复投递）。
+- `000008` 的 `idx_message_deliveries_lease` 是 `(locked_until) WHERE status = 1` 部分索引：没有它，「租约过期的在途行」这条腿只能全表扫 `status=1`（真实 PG 16、25 万行 / 5 万在途：Parallel Seq Scan 7.6ms、扫 25 万行；有索引后 Bitmap Index Scan 1.2ms）。改 `ClaimDeliveries` 的谓词时同步复核这个索引。
 - 详细状态机、worker 生命周期与 API 计划见 `docs/design-message.md`。
 
 - 迁移工具：golang-migrate（SQL 文件），`make migrate-up/down/create`。
