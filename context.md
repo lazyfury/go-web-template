@@ -265,6 +265,8 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 仓储：`internal/user/repository_test.go`、`internal/dict/repository_test.go`、`internal/message/repository_test.go` 直接对 SQLite 测（软删、部分唯一索引、排序、收件箱分页、投递租约/重试）。
 - 传输层：`internal/web/*_test.go`（RequestID/CORS/RateLimit/Timeout/Recovery/Metrics/SecurityHeaders/NoStore/Health，`httptest` 驱动）；`internal/app` 另有一条接线断言（安全头与 `no-store` 真的挂在 router 上）。
 - 集成：`internal/app/integration_test.go`（`package app_test`）用 `app.NewWithDB` + 内存 SQLite 走**生产同款装配**：`app.SeedAdmin` → login → bearer → CRUD，覆盖匿名 401、member 403/越权、refresh 轮换与旧 cookie 重用、改密后旧 token 失效、消息收件箱/多 channel 投递/模板渲染。
+- 路由矩阵：`internal/app/route_matrix_test.go` 给**每一个**已注册路由声明「匿名 401 / member 结果 / admin 结果 / 非法 JSON 400」四列，并由 `TestRouteMatrixCoversEveryRegisteredRoute` 保证新路由必须分类（漏写 = 红）。这是 401/403 契约的防漂移钉子，不靠覆盖率数字兜底。
+- 覆盖率下限：`make cover-check`（口径 `COVERPKG=./internal/...`，阈值 `COVER_MIN`，默认 74）已并入 `make check`；低于阈值即失败。
 - OpenAPI：`internal/platform/routekit/*_test.go`（schema/tag/信封/路径参数/确定性）+ `internal/app/openapi_test.go`（黄金文件、`engine.Routes()` 完整性、禁用时 404、**受保护操作必须带 bearerAuth+401/403，公开端点不得带 security**）。
 - 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移，`pnpm build` 做 vue-tsc + vite 构建。
 - 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见；每个测试用独立命名内存库，可并行。
