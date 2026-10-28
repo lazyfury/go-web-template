@@ -1,4 +1,7 @@
-# syntax=docker/dockerfile:1.7
+# 注意：不要加 `# syntax=docker/dockerfile:1.7` 之类的指令。BuildKit 会去
+# registry 拉取 `docker/dockerfile` 前端镜像，而企业/国内镜像源（如阿里云
+# mirror）往往不代理它，构建会直接 403。缓存挂载（RUN --mount=type=cache）
+# 由 Docker 内置前端支持（Docker 23+ 默认 BuildKit），不需要外部前端。
 
 # ---- Build stage ----------------------------------------------------------
 # 必须与 go.mod 的 `toolchain go1.27.3` 一致：stdlib 漏洞（如 GO-2026-6809

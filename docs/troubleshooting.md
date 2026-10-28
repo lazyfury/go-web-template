@@ -121,6 +121,12 @@
 
 ## 7. 容器
 
+| 报错 | 处理 |
+|---|---|
+| `failed to resolve source metadata for docker.io/docker/dockerfile:1.7 … 403 Forbidden`（经阿里云/企业镜像源） | Dockerfile 顶部的 `# syntax=docker/dockerfile:1.x` 会让 BuildKit 去 registry 拉外部前端镜像，而镜像源通常不代理 `docker/dockerfile`。删掉该指令即可：`RUN --mount=type=cache` 由 Docker 内置前端支持（23+ 默认 BuildKit），不需要外部前端 |
+| `make docker-up` 后 GitHub/registry 拉取超时 | 本机 daemon 走镜像源；确认 `docker info | grep -A3 "Registry Mirrors"`，必要时给 docker 配置代理而不是给 shell 配 |
+
+
 | 症状 | 原因与处理 |
 |---|---|
 | `connection refused` (5432) | postgres 未起 / 网络模式不对（compose 内用服务名，裸容器用 host.docker.internal） |

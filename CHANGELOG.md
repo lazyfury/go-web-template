@@ -44,6 +44,8 @@
 - 容器加固：app 容器 `read_only` + `tmpfs /tmp` + `no-new-privileges` + `cap_drop: ALL` +
   512MB/1CPU + `stop_grace_period: 30s`；基础镜像按 digest 固定；BuildKit 缓存挂载；
   Dockerfile 自带 `HEALTHCHECK` 与 `STOPSIGNAL SIGTERM`。
+- Dockerfile 不再声明 `# syntax=docker/dockerfile:1.7`：外部 frontend 镜像在阿里云/企业镜像源上会 403，
+  缓存挂载改由 Docker 内置前端支持（23+ 默认 BuildKit）。
 - `make check` 只跑一遍全量测试：`test-cover` 同时带 `-race` 与 `-coverprofile`，覆盖率门复用该 profile。
 - `gorm` 慢查询阈值可配（`database.slow_threshold`），README 增加「容器与发布」章节。
 
