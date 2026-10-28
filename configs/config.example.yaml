@@ -160,3 +160,12 @@ retention:
   refresh_token_retention: 168h   # 过期后再留 7 天（重放判定仍有明确答案）
   delivery_retention: 720h        # sent/dead/canceled 保留 30 天；pending/可重试永不删
   message_retention: 2160h        # 消息自身 expires_at 之后再留 90 天；无 expires_at 永不删
+
+otel:
+  # 分布式追踪（OpenTelemetry → OTLP gRPC）。默认关闭：没有 collector 也能跑。
+  # 本地看效果用 make observability-up（自动指向 Tempo）；生产建议 sample_ratio 0.05–0.2。
+  enabled: false
+  endpoint: 127.0.0.1:4317
+  insecure: true            # 本地 compose / sidecar 明文 gRPC；跨网络请置 false 并配 TLS
+  sample_ratio: 1.0         # head-based，0 < ratio <= 1
+  service_name: ""          # 空 = app.name

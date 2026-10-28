@@ -23,6 +23,10 @@
 - `make db-backup` / `make db-restore`（后者要求 `FILE=` + `CONFIRM=1`）与 `docs/ops-runbook.md`：
   备份/恢复演练、JWT 与数据库口令轮换、告警 → 处置 playbook、SLO/错误预算、发布 checklist。
 - `make sbom`：trivy 生成 CycloneDX 到 `dist/sbom.cdx.json`（163 个组件）。
+- OpenTelemetry 追踪（`otel.enabled`，默认关闭）：`otelgin` 请求 span + GORM 查询 span（自带 callback，
+  不引 MySQL/ClickHouse 驱动）+ webhook 出站 span + 投递/清理 worker span；`trace_id` 进日志、
+  `X-Trace-Id` 进响应头；本地 `make observability-up` 自动接 Tempo（compose profile 新增 `grafana/tempo:2.10.10`
+  + Grafana Tempo 数据源），生产换任意 OTLP 后端即可。
 - 可观测性一键编排：`make observability-up`（compose profile）在当前编排上额外拉起
   Prometheus `:9090` 与 Grafana `:3000`，自动打开 `APP_METRICS_ENABLED`、装载抓取配置/13 条告警规则/
   看板（数据源与 dashboard 均 provision）；本地匿名只读，生产需关掉。附看板实拍

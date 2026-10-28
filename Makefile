@@ -314,8 +314,10 @@ observability-up: jwt-secret ## 起编排 + Prometheus + Grafana（自动打开 
 	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
 	# APP_METRICS_ENABLED=true 只在这条路径打开：生产式默认关闭（见 security-review F7）。
 	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_AUTH_COOKIE_SECURE=false APP_METRICS_ENABLED=true \
+		APP_OTEL_ENABLED=true APP_OTEL_ENDPOINT=tempo:4317 APP_OTEL_INSECURE=true APP_OTEL_SAMPLE_RATIO=1.0 \
 		docker compose -f deploy/docker-compose.yml --profile observability up -d --build
 	@echo "Prometheus: http://127.0.0.1:9090  Grafana: http://127.0.0.1:3000/d/go-web-template"
+	@echo "Tempo:      http://127.0.0.1:3200 （Grafana Explore → Tempo → Search）"
 
 observability-down: ## 停止 observability 编排（保留数据卷）
 	docker compose -f deploy/docker-compose.yml --profile observability down

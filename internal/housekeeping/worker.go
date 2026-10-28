@@ -16,10 +16,16 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/example/go-web-template/internal/platform/workerx"
 )
+
+var tracer = otel.Tracer("github.com/example/go-web-template/housekeeping")
 
 // Task is one retention rule.
 type Task struct {
@@ -138,12 +144,18 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 }
 
 func (w *Worker) runTask(ctx context.Context, task Task) error {
+	ctx, span := tracer.Start(ctx, "housekeeping.task",
+		oteltrace.WithAttributes(attribute.String("housekeeping.task", task.Name)))
+	defer span.End()
+
 	before := w.opts.Now().Add(-task.Retention)
 	taskCtx, cancel := context.WithTimeout(ctx, w.opts.Timeout)
 	defer cancel()
 
 	deleted, err := task.Purge(taskCtx, before)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "purge failed")
 		taskFailuresTotal.WithLabelValues(task.Name).Inc()
 		w.opts.Logger.Error("housekeeping task failed",
 			zap.String("task", task.Name),

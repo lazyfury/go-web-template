@@ -137,6 +137,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("retention.refresh_token_retention", "168h")
 	v.SetDefault("retention.delivery_retention", "720h")
 	v.SetDefault("retention.message_retention", "2160h")
+
+	v.SetDefault("otel.enabled", false)
+	v.SetDefault("otel.endpoint", "127.0.0.1:4317")
+	v.SetDefault("otel.insecure", true)
+	v.SetDefault("otel.sample_ratio", 1.0)
+	v.SetDefault("otel.service_name", "")
 }
 
 // Defaults returns the built-in default configuration.
@@ -350,6 +356,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Message.Mail.Host != "" && c.IsProduction() && !c.Message.Mail.RequireTLS {
 		return fmt.Errorf("message.mail.require_tls must be true in production: a plaintext SMTP relay sends credentials and message bodies unencrypted (set false only for a local mail catcher)")
+	}
+	if c.OTel.Enabled {
+		if strings.TrimSpace(c.OTel.Endpoint) == "" {
+			return fmt.Errorf("otel.endpoint is required when otel.enabled is true (OTLP gRPC host:port)")
+		}
+		if c.OTel.SampleRatio <= 0 || c.OTel.SampleRatio > 1 {
+			return fmt.Errorf("otel.sample_ratio must be in (0, 1]")
+		}
 	}
 	if c.Retention.Enabled {
 		if c.Retention.Interval <= 0 {

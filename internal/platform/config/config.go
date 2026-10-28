@@ -22,6 +22,24 @@ type Config struct {
 	Auth       Auth       `mapstructure:"auth"`
 	Message    Message    `mapstructure:"message"`
 	Retention  Retention  `mapstructure:"retention"`
+	OTel       OTel       `mapstructure:"otel"`
+}
+
+// OTel holds the OpenTelemetry tracing settings. Tracing is off by default:
+// the template must run with nothing but PostgreSQL, and an unreachable
+// collector must never be a startup dependency.
+type OTel struct {
+	// Enabled turns on the OTLP exporter and the HTTP/DB/worker spans.
+	Enabled bool `mapstructure:"enabled"`
+	// Endpoint is the OTLP gRPC collector address (host:port).
+	Endpoint string `mapstructure:"endpoint"`
+	// Insecure dials the collector without TLS (local compose / sidecar).
+	Insecure bool `mapstructure:"insecure"`
+	// SampleRatio is the head-sampling ratio, 0 < ratio <= 1. Production usually
+	// wants 0.05-0.2; 1.0 is for local development.
+	SampleRatio float64 `mapstructure:"sample_ratio"`
+	// ServiceName overrides the resource attribute; empty uses app.name.
+	ServiceName string `mapstructure:"service_name"`
 }
 
 // App holds generic application metadata.

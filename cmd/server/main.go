@@ -8,6 +8,7 @@ import (
 	"log"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
@@ -17,6 +18,7 @@ import (
 	"github.com/example/go-web-template/internal/platform/buildinfo"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/logx"
+	"github.com/example/go-web-template/internal/platform/otelx"
 )
 
 // Build-time variables, injected via -ldflags "-X main.version=... -X main.commit=...".
@@ -24,6 +26,15 @@ var (
 	version = "dev"
 	commit  = "unknown"
 )
+
+// otelServiceName keeps the resource attribute in one place: an explicit
+// setting wins, otherwise the app name (so a renamed template stays coherent).
+func otelServiceName(cfg *config.Config) string {
+	if cfg.OTel.ServiceName != "" {
+		return cfg.OTel.ServiceName
+	}
+	return cfg.App.Name
+}
 
 func main() {
 	var (
@@ -52,6 +63,28 @@ func main() {
 	// Signal-aware context: SIGINT / SIGTERM trigger graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Tracing is opt-in (otel.enabled): an unreachable collector must not turn
+	// into a startup failure. Shutdown uses a fresh context because ctx is
+	// already canceled when the deferred cleanup runs.
+	tracing, err := otelx.New(ctx, otelx.Options{
+		Enabled:     cfg.OTel.Enabled,
+		ServiceName: otelServiceName(cfg),
+		Version:     version,
+		Endpoint:    cfg.OTel.Endpoint,
+		Insecure:    cfg.OTel.Insecure,
+		SampleRatio: cfg.OTel.SampleRatio,
+	}, logger)
+	if err != nil {
+		logger.Fatal("init tracing", zap.Error(err))
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tracing.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("shutdown tracing", zap.Error(err))
+		}
+	}()
 
 	// build_info makes "which build is this alert/dashboard line about?"
 	// answerable without grepping container logs.

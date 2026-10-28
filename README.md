@@ -287,9 +287,10 @@ docker compose -f deploy/docker-compose.yml up -d --build
   `no-new-privileges` + `cap_drop: ALL` + 非 root（镜像内 UID 10001）+ 512MB/1CPU 上限 +
   `stop_grace_period: 30s`（覆盖 `http.shutdown_timeout`）。基础镜像按 digest 固定
   （`golang:1.27.3-alpine@sha256:…`、`alpine:3.21@sha256:…`），升级时同步改 digest。
-- **可观测性（可选）**：`make observability-up` 在编排里额外拉起 Prometheus + Grafana
-  （compose profile，自动打开 `/metrics`，告警规则与看板自动装载）：
-  Prometheus `:9090`、Grafana `:3000/d/go-web-template`；生产抓取方式见 `deploy/observability/README.md`。
+- **可观测性（可选）**：`make observability-up` 在编排里额外拉起 Prometheus + Grafana + Tempo
+  （compose profile，自动打开 `/metrics` 与 OpenTelemetry 追踪，告警/看板/数据源自动装载）：
+  Prometheus `:9090`、Grafana `:3000/d/go-web-template`、Tempo `:3200`；
+  生产抓取与追踪接入见 `deploy/observability/README.md`。
   ![看板预览](deploy/observability/preview.png)
 - **SBOM**：`make sbom` 用 trivy 生成 CycloneDX 到 `dist/sbom.cdx.json`（不入库）；
   `make image-scan` 扫描 HIGH/CRITICAL，发布前必跑。

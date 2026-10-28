@@ -20,6 +20,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Sender delivers one external channel. Implementations must be safe for
@@ -86,11 +88,18 @@ func NewWebhookSender(opts WebhookOptions) Sender {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 30 * time.Second
 	}
-	client := opts.Client
-	if client == nil {
-		client = newWebhookClient(opts.Timeout, opts.AllowPrivate, isBlockedIP)
+	base := opts.Client
+	if base == nil {
+		base = newWebhookClient(opts.Timeout, opts.AllowPrivate, isBlockedIP)
 	}
-	return &webhookSender{opts: opts, client: client}
+	// Trace outbound webhook calls as children of the delivery span. Copy the
+	// client so a caller-supplied one is not mutated by instrumentation.
+	client := *base
+	if client.Transport == nil {
+		client.Transport = http.DefaultTransport
+	}
+	client.Transport = otelhttp.NewTransport(client.Transport)
+	return &webhookSender{opts: opts, client: &client}
 }
 
 // webhookRedirectLimit caps how many redirect hops one webhook may follow.

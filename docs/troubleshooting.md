@@ -96,6 +96,18 @@
 | curl 访问 `127.0.0.1` 挂住不返回 | shell 里带了 `all_proxy`，代理把本机地址也代理了 | curl 加 `--noproxy '*'`；脚本同理（`scripts/*.sh` 已统一处理） |
 | `govulncheck` 报标准库漏洞（如 `crypto/x509@go1.27.2`），升级依赖没用 | 漏洞在 stdlib，只有工具链能修 | `go mod edit -toolchain=go1.X.Y` + Dockerfile builder 镜像同步升到同一版本，并 `ENV GOTOOLCHAIN=local` 让版本不一致在构建期失败 |
 
+## 5.2 可观测性（指标 / 追踪）
+
+| 症状 | 原因与处理 |
+|---|---|
+| 响应没有 `X-Trace-Id`、日志没有 `trace_id` | `APP_OTEL_ENABLED` 没有开（默认关），或请求路径是 `/healthz`/`/readyz`/`/metrics`（追踪故意排除探针） |
+| Grafana → Tempo 搜不到 trace | 先看启动日志有没有 `otel exporter error`（collector 地址不通）；本地用 `APP_OTEL_ENDPOINT=tempo:4317`；确认 `sample_ratio > 0`；Tempo 只在 `--profile observability` 时启动 |
+| 日志里 trace 只有 HTTP span、没有 DB span | 查询没有走 `WithContext(ctx)`（GORM 插件只能从 `Statement.Context` 取父 span）；修复 repository 传 ctx |
+| trace 太多、Tempo 磁盘涨得快 | 调低 `otel.sample_ratio`（生产 0.05–0.2），或缩短 Tempo `block_retention` |
+| 接 Jaeger/云厂商而不是本地 Tempo | 只换 `APP_OTEL_ENDPOINT`（OTLP gRPC）；跨网络时 `APP_OTEL_INSECURE=false` 并配 TLS |
+| 改了 `deploy/grafana/provisioning/` 但 Grafana 里没有新数据源 | 数据源 provisioning 只在启动时读取：`docker compose -f deploy/docker-compose.yml --profile observability restart grafana`（看板文件 30s 自动重载） |
+| `make observability-up` 后 app 起不来 | 看 compose logs：`APP_OTEL_ENABLED=true` 但 endpoint 为空会在配置校验阶段失败 |
+
 ## 6. 前端（web/admin）
 
 | 报错 | 处理 |

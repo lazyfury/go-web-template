@@ -5,13 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/example/go-web-template/internal/platform/workerx"
 )
+
+// tracer groups delivery spans; the name is the instrumentation scope.
+var tracer = otel.Tracer("github.com/example/go-web-template/message")
 
 // WorkerOptions configures the delivery worker.
 type WorkerOptions struct {
@@ -112,7 +119,20 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		w.process(ctx, &deliveries[i])
+		delivery := &deliveries[i]
+		// One span per delivery: the SMTP/webhook call and every DB write it
+		// causes become children, so a slow provider is visible in Tempo without
+		// correlating log lines by hand.
+		spanCtx, span := tracer.Start(ctx, "message.delivery",
+			oteltrace.WithAttributes(
+				attribute.String("messaging.channel", string(delivery.Channel)),
+				attribute.String("messaging.message_id", strconv.FormatUint(delivery.MessageID, 10)),
+				attribute.String("messaging.delivery_id", strconv.FormatUint(delivery.ID, 10)),
+				attribute.Int("messaging.attempt", delivery.Attempts),
+			),
+		)
+		w.process(spanCtx, delivery)
+		span.End()
 	}
 	// A completed pass is the worker's liveness signal: per-delivery results are
 	// already counted, but "nothing claimed" and "loop wedged" look identical.

@@ -3,12 +3,22 @@
 ## 0. 本地一键看效果
 
 ```bash
-make observability-up     # = compose --profile observability + APP_METRICS_ENABLED=true
+make observability-up     # = compose --profile observability + metrics + OTel(→Tempo)
 # 应用:       http://127.0.0.1:8080
 # Prometheus: http://127.0.0.1:9090      （Status → Targets 里 go-web-template 应为 UP）
-# Grafana:    http://127.0.0.1:3000/d/go-web-template （已自动装好数据源 + 看板，匿名只读）
-make observability-down   # 停止（保留 promdata/grafanadata 卷）
+# Grafana:    http://127.0.0.1:3000/d/go-web-template （看板已自动装好，匿名只读）
+# Tempo:      http://127.0.0.1:3200      （trace 存储；Grafana → Explore → Tempo → Search）
+make observability-down   # 停止（保留 promdata/grafanadata/tempodata 卷）
 ```
+
+追踪链路已内置：`otelgin` 为每个请求建 span，GORM 查询/投递 webhook/worker 任务挂在其下；
+`make observability-up` 会把 `APP_OTEL_*` 指向 Tempo。日志里有 `trace_id`，响应头有 `X-Trace-Id`，
+可以直接把用户报的 id 贴进 Grafana Explore（数据源选 **Tempo**，query type `TraceQL`，输入 trace id 或
+`{ resource.service.name = "go-web-template" }`）。看板最下面的 `Recent traces (Tempo)` 表格也列出了最近
+trace，点 Trace ID 即可打开 span 树。
+
+> 注意：Grafana 的数据源 provisioning 只在启动时读取。改了 `grafana/provisioning/` 之后需要
+> `docker compose -f deploy/docker-compose.yml --profile observability restart grafana`（看板文件每 30s 自动重载，不受影响）。
 
 这三层**不是三选一**，而是一条链，任一层都可以单独用：
 
@@ -17,13 +27,15 @@ make observability-down   # 停止（保留 promdata/grafanadata 卷）
 | `/metrics`（应用） | 暴露指标文本（`prometheus/client_golang`） | 交给外部托管 Prometheus / VictoriaMetrics / 云监控抓取，不需要本仓库的 compose 服务 |
 | Prometheus | 抓取、存储、告警规则求值（`prometheus/alerts.yml` 已挂载） | 直接用 Prometheus UI / PromQL 看，不装 Grafana |
 | Grafana | 可视化（`grafana/dashboard.json` 已自动 provision） | 接已有 Prometheus 数据源，或导入 `dashboard.json` 到现有 Grafana |
+| Tempo（可选） | 接收 OTLP、存储 trace（本地文件后端） | 换成 Jaeger/云厂商 trace 后端也行，应用侧只认 OTLP endpoint |
 
 本地编排默认匿名只读（`GF_AUTH_ANONYMOUS_*`）只是为了开箱即看；生产必须关掉匿名并用 SSO/强密码。
 规则已加载但没有 Alertmanager，所以「告警」在 Prometheus 的 `/alerts` 页面可见，不会真的发通知。
 
 ![Grafana dashboard](preview.png)
 
-> 上图是本地跑起来后的实际截图（`make observability-up` + 少量登录/刷新/登出/列表请求）。
+> 上图是本地跑起来后的实际截图（`make observability-up` + 少量登录/刷新/登出/列表请求）：
+> 上半部分是指标，最下面 `Recent traces (Tempo)` 表格是 Tempo 里的 trace（点 Trace ID 打开 span 树）。
 > `No data` 的面板是当前没有投递/清理活动，不是配置错误。
 
 模板自带 Prometheus 指标（`/metrics`）、结构化访问日志与 `/readyz`，但「指标 + 看板 + 告警」
@@ -31,10 +43,11 @@ make observability-down   # 停止（保留 promdata/grafanadata 卷）
 
 | 文件 | 用途 |
 |---|---|
+| `tempo/tempo.yml` | 本地 Tempo 配置（OTLP 4317/4318 接收、本地文件存储、24h 保留） |
 | `prometheus/prometheus.yml` | 本地编排用的抓取配置（目标 `app:8080`，加载下面的告警规则） |
 | `prometheus/alerts.yml` | 告警规则（可用 `rule_files` 直接加载，或包成 prometheus-operator 的 `PrometheusRule`） |
 | `grafana/dashboard.json` | Grafana 看板（uid 固定为 `go-web-template`；数据源变量默认选 `prometheus`） |
-| `grafana/provisioning/` | 数据源 + 看板自动装载（`make observability-up` 时挂进容器） |
+| `grafana/provisioning/` | 数据源（Prometheus + Tempo）+ 看板自动装载（`make observability-up` 时挂进容器） |
 | `preview.png` | 本地跑起来后的看板截图（文档用） |
 
 `build_info{version,commit}` 是一个值恒为 1 的指标：用它区分告警/看板对应的是哪个构建，避免翻容器日志。

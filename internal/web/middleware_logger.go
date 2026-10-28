@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/example/go-web-template/internal/platform/authkit"
@@ -73,6 +74,13 @@ func Logger(logger *zap.Logger) gin.HandlerFunc {
 		if query := sanitizedQuery(c.Request.URL.RawQuery); query != "" {
 			path = path + "?" + query
 		}
+		// Expose the trace id on the response (next to X-Request-ID) so a user
+		// report can be pasted straight into Tempo/Jaeger. The header must be set
+		// before the handler writes the response.
+		spanContext := trace.SpanContextFromContext(c.Request.Context())
+		if spanContext.IsValid() {
+			c.Header("X-Trace-Id", spanContext.TraceID().String())
+		}
 
 		c.Next()
 
@@ -91,6 +99,9 @@ func Logger(logger *zap.Logger) gin.HandlerFunc {
 		// Authenticated routes set the principal; anonymous routes omit user_id.
 		if principal, ok := authkit.PrincipalFrom(c); ok {
 			fields = append(fields, zap.Uint64("user_id", principal.UserID))
+		}
+		if spanContext.IsValid() {
+			fields = append(fields, zap.String("trace_id", spanContext.TraceID().String()))
 		}
 		logger.Info("http_request", fields...)
 	}

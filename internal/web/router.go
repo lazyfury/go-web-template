@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.uber.org/zap"
 
 	"github.com/example/go-web-template/internal/platform/apperr"
@@ -59,6 +60,20 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string,
 	r.Use(
 		Recovery(logger),
 		RequestID(),
+	)
+	// Tracing sits between RequestID and Logger: the access log then carries the
+	// trace id, and spans cover the request but not the probes (a 15s scrape or
+	// liveness ping every few seconds would drown the trace list).
+	if cfg.OTel.Enabled {
+		r.Use(otelgin.Middleware(cfg.App.Name, otelgin.WithGinFilter(func(c *gin.Context) bool {
+			switch c.Request.URL.Path {
+			case "/healthz", "/readyz", "/metrics":
+				return false
+			}
+			return true
+		})))
+	}
+	r.Use(
 		Logger(logger),
 		// Security headers run before CORS so even a rejected preflight carries
 		// nosniff/XFO; HSTS only when the deployment terminates TLS (production).
