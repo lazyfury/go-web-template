@@ -38,7 +38,7 @@ MIGRATE_VERSION       ?= v4.20.1
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up bench fuzz deps-outdated \
         ci web-install web-deps e2e \
         migrate-up migrate-down migrate-create migrate-roundtrip \
-        web-check docker-build image-scan sbom jwt-secret docker-up docker-down docker-logs clean
+        web-check docker-build image-scan sbom db-backup db-restore jwt-secret docker-up docker-down docker-logs clean
 
 help: ## 显示所有命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -213,6 +213,30 @@ web-check: web-deps ## 前端门：eslint + vue-tsc + vitest + API/组件类型�
 
 audit: ## 安全/SQL 静态审计 + 鉴权矩阵回归（auth/迁移改动、发布前跑）
 	@./scripts/audit.sh
+
+## ---- 备份 / 恢复（运维 runbook: docs/ops-runbook.md） -----------------------
+
+BACKUP_DIR ?= backups
+DB_NAME    ?= go_web_template
+
+db-backup: ## 备份数据库到 $(BACKUP_DIR)/<db>-<时间戳>.sql.gz（需 compose postgres）
+	@docker compose -f deploy/docker-compose.yml ps -q postgres >/dev/null 2>&1 && \
+		[ -n "$$(docker compose -f deploy/docker-compose.yml ps -q postgres)" ] || \
+		{ echo "postgres 容器未运行：先 make db-up"; exit 1; }
+	@mkdir -p $(BACKUP_DIR)
+	@ts=$$(date +%Y%m%d-%H%M%S); out="$(BACKUP_DIR)/$(DB_NAME)-$$ts.sql.gz"; \
+	docker compose -f deploy/docker-compose.yml exec -T postgres \
+		pg_dump -U postgres -d $(DB_NAME) --no-owner --no-privileges | gzip > "$$out"; \
+	test -s "$$out" || { echo "备份失败（空文件）"; rm -f "$$out"; exit 1; }; \
+	echo "备份完成: $${out}（$$(du -h "$${out}" | awk '{print $$1}')）"
+
+db-restore: ## 从备份恢复（破坏性！FILE=... CONFIRM=1 才执行；会覆盖当前库）
+	@test -n "$(FILE)" || { echo "用法: FILE=$(BACKUP_DIR)/x.sql.gz CONFIRM=1 make db-restore"; exit 1; }
+	@test -f "$(FILE)" || { echo "备份文件不存在: $(FILE)"; exit 1; }
+	@test "$(CONFIRM)" = "1" || { echo "拒绝执行：确认这是本地/测试库后加 CONFIRM=1（生产恢复必须先按 docs/ops-runbook.md 停写并备份现状）"; exit 1; }
+	gunzip -c "$(FILE)" | docker compose -f deploy/docker-compose.yml exec -T postgres \
+		psql -U postgres -d $(DB_NAME) -v ON_ERROR_STOP=1 -q
+	@echo "恢复完成: $(FILE) → $(DB_NAME)（建议立即 curl /readyz 并抽查数据）"
 
 ## ---- 数据库迁移（优先 docker；无 docker 用本地 migrate 二进制） ------------
 

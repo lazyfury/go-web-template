@@ -2,6 +2,7 @@
 /bin/
 /tmp/
 /dist/
+/backups/
 coverage.out
 *.exe
 *.test

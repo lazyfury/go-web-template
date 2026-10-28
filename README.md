@@ -212,6 +212,7 @@ make test           # 单元测试（内存 SQLite，无需 postgres）
 make bench          # 基准测试（JWT 签发/校验、限流中间件）
 make fuzz FUZZTIME=30s  # 模糊测试（JWT 校验：任意输入不得 panic/误放行）
 make deps-outdated  # 列出 Go/前端可升级依赖（月度节奏，见 docs/agents/verification.md）
+make db-backup      # 备份数据库到 backups/（恢复见 docs/ops-runbook.md）
 make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
 make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
@@ -294,7 +295,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
   ```
 - 生产部署清单：`APP_AUTH_JWT_SECRET` 外部注入（≥32 字节）、`APP_AUTH_COOKIE_SECURE=true`、
   `APP_CORS_ALLOWED_ORIGINS` 写具体域名、`APP_METRICS_ENABLED`/`APP_SWAGGER_ENABLED` 按需关闭、
-  反代终止 TLS。
+  反代终止 TLS。备份/恢复、密钥轮换与故障处置见 `docs/ops-runbook.md`。
 
 ## 从模板开始你的项目
 
