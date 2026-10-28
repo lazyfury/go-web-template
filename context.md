@@ -174,6 +174,7 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
 | `message_templates` | 模板：`(template_key,channel,locale)` 部分唯一（`WHERE deleted_at IS NULL`），`variables` 用 TEXT 存 JSON 数组 |
 
 - 投递领取用 `locked_until` 租约 + 条件更新（SQLite 可测，不依赖 `SKIP LOCKED`）；worker 发送前 `RenewLease` 条件续租，丢掉租约就跳过（防重复投递）。
+- `000009` 的 `idx_message_deliveries_purge` 是 `(updated_at) WHERE status IN (2,4,5)` 部分索引：`PurgeTerminalDeliveries` 按 `status IN (2,4,5) AND updated_at < cutoff` 删除终态投递，没有它只能全表扫（真实 PG 16、20 万行 / 47 MB、每小时清理约 1800 行：Seq Scan 31.1ms vs Index Scan 0.5ms）。改清理谓词时同步复核该索引。
 - `000008` 的 `idx_message_deliveries_lease` 是 `(locked_until) WHERE status = 1` 部分索引：没有它，「租约过期的在途行」这条腿只能全表扫 `status=1`（真实 PG 16、25 万行 / 5 万在途：Parallel Seq Scan 7.6ms、扫 25 万行；有索引后 Bitmap Index Scan 1.2ms）。改 `ClaimDeliveries` 的谓词时同步复核这个索引。
 - 详细状态机、worker 生命周期与 API 计划见 `docs/design-message.md`。
 
