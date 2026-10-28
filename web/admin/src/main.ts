@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
 
 import '@unocss/reset/tailwind.css'
 import 'element-plus/dist/index.css'
@@ -20,7 +19,6 @@ const pinia = createPinia()
 
 app.use(pinia)
 app.use(router)
-app.use(ElementPlus)
 
 // 将 auth store 的 token 注册为 http 层读取源（单向依赖，避免循环 import）
 useAuthStore(pinia).bindHttpToken()

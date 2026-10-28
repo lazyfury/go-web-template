@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { messageApi } from '@/api/message'
 import { usePagination } from '@/composables/usePagination'
@@ -120,7 +119,7 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="canRetry(row.status as 0 | 1 | 2 | 3 | 4 | 5)" link type="primary" @click="retry(row)">
+            <el-button v-if="canRetry(row.status as 0 | 1 | 2 | 3 | 4 | 5)" link type="primary" @click="retry(row as MessageDelivery)">
               重试
             </el-button>
             <span v-else class="text-xs text-[var(--text-muted)]">—</span>

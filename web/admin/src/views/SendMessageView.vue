@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { messageApi } from '@/api/message'
 import { usePagination } from '@/composables/usePagination'

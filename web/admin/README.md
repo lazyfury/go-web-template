@@ -4,7 +4,7 @@ go-web-template 的 Admin 前端模板，参考 [lazyfury/oliver `ui/admin`](htt
 
 ## 技术栈
 
-Vue 3 · TypeScript · Vite · Element Plus · Pinia · Vue Router · UnoCSS（原子类 + 按需图标）· ECharts（按需引入）· Axios
+Vue 3 · TypeScript · Vite · Element Plus（组件按需自动引入）· Pinia · Vue Router · UnoCSS（原子类 + 按需图标）· ECharts（按需引入）· Axios
 
 ## 快速开始
 
@@ -15,6 +15,10 @@ pnpm dev        # http://localhost:5173，/api 代理到 http://localhost:8080�
 pnpm build      # 类型检查 + 生产构建到 dist/
 pnpm gen:api    # docs/openapi.json → src/types/openapi.ts
 ```
+
+`src/components.d.ts` 与 `src/auto-imports.d.ts` 由 `unplugin-vue-components` / `unplugin-auto-import`
+在构建时生成并提交（提供模板里的 `<el-*>` 与服务式 `ElMessage` 的类型）。改完模板后跑一次
+`pnpm build`；`make web-check` 会检查它们是否漂移。
 
 登录走真实后端 `POST /api/v1/auth/login`（邮箱 + 密码）：access token 只存内存，refresh token 由后端写入 HttpOnly cookie；账号由管理员创建（`make seed-admin` 或后台「用户管理」）。
 

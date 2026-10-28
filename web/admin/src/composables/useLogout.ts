@@ -1,6 +1,5 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/auth'
 import { notifyError } from '@/utils/feedback'
 import { safeRedirectTarget } from '@/utils/redirect'

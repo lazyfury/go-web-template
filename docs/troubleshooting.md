@@ -102,7 +102,9 @@
 |---|---|
 | `TS5103 Invalid value for '--ignoreDeprecations'` | tsconfig 的值必须匹配 TS major：TS 5.x 只认 `"5.0"`，TS 6.0/7.0 认 `"6.0"`（见 `context.md` ADR 12） |
 | `[sass] Expected newline` | `<style lang="sass">` 是缩进式语法却写了 SCSS 花括号 → 改 `lang="scss"` |
-| `[unocss] failed to load icon "-"` | 无害噪音，来自 JSDoc 注释里独立的 `-` token，可忽略 |
+| `[unocss] failed to load icon "-"` | 图标规则会先剥掉 `i-` 前缀，`-` / `i--` 这类非图标 token 因此变成查名为 `-` 的图标。已在 `uno.config.ts` 的 `blocklist` 屏蔽；真正的图标拼写错误仍会告警 |
+| `el-table` 插槽里的 `row` 报 `DefaultRow` 不能赋给业务类型 | Element Plus 组件按需引入后带类型（`src/components.d.ts`），插槽 props 是 `DefaultRow`。在调用处 `row as User` 收窄（数据来自已类型化的 `items`，cast 是安全的），不要退回 `any` |
+| 按需引入后 bundle 没变小 | `manualChunks` 写成 `{ 'vendor-element': ['element-plus'] }` 会把整包塞进 chunk。改成函数式、只给稳定大依赖（echarts/vue/axios）分组，实测 JS 1674KB → 1136KB（gzip 565 → 386KB） |
 | 新加的菜单/按钮不显示（如「字典管理」） | 前端按 `auth.can(permission)` 过滤，权限来自登录/refresh 返回的 `user.permissions`。**后端进程或镜像还是旧代码**时，refresh 仍返回旧权限列表 → 菜单被隐藏。重建并重启后端（`docker compose -f deploy/docker-compose.yml up -d --build app`），然后**整页刷新**或退出重登；仅 Vite HMR 不会重新执行 `bootstrap()`。可用 `POST /api/v1/auth/login` 检查返回的 `permissions` 是否包含新权限 |
 
 ## 7. 容器

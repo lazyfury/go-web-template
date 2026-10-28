@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import { usePagination } from '@/composables/usePagination'
@@ -225,8 +225,8 @@ onMounted(loadUsers)
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="canWrite" link type="primary" @click="openEditDialog(row)">编辑</el-button>
-            <el-button v-if="canDelete" link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button v-if="canWrite" link type="primary" @click="openEditDialog(row as User)">编辑</el-button>
+            <el-button v-if="canDelete" link type="danger" @click="handleDelete(row as User)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>

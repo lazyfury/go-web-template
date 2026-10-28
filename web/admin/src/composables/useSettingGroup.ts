@@ -1,4 +1,3 @@
-import { ElMessage } from 'element-plus'
 import { ref, type Ref } from 'vue'
 import { dictApi } from '@/api/dict'
 import { ApiError } from '@/api/http'

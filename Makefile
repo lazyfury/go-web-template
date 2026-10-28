@@ -189,8 +189,11 @@ web-deps: ## 内部前置：确认前端依赖已安装（否则给出可执行�
 		echo "web/admin 依赖未安装：先运行 make web-install"; exit 1; \
 	}
 
-web-check: web-deps ## 前端门：eslint + vue-tsc + vitest + API 类型未漂移 + 构建（改 web/admin 时跑）
+web-check: web-deps ## 前端门：eslint + vue-tsc + vitest + API/组件类型未漂移 + 构建（改 web/admin 时跑）
 	cd web/admin && pnpm lint && pnpm typecheck && pnpm test && pnpm api:check && pnpm build
+	@git diff --exit-code --quiet -- web/admin/src/components.d.ts web/admin/src/auto-imports.d.ts || { \
+		echo "自动导入类型漂移：提交 web/admin/src/{components,auto-imports}.d.ts"; exit 1; \
+	}
 
 audit: ## 安全/SQL 静态审计 + 鉴权矩阵回归（auth/迁移改动、发布前跑）
 	@./scripts/audit.sh

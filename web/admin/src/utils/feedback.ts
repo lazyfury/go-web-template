@@ -1,4 +1,3 @@
-import { ElMessage } from 'element-plus'
 import { ApiError } from '@/api/http'
 
 /** 统一错误提示：优先取业务错误消息，兜底用 fallback。 */

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { messageApi } from '@/api/message'
@@ -145,7 +144,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="消息" min-width="260">
           <template #default="{ row }">
-            <button type="button" class="block max-w-full cursor-pointer text-left" @click="openMessage(row)">
+            <button type="button" class="block max-w-full cursor-pointer text-left" @click="openMessage(row as InboxMessage)">
               <span :class="row.read_at ? 'text-[var(--text-secondary)]' : 'font-semibold text-[var(--text-primary)]'">
                 {{ row.title }}
               </span>
@@ -172,8 +171,8 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openMessage(row)">查看</el-button>
-            <el-button link type="danger" @click="removeMessage(row)">删除</el-button>
+            <el-button link type="primary" @click="openMessage(row as InboxMessage)">查看</el-button>
+            <el-button link type="danger" @click="removeMessage(row as InboxMessage)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>

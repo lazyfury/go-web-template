@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { dictApi } from '@/api/dict'
 import { useAuthStore } from '@/stores/auth'
@@ -447,7 +447,7 @@ onMounted(async () => {
             <el-table-column prop="label" label="展示文案" min-width="140" />
             <el-table-column label="值" min-width="200">
               <template #default="{ row }">
-                <span class="break-all font-mono text-xs text-[var(--text-secondary)]">{{ formatValue(row) }}</span>
+                <span class="break-all font-mono text-xs text-[var(--text-secondary)]">{{ formatValue(row as DictItem) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="值类型" width="100">
@@ -465,8 +465,8 @@ onMounted(async () => {
             <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
             <el-table-column label="操作" width="130" fixed="right">
               <template #default="{ row }">
-                <el-button v-if="canWrite" link type="primary" @click="openEditItem(row)">编辑</el-button>
-                <el-button v-if="canWrite" link type="danger" @click="handleDeleteItem(row)">删除</el-button>
+                <el-button v-if="canWrite" link type="primary" @click="openEditItem(row as DictItem)">编辑</el-button>
+                <el-button v-if="canWrite" link type="danger" @click="handleDeleteItem(row as DictItem)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
