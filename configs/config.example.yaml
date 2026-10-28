@@ -65,6 +65,18 @@ ratelimit:
   enabled: true
   rps: 100
   burst: 200
+  # 桶放哪里：memory = 每进程一份（单实例正确）；redis = 多副本共享。
+  # 多副本部署必须用 redis，否则每个副本各有一份额度，等于把限额乘以副本数。
+  backend: memory
+
+# Redis 只在 ratelimit.backend=redis 时使用（不是事实来源，DB 永远权威）。
+redis:
+  addr: ""              # 空 + backend=redis 会在启动时 fail-fast
+  password: ""
+  db: 0
+  pool_size: 10
+  dial_timeout: 2s      # 同时作为读写超时：Redis 卡住时快速失败（限流 fail-open）
+  ping_timeout: 1s      # 启动连通性检查
 
 swagger:
   enabled: true
@@ -132,3 +144,14 @@ message:
     endpoint: ""
   default_locale: zh-CN
   max_attempts: 5
+
+retention:
+  # 保留期清理 worker（housekeeping）：cmd/server 启动，按窗口硬删除过期行。
+  # 关闭后表会无界增长；窗口都从「可清理时刻」起算（token/消息=过期时间，
+  # 终态投递=最后更新时间），所以再过一段宽限期才真正删除。
+  enabled: true
+  interval: 1h
+  timeout: 1m                  # 单个任务的上限，避免大 DELETE 长时间占用
+  refresh_token_retention: 168h   # 过期后再留 7 天（重放判定仍有明确答案）
+  delivery_retention: 720h        # sent/dead/canceled 保留 30 天；pending/可重试永不删
+  message_retention: 2160h        # 消息自身 expires_at 之后再留 90 天；无 expires_at 永不删
