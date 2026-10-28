@@ -35,7 +35,7 @@ MIGRATE_VERSION       ?= v4.20.1
 
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
-        check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up bench fuzz deps-outdated \
+        check gate test-cover openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up bench fuzz deps-outdated \
         ci web-install web-deps e2e \
         migrate-up migrate-down migrate-create migrate-roundtrip \
         web-check docker-build image-scan sbom db-backup db-restore jwt-secret docker-up docker-down docker-logs clean
@@ -123,7 +123,7 @@ check: lint gate ## 提交前唯一门槛 = lint + gate
 # 只在本地某次手动调用时才被发现。本地提交前 / 接入 CI 都只需调这一个目标。
 ci: check web-check audit ## 全量门（本地/CI 唯一入口）= check + web-check + audit
 
-gate: fmt-check vet test-race cover-check build tidy-check ## 本地校验链（不含 golangci-lint）
+gate: fmt-check vet test-cover cover-check build tidy-check ## 本地校验链（不含 golangci-lint）
 
 fmt-check: ## 校验 gofmt（docs/ 含生成物与 Markdown，豁免）
 	@unformatted=$$(gofmt -l . | grep -v '^docs/' || true); \
@@ -162,8 +162,13 @@ FUZZTIME ?= 30s
 fuzz: ## 模糊测试（默认 FuzzTokenParse，FUZZTIME=30s 可调；加了新 Fuzz 目标就改这里）
 	$(GO) test ./internal/platform/authkit -run '^$$' -fuzz=FuzzTokenParse -fuzztime=$(FUZZTIME)
 
-test-race: ## 带竞态检测运行测试（make check 同款）
+test-race: ## 只跑竞态测试（不产出覆盖率 profile）
 	$(GO) test -race ./... -count=1
+
+# make check 用的单次运行：-race 与 -coverprofile 一起跑，覆盖率门复用同一份
+# profile。以前 test-race 和 cover-check 各跑一遍全量测试（白等约 8s）。
+test-cover: ## 内部：一次 -race + 覆盖率运行（产物 coverage.out）
+	$(GO) test -race ./... -count=1 -coverpkg=$(COVERPKG) -coverprofile=coverage.out
 
 coverage: ## 生成 HTML 覆盖率报告（会打开浏览器）
 	$(GO) test ./... -coverpkg=$(COVERPKG) -coverprofile=coverage.out
@@ -173,8 +178,7 @@ coverage-func: ## 覆盖率文本摘要（agent/人类友好，不开浏览器�
 	$(GO) test ./... -coverpkg=$(COVERPKG) -coverprofile=coverage.out >/dev/null
 	$(GO) tool cover -func=coverage.out
 
-cover-check: ## 覆盖率门：总量 + 每包下限 + 关键文件零覆盖函数（scripts/cover-check.sh）
-	$(GO) test ./... -count=1 -coverpkg=$(COVERPKG) -coverprofile=coverage.out >/dev/null
+cover-check: test-cover ## 覆盖率门：总量 + 每包下限 + 关键文件零覆盖函数（复用 test-cover 的 profile）
 	@COVER_MIN=$(COVER_MIN) COVER_PKG_MIN=$(COVER_PKG_MIN) ./scripts/cover-check.sh
 
 openapi: ## 重新生成 OpenAPI 契约（改了路由元数据后必须跑）

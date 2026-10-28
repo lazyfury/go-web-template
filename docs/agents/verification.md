@@ -6,7 +6,7 @@
 
 | 门 | 何时跑 | 覆盖什么 |
 |---|---|---|
-| `make check` | **每次提交前（必跑）** | golangci-lint、gofmt 校验、go vet、race 测试、覆盖率门（`scripts/cover-check.sh`：总量 `COVER_MIN` + 每包 `COVER_PKG_MIN` + 关键文件零覆盖函数）、build、OpenAPI 黄金文件、`go mod tidy` 同步 |
+| `make check` | **每次提交前（必跑）** | golangci-lint、gofmt 校验、go vet、一次 `-race` + 覆盖率运行（`test-cover`）、覆盖率门（`scripts/cover-check.sh`：总量 `COVER_MIN` + 每包 `COVER_PKG_MIN` + 关键文件零覆盖函数）、build、OpenAPI 黄金文件、`go mod tidy` 同步 |
 | `make audit` | auth/JWT/鉴权/迁移 SQL 改动、发布前 | 密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、govulncheck |
 | `make migrate-roundtrip` | 改迁移 SQL、发布前 | 真实 PG 的 scratch 库上跑 `up → down -all → up`（先 `make db-up`） |
 | `make e2e` | 改前端路由/登录态/关键页面、发布前 | 真实浏览器 + 后端 + PG：登录 → 建用户 → 删用户 → 退出（需 `make dev` + seed 管理员） |

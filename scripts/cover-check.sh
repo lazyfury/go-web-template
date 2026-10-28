@@ -33,7 +33,7 @@ internal/message/sender.go
 "
 
 if [ ! -f "$PROFILE" ]; then
-	echo "FAIL: $PROFILE 不存在（先运行 make cover-check）" >&2
+	echo "FAIL: $PROFILE 不存在（先运行 make cover-check 或 make test-cover）" >&2
 	exit 1
 fi
 
