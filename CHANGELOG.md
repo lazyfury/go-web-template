@@ -7,7 +7,34 @@
 
 ### Added
 
-- （下一次发版前在这里累积）
+- `make migrate-roundtrip`：在 scratch 库上跑 `up → down -all → up`，证明 down SQL 真的可回滚
+  （`audit` 只检查文件成对/非空）。已在真实 PG 上验证，并做过「故意写坏 down」的负向验证。
+- `make e2e` + Playwright 冒烟：真实浏览器 + 后端 + PG 跑「登录 → 新建用户 → 删除用户 → 退出登录」，
+  退出后再访问受保护页会被守卫弹回登录页。
+- 可观测性：`build_info{version,commit}`、`db_pool_*`（database/sql 池统计）、
+  `worker_last_success_timestamp_seconds{worker}`（投递/清理 worker 的存活时间戳）；
+  配套 `MessageWorkerStalled` / `HousekeepingStalled` 告警与两个看板面板。
+- 配置：`database.slow_threshold`（慢查询阈值，默认 1s）、`message.mail.require_tls`
+  （默认 true，production 不允许 false）。
+- 前端覆盖率门槛（v8，仅统计 store/composable/api/router/utils：stmts 40 / branches 35 / funcs 25 / lines 40）。
+
+### Changed
+
+- gorm 日志改用自实现 `gormlogger.Interface`：SQL 失败落 **error**、慢查询落 warn（阈值可配）、
+  成功语句落 info，字段结构化；`ParamsFilter` 保留，SQL 仍以占位符记录。
+- Go 覆盖率门拆成三层：总量 `COVER_MIN`（76 → 78）、每包下限 `COVER_PKG_MIN`（55）、
+  关键文件（auth/限流/sender/用户仓储）不允许 0% 函数。`isUniqueViolation` 等路径补测。
+- 前端 Element Plus 按需自动引入（`unplugin-vue-components` / `unplugin-auto-import`），
+  `manualChunks` 改为函数式只归类稳定大依赖：JS 1674KB → 1136KB（gzip 565 → 386KB）。
+- `dbx.New` 用 5s 超时的 `PingContext` 做启动检查（黑洞地址不再挂住启动）。
+
+### Fixed
+
+- 邮件发送强制 STARTTLS：`message.mail.require_tls` 默认 true，服务器未宣告 STARTTLS 时拒绝发送；
+  无 TLS 连接下拒绝发送 SMTP 凭据。`sendSMTP` 从 0% 覆盖到有假 SMTP 服务器的完整测试。
+- 终态投递清理缺索引：新增 `000009` 部分索引 `(updated_at) WHERE status IN (2,4,5)`，
+  真实 PG（20 万行 / 47MB、每小时清理约 1800 行）实测 31.1ms → 0.5ms（Seq Scan → Index Scan）。
+- UnoCSS 每次构建刷 `failed to load icon "-"`：`blocklist` 屏蔽 `-` / `i--` 这两个非图标 token。
 
 ## [0.2.0] - 2026-10-28
 
