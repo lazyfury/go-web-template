@@ -1770,6 +1770,33 @@ func TestFileUploadDownloadDelete(t *testing.T) {
 		t.Errorf("missing nosniff on download")
 	}
 
+	// The attachment URL (what "copy link" hands out) must keep the real type and
+	// only express "download" through Content-Disposition. Serving
+	// application/octet-stream here loses the type for every consumer.
+	attachmentResp := doJSONAuth(t, env.handler, http.MethodGet,
+		"/api/v1/files/"+strconv.FormatUint(dto.ID, 10)+"/url?disposition=attachment", nil, admin.accessToken)
+	if attachmentResp.Code != http.StatusOK {
+		t.Fatalf("attachment url = %d, body=%s", attachmentResp.Code, attachmentResp.Body.String())
+	}
+	var attachment struct {
+		URL string `json:"url"`
+	}
+	decodeInto(t, attachmentResp, &attachment)
+	attachmentURL, err := url.Parse(attachment.URL)
+	if err != nil {
+		t.Fatalf("parse attachment url: %v", err)
+	}
+	attached := doJSON(t, env.handler, http.MethodGet, attachmentURL.RequestURI(), nil)
+	if attached.Code != http.StatusOK {
+		t.Fatalf("attachment download = %d", attached.Code)
+	}
+	if ct := attached.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("attachment content type = %q, want image/png", ct)
+	}
+	if cd := attached.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment;") {
+		t.Errorf("attachment disposition = %q, want attachment", cd)
+	}
+
 	// Range requests work (http.ServeContent against the local *os.File).
 	rangeReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, parsed.RequestURI(), nil)
 	rangeReq.Header.Set("Range", "bytes=0-7")
@@ -1845,6 +1872,41 @@ func countBlobs(t *testing.T, root string) int {
 		t.Fatalf("walk upload root: %v", err)
 	}
 	return count
+}
+
+// TestFileVisibilityRoundTrip 钉住「公开 → 私有」：VisibilityPrivate=0 之前被
+// binding:"required" 当成缺字段，PATCH 直接 400。
+func TestFileVisibilityRoundTrip(t *testing.T) {
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+	dto := uploadOK(t, env.handler, admin.accessToken, "share.png", pngPayload(8), nil)
+	path := "/api/v1/files/" + strconv.FormatUint(dto.ID, 10)
+
+	var updated fileDTO
+	resp := doJSONAuth(t, env.handler, http.MethodPatch, path, map[string]any{"visibility": 1}, admin.accessToken)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("set public = %d, body=%s", resp.Code, resp.Body.String())
+	}
+	decodeInto(t, resp, &updated)
+	if updated.Visibility != 1 {
+		t.Fatalf("visibility = %d, want 1", updated.Visibility)
+	}
+
+	resp = doJSONAuth(t, env.handler, http.MethodPatch, path, map[string]any{"visibility": 0}, admin.accessToken)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("set private again = %d, body=%s (0 must be a valid value)", resp.Code, resp.Body.String())
+	}
+	decodeInto(t, resp, &updated)
+	if updated.Visibility != 0 {
+		t.Errorf("visibility = %d, want 0", updated.Visibility)
+	}
+
+	// Missing field and out-of-range values are still rejected.
+	for _, body := range []map[string]any{{}, {"visibility": 7}, {"visibility": "private"}} {
+		if resp := doJSONAuth(t, env.handler, http.MethodPatch, path, body, admin.accessToken); resp.Code != http.StatusBadRequest {
+			t.Errorf("PATCH %v = %d, want 400", body, resp.Code)
+		}
+	}
 }
 
 // TestFileUploadEnforcesLimits 钉住三件事：路由级 BodyLimit 大于全局 1 MiB 上限、

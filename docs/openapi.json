@@ -4288,7 +4288,8 @@
             "enum": [
               0,
               1
-            ]
+            ],
+            "nullable": true
           }
         },
         "required": [

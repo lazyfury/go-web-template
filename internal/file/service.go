@@ -363,6 +363,7 @@ func (s *Service) signedURLFor(ctx context.Context, record *File, disposition st
 		Expiry:      ttl,
 		Disposition: disposition,
 		Filename:    record.OriginalName,
+		ContentType: record.MIMEType,
 		PathID:      fmt.Sprintf("%d/%s", record.ID, disposition),
 	})
 	if err != nil {

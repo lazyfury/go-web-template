@@ -176,6 +176,7 @@ func TestS3PresignedURL(t *testing.T) {
 		Expiry:      5 * time.Minute,
 		Disposition: "attachment",
 		Filename:    "我的 报表.pdf",
+		ContentType: "application/pdf",
 	})
 	if err != nil {
 		t.Fatalf("URL: %v", err)
@@ -188,6 +189,9 @@ func TestS3PresignedURL(t *testing.T) {
 	}
 	if !strings.Contains(signed, "response-content-disposition=") {
 		t.Errorf("presigned URL %q does not pin the disposition", signed)
+	}
+	if !strings.Contains(signed, "response-content-type=application%2Fpdf") {
+		t.Errorf("presigned URL %q does not pin the content type", signed)
 	}
 	if time.Until(expires) > 5*time.Minute+time.Second {
 		t.Errorf("expiry %v is longer than requested", time.Until(expires))

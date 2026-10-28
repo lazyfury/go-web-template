@@ -15,8 +15,13 @@ type UploadRequest struct {
 }
 
 // UpdateVisibilityRequest is the payload for PATCH /files/:id.
+//
+// Visibility is a pointer on purpose: `binding:"required"` rejects the zero
+// value, and VisibilityPrivate IS zero — switching a file back to private would
+// fail validation. The pointer keeps "field missing" distinguishable from
+// "explicitly 0".
 type UpdateVisibilityRequest struct {
-	Visibility Visibility `json:"visibility" binding:"required,oneof=0 1"`
+	Visibility *Visibility `json:"visibility" binding:"required,oneof=0 1"`
 }
 
 // StoredFileDTO is the HTTP representation of a file. Storage keys and buckets stay

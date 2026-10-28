@@ -66,6 +66,9 @@ type SignedURLOptions struct {
 	// Filename is the download name echoed by drivers that can set it
 	// (S3 response-content-disposition).
 	Filename string
+	// ContentType is the content type the driver should pin on the response
+	// (S3 response-content-type). Empty means "use the stored object metadata".
+	ContentType string
 	// PathID is a caller-owned opaque segment a driver may embed in the URL path
 	// so the app can resolve the object without exposing the storage key
 	// (local driver: the file id).

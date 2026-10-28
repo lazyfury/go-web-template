@@ -846,9 +846,9 @@ export interface components {
         UpdateVisibilityRequest: {
             /**
              * Format: int32
-             * @enum {integer}
+             * @enum {integer|null}
              */
-            visibility: 0 | 1;
+            visibility: 0 | 1 | null;
         };
         UploadRequest: {
             /** @description Business type, e.g. avatar or attachment */

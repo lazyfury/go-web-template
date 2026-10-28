@@ -78,9 +78,12 @@ func (h *DownloadHandler) ServeLocal(c *gin.Context) {
 	}
 	defer func() { _ = reader.Close() }()
 
-	contentType := "application/octet-stream"
-	if disposition == "inline" {
-		contentType = record.MIMEType
+	// Content-Type always reflects the real type; whether the browser renders or
+	// downloads is decided by Content-Disposition, not by lying about the type.
+	// `inline` is still restricted to the inline allowlist when the URL is issued.
+	contentType := record.MIMEType
+	if contentType == "" {
+		contentType = "application/octet-stream"
 	}
 	remaining := expires - h.now().Unix()
 	if remaining < 0 {

@@ -186,7 +186,11 @@ func (h *Handler) UpdateVisibility(c *gin.Context) {
 		httpx.Fail(c, apperr.Wrap(apperr.CodeInvalidArgument, validationMessage(err), err))
 		return
 	}
-	record, err := h.svc.UpdateVisibility(c.Request.Context(), actor, id, req.Visibility)
+	if req.Visibility == nil {
+		httpx.Fail(c, apperr.New(apperr.CodeInvalidArgument, "visibility is required"))
+		return
+	}
+	record, err := h.svc.UpdateVisibility(c.Request.Context(), actor, id, *req.Visibility)
 	if err != nil {
 		httpx.Fail(c, err)
 		return

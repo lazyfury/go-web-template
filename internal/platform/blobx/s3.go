@@ -190,6 +190,9 @@ func (s *S3) URL(_ context.Context, key string, opt SignedURLOptions) (string, t
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	}
+	if opt.ContentType != "" {
+		input.ResponseContentType = aws.String(opt.ContentType)
+	}
 	if opt.Disposition != "" && opt.Filename != "" {
 		input.ResponseContentDisposition = aws.String(contentDisposition(opt.Disposition, opt.Filename))
 	} else if opt.Disposition != "" {
