@@ -9,12 +9,13 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src e2e playwright.config.ts vite.config.ts uno.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "gen:api": "openapi-typescript ../../docs/openapi.json -o src/types/openapi.ts",
     "api:check": "pnpm gen:api && git diff --exit-code -- src/types/openapi.ts",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -28,6 +29,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@iconify-json/ep": "^1.2.4",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.13.0",
     "@unocss/reset": "^66.0.0",
     "@vitejs/plugin-vue": "^5.2.1",

@@ -8,3 +8,7 @@ dist-ssr
 
 # vitest 覆盖率产物
 coverage
+
+# Playwright 产物
+test-results
+playwright-report

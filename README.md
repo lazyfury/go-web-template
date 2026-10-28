@@ -213,6 +213,7 @@ make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
 make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
 make ci             # 全量门：check + web-check + audit（本地提交前 / 接入 CI 都跑这个）
+make e2e            # 前端端到端冒烟（需后端 :8080 + seed 管理员；见 web/admin/README）
 make smoke          # 本地冒烟：探针 + 登录/JWT + 权限 + CRUD + refresh
 make verify-auth    # 认证端到端（需 postgres）：宽限期/登出即时/body 传输/会话上限
 make audit          # 安全+SQL 机械审计（auth/迁移改动、发布前必跑）

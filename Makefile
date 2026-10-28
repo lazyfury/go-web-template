@@ -36,7 +36,7 @@ MIGRATE_VERSION       ?= v4.20.1
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
-        ci web-install web-deps \
+        ci web-install web-deps e2e \
         migrate-up migrate-down migrate-create migrate-roundtrip \
         web-check docker-build image-scan jwt-secret docker-up docker-down docker-logs clean
 
@@ -188,6 +188,9 @@ web-deps: ## 内部前置：确认前端依赖已安装（否则给出可执行�
 	@test -x web/admin/node_modules/.bin/eslint || { \
 		echo "web/admin 依赖未安装：先运行 make web-install"; exit 1; \
 	}
+
+e2e: web-deps ## 前端端到端冒烟（需后端 :8080 + 已 seed 管理员；首次 pnpm exec playwright install chromium）
+	cd web/admin && pnpm test:e2e
 
 web-check: web-deps ## 前端门：eslint + vue-tsc + vitest + API/组件类型未漂移 + 构建（改 web/admin 时跑）
 	cd web/admin && pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm api:check && pnpm build

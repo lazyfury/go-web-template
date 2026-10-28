@@ -21,6 +21,17 @@ pnpm test:coverage  # 单测 + 覆盖率门槛（v8；门槛见 vite.config.ts�
 在构建时生成并提交（提供模板里的 `<el-*>` 与服务式 `ElMessage` 的类型）。改完模板后跑一次
 `pnpm build`；`make web-check` 会检查它们是否漂移。
 
+端到端冒烟（真实浏览器 + 真实后端 + 真实 PG，一条「登录 → 新建用户 → 删除用户 → 退出登录」主链路）：
+
+```bash
+# 一次性：安装浏览器
+pnpm exec playwright install chromium
+# 前置：make db-up && make migrate-up && EMAIL=... APP_SEED_PASSWORD=... make seed-admin && make dev
+cd web/admin && pnpm test:e2e     # 等价于仓库根 make e2e
+```
+
+E2E 不在 `make web-check` / `make ci` 里（需要活的后端与已 seed 的管理员），属于发布前的手动门。
+
 登录走真实后端 `POST /api/v1/auth/login`（邮箱 + 密码）：access token 只存内存，refresh token 由后端写入 HttpOnly cookie；账号由管理员创建（`make seed-admin` 或后台「用户管理」）。
 
 ## 页面
