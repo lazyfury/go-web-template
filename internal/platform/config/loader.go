@@ -145,15 +145,18 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.allowed_mime", []string{
 		"image/png", "image/jpeg", "image/webp", "image/gif",
 		"application/pdf", "text/plain", "application/zip",
+		"video/mp4", "video/webm",
 		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	})
 	v.SetDefault("storage.allowed_ext", []string{
-		".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".zip", ".docx", ".xlsx",
+		".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".zip", ".mp4", ".webm", ".docx", ".xlsx",
 	})
-	// 可内联渲染的类型：其余一律强制 attachment。
+	// 可内联渲染的类型：其余一律强制 attachment。text/plain 内联是安全的
+	// （浏览器按纯文本渲染，配合 nosniff 不会解析成 HTML）。
 	v.SetDefault("storage.inline_mime", []string{
 		"image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf",
+		"text/plain", "video/mp4", "video/webm",
 	})
 	// 本地驱动签名密钥：仓库内默认值只配 development；production 校验会拒绝
 	// 占位值并要求 >=32 字节（APP_STORAGE_SIGNING_SECRET）。

@@ -149,10 +149,12 @@ const revokePublicLink = async (row: FileItem) => {
   }
 }
 
-/** 短签名链接：私有文件临时下载用（TTL 上限 1h），不具备撤销能力。 */
+/** 短签名链接：私有文件临时查看/下载用（TTL 上限 1h），不具备撤销能力。 */
 const copyLink = async (row: FileItem) => {
   try {
-    const result = await fileApi.url(row.id, 'attachment')
+    // inline 让浏览器直接渲染可预览类型；后端对不在 inline_mime 里的类型会强制
+    // 降级为 attachment，所以这里不需要前端再维护一份白名单。
+    const result = await fileApi.url(row.id, 'inline')
     await navigator.clipboard.writeText(result.url)
     ElMessage.success('已复制临时下载链接（10 分钟内有效）')
   } catch (error) {
@@ -187,7 +189,66 @@ const remove = async (row: FileItem) => {
   }
 }
 
-const isImage = (row: FileItem) => row.mime_type.startsWith('image/')
+/* ── 预览 ─────────────────────────────────────────────── */
+
+type PreviewKind = 'image' | 'video' | 'pdf' | 'text' | 'none'
+
+const previewVisible = ref(false)
+const previewItem = ref<FileItem | null>(null)
+const previewKind = ref<PreviewKind>('none')
+const previewURL = ref('')
+const previewText = ref('')
+const previewTruncated = ref(false)
+const previewLoading = ref(false)
+const previewError = ref('')
+
+/**
+ * 预览策略：
+ * - image/video：短签名 URL（inline）直接给 <img>/<video>，不受 X-Frame-Options 影响；
+ * - pdf：本地驱动响应带 X-Frame-Options: DENY，iframe 会被拦，改为新标签打开；
+ * - text：走后端 JSON 预览（有界 256 KiB），避免 CORS/Content-Disposition 问题；
+ * - 其余（zip/docx/xlsx）：不支持内联，给下载入口。
+ */
+const openPreview = async (row: FileItem) => {
+  previewItem.value = row
+  previewVisible.value = true
+  previewKind.value = 'none'
+  previewURL.value = ''
+  previewText.value = ''
+  previewTruncated.value = false
+  previewError.value = ''
+  previewLoading.value = true
+  try {
+    const mime = row.mime_type
+    if (mime.startsWith('image/')) {
+      previewKind.value = 'image'
+      previewURL.value = (await fileApi.url(row.id, 'inline')).url
+    } else if (mime.startsWith('video/')) {
+      previewKind.value = 'video'
+      previewURL.value = (await fileApi.url(row.id, 'inline')).url
+    } else if (mime === 'application/pdf') {
+      previewKind.value = 'pdf'
+      previewURL.value = (await fileApi.url(row.id, 'inline')).url
+    } else if (mime.startsWith('text/')) {
+      previewKind.value = 'text'
+      const preview = await fileApi.previewText(row.id)
+      previewText.value = preview.content
+      previewTruncated.value = preview.truncated
+    } else {
+      previewKind.value = 'none'
+    }
+  } catch (error) {
+    previewError.value = '预览加载失败'
+    notifyError(error, '预览加载失败')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+const openPreviewInNewTab = () => {
+  if (previewURL.value) window.open(previewURL.value, '_blank', 'noopener')
+}
+
 const formatTime = (value: string) => new Date(value).toLocaleString()
 const accept = DefaultAllowedExt.join(',')
 
@@ -228,13 +289,11 @@ onMounted(load)
         <el-table-column label="文件名" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <button
-              v-if="isImage(row as FileItem)"
               class="truncate text-left text-[var(--primary)] hover:underline"
-              @click="download(row as FileItem, 'inline')"
+              @click="openPreview(row as FileItem)"
             >
               {{ (row as FileItem).name }}
             </button>
-            <span v-else class="truncate">{{ (row as FileItem).name }}</span>
           </template>
         </el-table-column>
         <el-table-column label="类型" width="150" show-overflow-tooltip>
@@ -258,8 +317,9 @@ onMounted(load)
         <el-table-column label="上传时间" width="170">
           <template #default="{ row }">{{ formatTime((row as FileItem).created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="430" fixed="right">
+        <el-table-column label="操作" width="480" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="openPreview(row as FileItem)">预览</el-button>
             <el-button link type="primary" @click="download(row as FileItem, 'attachment')">下载</el-button>
             <el-button link type="primary" @click="copyPublicLink(row as FileItem)">复制外链</el-button>
             <el-button link type="primary" @click="copyLink(row as FileItem)">临时链接</el-button>
@@ -289,6 +349,41 @@ onMounted(load)
         />
       </div>
     </div>
+
+    <el-dialog
+      v-model="previewVisible"
+      :title="previewItem ? `预览 · ${previewItem.name}` : '预览'"
+      width="min(880px, 92vw)"
+      destroy-on-close
+    >
+      <div v-loading="previewLoading" class="min-h-32">
+        <template v-if="previewKind === 'image'">
+          <img :src="previewURL" :alt="previewItem?.name" class="mx-auto max-h-[70vh] max-w-full object-contain" />
+        </template>
+        <template v-else-if="previewKind === 'video'">
+          <video :src="previewURL" controls class="mx-auto max-h-[70vh] w-full bg-black" />
+        </template>
+        <template v-else-if="previewKind === 'pdf'">
+          <div class="flex flex-col items-center gap-3 py-6 text-sm">
+            <p>PDF 由浏览器内置阅读器打开（应用响应带 X-Frame-Options: DENY，不能用 iframe 内嵌）。</p>
+            <el-button type="primary" @click="openPreviewInNewTab">在新标签打开</el-button>
+          </div>
+        </template>
+        <template v-else-if="previewKind === 'text'">
+          <pre class="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--bg-muted)] p-3 text-xs">{{ previewText }}</pre>
+          <p v-if="previewTruncated" class="mt-2 text-xs text-[var(--text-secondary)]">
+            文件较大，仅显示前 256 KiB；完整内容请下载。
+          </p>
+        </template>
+        <template v-else>
+          <el-empty :description="previewError || '该类型不支持内联预览，请下载查看'" :image-size="72" />
+        </template>
+      </div>
+      <template #footer>
+        <el-button v-if="previewItem" @click="download(previewItem, 'attachment')">下载</el-button>
+        <el-button @click="previewVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="uploadVisible" title="上传文件" width="480px" :close-on-click-modal="false">
       <el-upload

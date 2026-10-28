@@ -363,6 +363,40 @@ func (s *Service) Open(ctx context.Context, record *File) (io.ReadCloser, blobx.
 	return reader, info, nil
 }
 
+// PreviewTextLimit caps the text preview response (bytes read from storage).
+const PreviewTextLimit = 256 << 10
+
+// PreviewText returns a bounded plain-text preview for text/* files. Ownership
+// and visibility follow the normal Get rules.
+func (s *Service) PreviewText(ctx context.Context, actor authkit.Principal, id uint64) (TextPreviewResponse, error) {
+	record, err := s.Get(ctx, actor, id)
+	if err != nil {
+		return TextPreviewResponse{}, err
+	}
+	if !strings.HasPrefix(record.MIMEType, "text/") {
+		return TextPreviewResponse{}, apperr.New(apperr.CodeInvalidArgument, "file is not a text file")
+	}
+	reader, _, err := s.Open(ctx, record)
+	if err != nil {
+		return TextPreviewResponse{}, err
+	}
+	defer func() { _ = reader.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(reader, PreviewTextLimit+1))
+	if err != nil {
+		return TextPreviewResponse{}, apperr.Wrap(apperr.CodeInternal, "read preview failed", err)
+	}
+	truncated := len(data) > PreviewTextLimit
+	if truncated {
+		data = data[:PreviewTextLimit]
+	}
+	return TextPreviewResponse{
+		Content:   strings.ToValidUTF8(string(data), "\uFFFD"),
+		Truncated: truncated,
+		SizeBytes: record.SizeBytes,
+	}, nil
+}
+
 // signedURLFor builds the URL for an already-authorized row.
 func (s *Service) signedURLFor(ctx context.Context, record *File, disposition string, ttl time.Duration) (URLResult, error) {
 	disposition = strings.ToLower(strings.TrimSpace(disposition))

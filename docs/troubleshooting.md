@@ -156,3 +156,5 @@
 | 撤销外链后仍能打开 | 缓存未过期（`Cache-Control: public, max-age=storage.assets.cache_ttl`）。要秒级生效：调小 TTL 或走 CDN purge；不要把 TTL 当成撤销机制。 |
 | 上传返回 429 | 两层保护：`storage.upload_rps/upload_burst`（按用户令牌桶）或 24h 配额 `storage.upload_daily_files`/`upload_daily_bytes`。前者带 `Retry-After`，后者要等窗口滚动或调整配额。 |
 | 外链域名是 localhost | 设 `APP_STORAGE_ASSETS_BASE_URL`（CDN/反代 origin）；为空时回落到 `storage.local.base_url`。 |
+| 打开链接直接下载而不是预览 | 该类型不在 `storage.inline_mime`（默认 image/*、pdf、text/plain、video/mp4|webm）。`zip`/`docx`/`xlsx` 按设计强制 attachment；要内联就把 MIME 加进白名单（只加浏览器不会执行脚本的类型）。 |
+| 后台预览 PDF 显示不了 | 本地驱动响应带 `X-Frame-Options: DENY`，iframe 会被浏览器拦截；预览页改为「新标签打开」。S3/CDN 直链没有该限制。 |

@@ -1684,13 +1684,14 @@ func pngPayload(extra int) []byte {
 }
 
 type fileDTO struct {
-	ID           uint64 `json:"id"`
-	Name         string `json:"name"`
-	MIMEType     string `json:"mime_type"`
-	SizeBytes    int64  `json:"size_bytes"`
-	BizType      string `json:"biz_type"`
-	Visibility   int    `json:"visibility"`
-	DownloadPath string `json:"download_path"`
+	ID            uint64 `json:"id"`
+	Name          string `json:"name"`
+	MIMEType      string `json:"mime_type"`
+	SizeBytes     int64  `json:"size_bytes"`
+	BizType       string `json:"biz_type"`
+	Visibility    int    `json:"visibility"`
+	InlineAllowed bool   `json:"inline_allowed"`
+	DownloadPath  string `json:"download_path"`
 }
 
 func uploadOK(t *testing.T, h http.Handler, token, name string, content []byte, fields map[string]string) fileDTO {
@@ -2177,4 +2178,67 @@ func TestFileUploadQuotaAndPerUserLimit(t *testing.T) {
 			t.Fatalf("burst upload = %d, want 429, body=%s", w.Code, w.Body.String())
 		}
 	})
+}
+
+// TestFileTextPreviewAndInlineHints 覆盖后台预览所需的两个能力：
+// inline_allowed（UI 判断能否内联渲染）与 text/* 的有界纯文本预览。
+func TestFileTextPreviewAndInlineHints(t *testing.T) {
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+	env.createMember(t, admin, memberEmail, "Preview Member", "+10000000003")
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	text := uploadOK(t, env.handler, admin.accessToken, "note.txt", []byte("hello preview"), nil)
+	if !text.InlineAllowed {
+		t.Errorf("text/plain should be inline-allowed (browsers render it as plain text)")
+	}
+	zip := uploadOK(t, env.handler, admin.accessToken, "bundle.zip", []byte("PK\x03\x04zip-body"), nil)
+	if zip.InlineAllowed {
+		t.Errorf("application/zip must never be inline-allowed")
+	}
+
+	path := "/api/v1/files/" + strconv.FormatUint(text.ID, 10) + "/text"
+	resp := doJSONAuth(t, env.handler, http.MethodGet, path, nil, admin.accessToken)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("text preview = %d, body=%s", resp.Code, resp.Body.String())
+	}
+	var preview struct {
+		Content   string `json:"content"`
+		Truncated bool   `json:"truncated"`
+		SizeBytes int64  `json:"size_bytes"`
+	}
+	decodeInto(t, resp, &preview)
+	if preview.Content != "hello preview" || preview.Truncated {
+		t.Errorf("preview = %+v", preview)
+	}
+	if preview.SizeBytes != int64(len("hello preview")) {
+		t.Errorf("size = %d", preview.SizeBytes)
+	}
+
+	// Non-text files are rejected: preview is not a generic file reader.
+	if w := doJSONAuth(t, env.handler, http.MethodGet,
+		"/api/v1/files/"+strconv.FormatUint(zip.ID, 10)+"/text", nil, admin.accessToken); w.Code != http.StatusBadRequest {
+		t.Errorf("preview(zip) = %d, want 400", w.Code)
+	}
+	// Ownership still applies.
+	if w := doJSONAuth(t, env.handler, http.MethodGet, path, nil, member.accessToken); w.Code != http.StatusForbidden {
+		t.Errorf("preview as other member = %d, want 403", w.Code)
+	}
+	if w := doJSON(t, env.handler, http.MethodGet, path, nil); w.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous preview = %d, want 401", w.Code)
+	}
+
+	// Oversized text is truncated, never streamed whole.
+	large := bytes.Repeat([]byte("a"), (256<<10)+1024)
+	big := uploadOK(t, env.handler, admin.accessToken, "big.txt", large, nil)
+	bigResp := doJSONAuth(t, env.handler, http.MethodGet,
+		"/api/v1/files/"+strconv.FormatUint(big.ID, 10)+"/text", nil, admin.accessToken)
+	var bigPreview struct {
+		Content   string `json:"content"`
+		Truncated bool   `json:"truncated"`
+	}
+	decodeInto(t, bigResp, &bigPreview)
+	if !bigPreview.Truncated || len(bigPreview.Content) != 256<<10 {
+		t.Errorf("large preview: truncated=%v len=%d, want true / %d", bigPreview.Truncated, len(bigPreview.Content), 256<<10)
+	}
 }

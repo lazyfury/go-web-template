@@ -176,12 +176,14 @@ storage:
     - application/pdf
     - text/plain
     - application/zip
+    - video/mp4
+    - video/webm
     - application/vnd.openxmlformats-officedocument.wordprocessingml.document
     - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-  allowed_ext: [".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".zip", ".docx", ".xlsx"]
+  allowed_ext: [".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".zip", ".mp4", ".webm", ".docx", ".xlsx"]
   # 可内联渲染的类型：其余强制 Content-Disposition: attachment（上传的 SVG/HTML
-  # 直接内联渲染等于在 API 域上存了一个 XSS）
-  inline_mime: [image/png, image/jpeg, image/webp, image/gif, application/pdf]
+  # 直接内联渲染等于在 API 域上存了一个 XSS；text/plain 内联是安全的）
+  inline_mime: [image/png, image/jpeg, image/webp, image/gif, application/pdf, text/plain, video/mp4, video/webm]
   # 本地下载 URL 的 HMAC 签名密钥（APP_STORAGE_SIGNING_SECRET）。仓库内默认值只用于
   # development；production 必须替换为 >=32 字节的随机值，否则启动失败。
   signing_secret: dev-only-insecure-storage-secret-change-me-32b

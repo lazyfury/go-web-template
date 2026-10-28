@@ -34,17 +34,29 @@ type ShareRequest struct {
 // StoredFileDTO is the HTTP representation of a file. Storage keys and buckets stay
 // internal: clients address files by id and get a signed URL.
 type StoredFileDTO struct {
-	ID           uint64     `json:"id"`
-	Name         string     `json:"name"`
-	MIMEType     string     `json:"mime_type"`
-	Ext          string     `json:"ext"`
-	SizeBytes    int64      `json:"size_bytes"`
-	BizType      string     `json:"biz_type"`
-	Visibility   Visibility `json:"visibility" enum:"0,1"`
-	SHA256       string     `json:"sha256"`
-	OwnerID      *uint64    `json:"owner_id,omitempty"`
-	DownloadPath string     `json:"download_path" description:"Relative API path returning a signed URL"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID         uint64     `json:"id"`
+	Name       string     `json:"name"`
+	MIMEType   string     `json:"mime_type"`
+	Ext        string     `json:"ext"`
+	SizeBytes  int64      `json:"size_bytes"`
+	BizType    string     `json:"biz_type"`
+	Visibility Visibility `json:"visibility" enum:"0,1"`
+	SHA256     string     `json:"sha256"`
+	OwnerID    *uint64    `json:"owner_id,omitempty"`
+	// InlineAllowed tells the UI whether the browser can render this type inline
+	// (image/pdf/text/video). Others are always served as attachments.
+	InlineAllowed bool      `json:"inline_allowed"`
+	DownloadPath  string    `json:"download_path" description:"Relative API path returning a signed URL"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// TextPreviewResponse is a bounded plain-text preview (GET /files/:id/text).
+// The JSON envelope is deliberate: an iframe/fetch of the signed URL would hit
+// Content-Disposition/CORS, while this stays same-origin and authenticated.
+type TextPreviewResponse struct {
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 // Page is one page of files.
@@ -61,26 +73,32 @@ type URLResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-func toStoredFileDTO(f *File) StoredFileDTO {
+func toStoredFileDTO(f *File, inlineAllowed bool) StoredFileDTO {
 	return StoredFileDTO{
-		ID:           f.ID,
-		Name:         f.OriginalName,
-		MIMEType:     f.MIMEType,
-		Ext:          f.Ext,
-		SizeBytes:    f.SizeBytes,
-		BizType:      f.BizType,
-		Visibility:   f.Visibility,
-		SHA256:       f.SHA256,
-		OwnerID:      f.OwnerID,
-		DownloadPath: "/api/v1/files/" + strconv.FormatUint(f.ID, 10) + "/url",
-		CreatedAt:    f.CreatedAt,
+		ID:            f.ID,
+		Name:          f.OriginalName,
+		MIMEType:      f.MIMEType,
+		Ext:           f.Ext,
+		SizeBytes:     f.SizeBytes,
+		BizType:       f.BizType,
+		Visibility:    f.Visibility,
+		SHA256:        f.SHA256,
+		OwnerID:       f.OwnerID,
+		InlineAllowed: inlineAllowed,
+		DownloadPath:  "/api/v1/files/" + strconv.FormatUint(f.ID, 10) + "/url",
+		CreatedAt:     f.CreatedAt,
 	}
 }
 
-func toStoredFileDTOs(files []File) []StoredFileDTO {
+// toStoredFileDTO fills the UI hints that depend on configuration.
+func (s *Service) toStoredFileDTO(f *File) StoredFileDTO {
+	return toStoredFileDTO(f, s.InlineAllowed(f.MIMEType))
+}
+
+func (s *Service) toStoredFileDTOs(files []File) []StoredFileDTO {
 	out := make([]StoredFileDTO, 0, len(files))
 	for i := range files {
-		out = append(out, toStoredFileDTO(&files[i]))
+		out = append(out, s.toStoredFileDTO(&files[i]))
 	}
 	return out
 }

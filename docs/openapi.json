@@ -1699,6 +1699,85 @@
         ]
       }
     },
+    "/files/{id}/text": {
+      "get": {
+        "operationId": "previewFileText",
+        "summary": "Plain-text preview (text/* only, capped at 256 KiB)",
+        "tags": [
+          "files"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "File ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "bounded text preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TextPreviewResponse"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/files/{id}/url": {
       "get": {
         "operationId": "getFileURL",
@@ -4151,6 +4230,9 @@
             "format": "int64",
             "minimum": 0
           },
+          "inline_allowed": {
+            "type": "boolean"
+          },
           "mime_type": {
             "type": "string"
           },
@@ -4188,6 +4270,7 @@
           "biz_type",
           "visibility",
           "sha256",
+          "inline_allowed",
           "download_path",
           "created_at"
         ]
@@ -4284,6 +4367,26 @@
           "total",
           "page",
           "page_size"
+        ]
+      },
+      "TextPreviewResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "content",
+          "truncated",
+          "size_bytes"
         ]
       },
       "URLResponse": {

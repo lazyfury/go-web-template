@@ -181,6 +181,11 @@ func routeMatrix() []routeCase {
 		{name: "get file url", spec: "/api/v1/files/{id}/url", method: http.MethodGet,
 			path:   filePath("/url"),
 			member: http.StatusForbidden, admin: http.StatusOK},
+		{name: "preview file text", spec: "/api/v1/files/{id}/text", method: http.MethodGet,
+			path: filePath("/text"),
+			// The fixture is a .txt file uploaded by admin; a member must be denied
+			// before the MIME check can answer 400.
+			member: http.StatusForbidden, admin: http.StatusOK},
 		{name: "update file visibility", spec: "/api/v1/files/{id}", method: http.MethodPatch,
 			path:   filePath(""),
 			body:   bodyOf(map[string]any{"visibility": 1}),

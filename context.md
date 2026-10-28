@@ -258,10 +258,11 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/message-templates/:id` | GET/PATCH/DELETE | 是 | `messages:manage` | 模板详情/更新/软删 | 200/204 | 400/401/403/404/409 |
 | `/api/v1/message-deliveries` | GET | 是 | `messages:manage` | 外部投递记录（status/channel 过滤） | 200 `DeliveryListResponse` | 400/401/403 |
 | `/api/v1/message-deliveries/:id/retry` | POST | 是 | `messages:manage` | 手动重试 failed/dead 投递 | 204 | 400/401/403/404/409 |
-| `/api/v1/files` | POST | 是 | `files:write` | `multipart/form-data`：`file` + 可选 `biz_type`/`visibility`；服务端嗅探类型（≤ `storage.max_upload_bytes`，默认 10 MiB） | 201 `StoredFileDTO` | 400/401/403/413 |
+| `/api/v1/files` | POST | 是 | `files:write` | `multipart/form-data`：`file` + 可选 `biz_type`/`visibility`；服务端嗅探类型（≤ `storage.max_upload_bytes`，默认 10 MiB）；按用户限流 + 24h 配额 | 201 `StoredFileDTO` | 400/401/403/413/429 |
 | `/api/v1/files` | GET | 是 | `files:read` | 分页列表（member 只看自己的；admin 全量）：page/page_size/biz_type/keyword | 200 `Page` | 401/403 |
 | `/api/v1/files/:id` | GET | 是 | `files:read` | 元数据；member 仅本人或 public 文件 | 200 `StoredFileDTO` | 400/401/403/404 |
-| `/api/v1/files/:id/url` | GET | 是 | `files:read` | 签名下载 URL（`disposition=inline\|attachment`、`ttl_seconds` ≤3600） | 200 `URLResponse` | 400/401/403/404 |
+| `/api/v1/files/:id/url` | GET | 是 | `files:read` | 签名下载 URL（`disposition=inline\|attachment`、`ttl_seconds` ≤3600）；`inline` 仅对 `inline_mime` 生效，其余强制降级为 attachment | 200 `URLResponse` | 400/401/403/404 |
+| `/api/v1/files/:id/text` | GET | 是 | `files:read` | `text/*` 有界纯文本预览（≤256 KiB，返回 `truncated`）；后台预览用，避免 iframe/CORS | 200 `TextPreviewResponse` | 400/401/403/404 |
 | `/api/v1/files/:id` | PATCH | 是 | `files:write` | 改 visibility（owner/admin） | 200 `StoredFileDTO` | 400/401/403/404 |
 | `/api/v1/files/:id/share` | POST | 是 | `files:write` | 创建/复用长期公开外链（`purpose`、`expires_in_seconds`；同 file+purpose 幂等） | 200 `AssetLink` | 400/401/403/404/409 |
 | `/api/v1/files/:id/share` | DELETE | 是 | `files:write` | 撤销外链（`purpose` 为空 = 全部） | 204 | 400/401/403/404 |
@@ -269,6 +270,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 
 - `dicts:read` 授予 admin + member；`dicts:write` 仅 admin。消费侧只返回启用组/项，管理侧可见停用数据。
 - `files:read`/`files:write` 授予 admin + member；成员级归属（只能读写自己的）在 service 校验，`public` 文件仅放开读。
+- `StoredFileDTO.inline_allowed` 由 `storage.inline_mime` 计算（默认 image/pdf/text/video），后台据此决定「内联预览」还是「只能下载」。
   下载 URL 是能力 URL：签名错误一律 404（不确认 id 是否存在），`inline` 仅限 `storage.inline_mime`。
 - `messages:read` 授予 admin + member（只能读自己的收件箱）；`messages:send` / `messages:manage` 仅 admin。邮件/短信/Webhook 写入 `message_deliveries` outbox，由 `cmd/server` 启动的 worker 异步发送并重试。
 - `ItemDTO.value` 是**存储原值**（空字符串表示未显式设置）；`dict.Store.GetInto` 解码时才回落 `item_key`，避免前端表单回写时把 key 误固化成 value。

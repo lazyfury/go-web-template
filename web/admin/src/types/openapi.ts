@@ -247,6 +247,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/files/{id}/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plain-text preview (text/* only, capped at 256 KiB) */
+        get: operations["previewFileText"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/{id}/url": {
         parameters: {
             query?: never;
@@ -777,6 +794,7 @@ export interface components {
             ext: string;
             /** Format: int64 */
             id: number;
+            inline_allowed: boolean;
             mime_type: string;
             name: string;
             /** Format: int64 */
@@ -818,6 +836,12 @@ export interface components {
             page_size: number;
             /** Format: int64 */
             total: number;
+        };
+        TextPreviewResponse: {
+            content: string;
+            /** Format: int64 */
+            size_bytes: number;
+            truncated: boolean;
         };
         URLResponse: {
             /** Format: date-time */
@@ -1865,6 +1889,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    previewFileText: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description bounded text preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["TextPreviewResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
             };
             400: components["responses"]["Error400"];
             401: components["responses"]["Error401"];

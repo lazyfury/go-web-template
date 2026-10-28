@@ -15,6 +15,8 @@ export interface FileItem {
   size_bytes: number
   biz_type: string
   visibility: FileVisibility
+  /** 后端 storage.inline_mime 判定：能否在浏览器内联渲染（图片/PDF/文本/视频）。 */
+  inline_allowed: boolean
   sha256: string
   owner_id?: number
   download_path: string
@@ -45,6 +47,13 @@ export interface FileURL {
  * 与 FileURL 的区别：token 可撤销、可永久有效，适合文章封面/头像；
  * 短签名 URL 用于私有文件临时下载。
  */
+/** 纯文本预览（GET /api/v1/files/:id/text，后端截断到 256 KiB）。 */
+export interface TextPreview {
+  content: string
+  truncated: boolean
+  size_bytes: number
+}
+
 export interface AssetLink {
   url: string
   purpose: string

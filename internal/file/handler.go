@@ -93,7 +93,7 @@ func (h *Handler) Upload(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	httpx.Created(c, toStoredFileDTO(record))
+	httpx.Created(c, h.svc.toStoredFileDTO(record))
 }
 
 // List handles GET /api/v1/files.
@@ -116,7 +116,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	page, pageSize = normalizePagination(page, pageSize)
 	httpx.OK(c, Page{
-		Items:    toStoredFileDTOs(files),
+		Items:    h.svc.toStoredFileDTOs(files),
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
@@ -139,7 +139,7 @@ func (h *Handler) Get(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	httpx.OK(c, toStoredFileDTO(record))
+	httpx.OK(c, h.svc.toStoredFileDTO(record))
 }
 
 // URL handles GET /api/v1/files/:id/url: a short-lived signed download URL.
@@ -195,7 +195,7 @@ func (h *Handler) UpdateVisibility(c *gin.Context) {
 		httpx.Fail(c, err)
 		return
 	}
-	httpx.OK(c, toStoredFileDTO(record))
+	httpx.OK(c, h.svc.toStoredFileDTO(record))
 }
 
 // Delete handles DELETE /api/v1/files/:id (soft delete + async blob purge).
@@ -214,6 +214,25 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 	httpx.NoContent(c)
+}
+
+// PreviewText handles GET /api/v1/files/:id/text (bounded plain-text preview).
+func (h *Handler) PreviewText(c *gin.Context) {
+	actor, ok := requirePrincipal(c)
+	if !ok {
+		return
+	}
+	id, err := parseID(c)
+	if err != nil {
+		httpx.Fail(c, err)
+		return
+	}
+	preview, err := h.svc.PreviewText(c.Request.Context(), actor, id)
+	if err != nil {
+		httpx.Fail(c, err)
+		return
+	}
+	httpx.OK(c, preview)
 }
 
 // Share handles POST /api/v1/files/:id/share: create or reuse a long-lived

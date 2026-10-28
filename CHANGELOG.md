@@ -14,6 +14,10 @@
 - **上传保护**：按用户令牌桶（`storage.upload_rps`/`upload_burst`，429 带 `Retry-After`）+
   24h 滚动配额（`storage.upload_daily_files`/`upload_daily_bytes`，服务层基于 `files` 索引计数）。
 - 前端文件管理页：复制长期外链 / 临时链接 / 撤销外链。
+- **后台预览**：`GET /api/v1/files/:id/text`（text/*，≤256 KiB，返回 `truncated`）+
+  `StoredFileDTO.inline_allowed`；前端预览弹窗支持图片/视频内嵌、文本（含截断提示）、PDF 新标签打开。
+  `storage.inline_mime` 默认加入 `text/plain`、`video/mp4`、`video/webm`（图片/PDF/文本/视频可直接在浏览器打开，
+  zip/docx/xlsx 仍强制下载）；「临时链接」改为申请 `inline`，由后端按白名单降级。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
@@ -92,6 +96,10 @@
 - **上传保护**：按用户令牌桶（`storage.upload_rps`/`upload_burst`，429 带 `Retry-After`）+
   24h 滚动配额（`storage.upload_daily_files`/`upload_daily_bytes`，服务层基于 `files` 索引计数）。
 - 前端文件管理页：复制长期外链 / 临时链接 / 撤销外链。
+- **后台预览**：`GET /api/v1/files/:id/text`（text/*，≤256 KiB，返回 `truncated`）+
+  `StoredFileDTO.inline_allowed`；前端预览弹窗支持图片/视频内嵌、文本（含截断提示）、PDF 新标签打开。
+  `storage.inline_mime` 默认加入 `text/plain`、`video/mp4`、`video/webm`（图片/PDF/文本/视频可直接在浏览器打开，
+  zip/docx/xlsx 仍强制下载）；「临时链接」改为申请 `inline`，由后端按白名单降级。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
@@ -163,6 +171,10 @@
 - **上传保护**：按用户令牌桶（`storage.upload_rps`/`upload_burst`，429 带 `Retry-After`）+
   24h 滚动配额（`storage.upload_daily_files`/`upload_daily_bytes`，服务层基于 `files` 索引计数）。
 - 前端文件管理页：复制长期外链 / 临时链接 / 撤销外链。
+- **后台预览**：`GET /api/v1/files/:id/text`（text/*，≤256 KiB，返回 `truncated`）+
+  `StoredFileDTO.inline_allowed`；前端预览弹窗支持图片/视频内嵌、文本（含截断提示）、PDF 新标签打开。
+  `storage.inline_mime` 默认加入 `text/plain`、`video/mp4`、`video/webm`（图片/PDF/文本/视频可直接在浏览器打开，
+  zip/docx/xlsx 仍强制下载）；「临时链接」改为申请 `inline`，由后端按白名单降级。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。

@@ -44,6 +44,14 @@ func RegisterRoutes(rg *routekit.Group, h *Handler, uploadGuards ...gin.HandlerF
 		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeNotFound, apperr.CodeForbidden},
 	}, h.Get)
 
+	read.GET("/:id/text", &routekit.Op{
+		ID:        "previewFileText",
+		Summary:   "Plain-text preview (text/* only, capped at 256 KiB)",
+		Params:    []routekit.Param{routekit.Path[uint64]("id", "File ID")},
+		Responses: []routekit.Response{routekit.OK[TextPreviewResponse]("bounded text preview")},
+		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeNotFound, apperr.CodeForbidden},
+	}, h.PreviewText)
+
 	read.GET("/:id/url", &routekit.Op{
 		ID:      "getFileURL",
 		Summary: "Get a short-lived signed download URL",

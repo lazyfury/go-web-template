@@ -58,7 +58,11 @@ internal/app                  组合根：blobx.New → file.NewService → Regi
 ## 5. 下载流程
 
 - `GET /api/v1/files/:id/url?disposition=inline|attachment&ttl_seconds=` 返回短期 URL。
-- `inline` 只对 `storage.inline_mime` 生效，其余强制 `attachment`（上传的 HTML/SVG 内联渲染 = API 域上的存储型 XSS）。
+- `inline` 只对 `storage.inline_mime` 生效（默认 image/*、pdf、text/plain、video/mp4|webm），其余强制
+  `attachment`（上传的 HTML/SVG 内联渲染 = API 域上的存储型 XSS；zip/docx 浏览器也渲染不了）。
+- 后台预览：`StoredFileDTO.inline_allowed` 决定 UI 走内联还是下载；文本走 `GET /files/:id/text`
+  （JSON，≤256 KiB，避免 iframe 的 `X-Frame-Options: DENY` 与 CORS），PDF 用「新标签打开」
+  （本地驱动的响应带 XFO DENY，不能 iframe），图片/视频用短签名 `inline` URL 直接 `<img>/<video>`。
 - 本地驱动：`GET /files/{id}/{disposition}/{exp}/{sig}`，HMAC-SHA256(key|exp|disposition)。
   - 签名错/过期/文件已删 → **404**（不确认 id 是否存在）。
   - 路由不在 `/api/v1` 下：签名即凭证，因此不违反「`/api/v1` 默认拒绝」。

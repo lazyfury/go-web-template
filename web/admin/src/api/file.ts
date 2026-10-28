@@ -1,6 +1,7 @@
 import { request } from './http'
 import type {
   AssetLink,
+  TextPreview,
   FileDisposition,
   FileItem,
   FileListParams,
@@ -49,6 +50,15 @@ export const fileApi = {
         options.onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
       },
     })
+  },
+
+  /**
+   * GET /api/v1/files/:id/text：text/* 的有界纯文本预览。
+   * 走 JSON 而不是直接 iframe 签名 URL：后者受 Content-Disposition/CORS 限制，
+   * 而且预览不应该把文件内容暴露成可缓存的公开 URL。
+   */
+  previewText(id: number): Promise<TextPreview> {
+    return request.get<TextPreview>(`/files/${id}/text`)
   },
 
   /** GET /api/v1/files/:id/url?disposition&ttl_seconds */
