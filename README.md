@@ -209,6 +209,8 @@ make build          # 编译到 bin/
 make run            # 直接运行
 make dev            # air 热重载
 make test           # 单元测试（内存 SQLite，无需 postgres）
+make bench          # 基准测试（JWT 签发/校验、限流中间件）
+make fuzz FUZZTIME=30s  # 模糊测试（JWT 校验：任意输入不得 panic/误放行）
 make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
 make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步

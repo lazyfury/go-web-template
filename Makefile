@@ -35,7 +35,7 @@ MIGRATE_VERSION       ?= v4.20.1
 
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
-        check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
+        check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up bench fuzz \
         ci web-install web-deps e2e \
         migrate-up migrate-down migrate-create migrate-roundtrip \
         web-check docker-build image-scan jwt-secret docker-up docker-down docker-logs clean
@@ -148,6 +148,13 @@ tidy: ## 整理依赖
 
 test: ## 运行全部测试
 	$(GO) test ./... -count=1
+
+bench: ## 基准测试（-benchmem；Benchmark* 在 internal/... 各包）
+	$(GO) test ./internal/... -run '^$$' -bench . -benchmem
+
+FUZZTIME ?= 30s
+fuzz: ## 模糊测试（默认 FuzzTokenParse，FUZZTIME=30s 可调；加了新 Fuzz 目标就改这里）
+	$(GO) test ./internal/platform/authkit -run '^$$' -fuzz=FuzzTokenParse -fuzztime=$(FUZZTIME)
 
 test-race: ## 带竞态检测运行测试（make check 同款）
 	$(GO) test -race ./... -count=1

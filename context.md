@@ -274,6 +274,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 前端：`web/admin` 用 `pnpm api:check` 校验生成的 API 类型未漂移；`pnpm lint`（ESLint 10 + eslint-plugin-vue essential）、`pnpm test`（vitest + jsdom：`tabs` store 持久化/去重、菜单与路由权限一致性、路由守卫的 401/权限重定向、退出登录「先清态再导航」的顺序、`safeRedirectTarget` 与 401 语义表）、`pnpm typecheck`/`pnpm build`（vue-tsc + vite）。一条命令：`make web-check`。
 - 测试不依赖 Docker/PostgreSQL；sqlite 驱动仅测试可见；每个测试用独立命名内存库，可并行。
 - 跑法：`make check`（提交前唯一门槛）；纯 Go 改动最快闭环 `make test`；端到端 `make smoke`（需 postgres）。
+- 性能与健壮性：`make bench`（JWT 签发/校验、限流中间件，`-benchmem`）与 `make fuzz`（`FuzzTokenParse`：任意字符串不得 panic，且只有本 issuer 签发的 token 能通过校验）。热路径改动后跑前者对比 ns/op 与 allocs。
 
 ## 9. 关键设计决策（ADR 精简版）
 

@@ -22,6 +22,8 @@ make audit         # auth/鉴权/迁移/发布前
 make smoke         # 有 PG 时；脚本自起自停
 make verify-auth   # 改登录/refresh/会话后必跑
 make migrate-roundtrip  # 改迁移 SQL 后必跑（真实 PG，scratch 库，不碰开发库）
+make bench          # 改 JWT/限流等热路径后对比 ns/op 与 allocs
+make fuzz FUZZTIME=30s  # 改 token 解析/输入校验后跑一轮
 ```
 
 - 前端改动：`make web-check`（eslint + vue-tsc + vitest 覆盖率门槛 + `pnpm api:check` + build）；首次在新机器上先 `make web-install`。
