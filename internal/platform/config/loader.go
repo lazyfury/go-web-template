@@ -120,6 +120,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("message.mail.username", "")
 	v.SetDefault("message.mail.password", "")
 	v.SetDefault("message.mail.from", "")
+	v.SetDefault("message.mail.require_tls", true)
 	v.SetDefault("message.sms.provider", "")
 	v.SetDefault("message.sms.account_sid", "")
 	v.SetDefault("message.sms.auth_token", "")
@@ -346,6 +347,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Message.Mail.Host != "" && c.Message.Mail.From == "" {
 		return fmt.Errorf("message.mail.from is required when mail.host is set")
+	}
+	if c.Message.Mail.Host != "" && c.IsProduction() && !c.Message.Mail.RequireTLS {
+		return fmt.Errorf("message.mail.require_tls must be true in production: a plaintext SMTP relay sends credentials and message bodies unencrypted (set false only for a local mail catcher)")
 	}
 	if c.Retention.Enabled {
 		if c.Retention.Interval <= 0 {

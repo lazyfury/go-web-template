@@ -89,7 +89,7 @@ auth:     {jwt_secret, issuer, access_ttl: 15m,
 message:  {worker_enabled: true, poll_interval: 5s, batch_size: 50, lease: 2m,  # lease >= delivery_timeout（Validate 强制）
           retry_base: 30s, delivery_timeout: 30s,
           webhook_urls: [], webhook_secret, webhook_allow_private: false,
-          mail: {host, port: 587, username, password, from},
+          mail: {host, port: 587, username, password, from, require_tls: true},
           sms:  {provider: twilio, account_sid, auth_token, from, endpoint},
           default_locale: zh-CN, max_attempts: 5}
 retention:{enabled: true, interval: 1h, timeout: 1m,

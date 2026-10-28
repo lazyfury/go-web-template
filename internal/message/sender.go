@@ -36,7 +36,12 @@ type MailOptions struct {
 	Username string
 	Password string
 	From     string
-	Timeout  time.Duration
+	// RequireTLS refuses to send unless the server advertises STARTTLS.
+	// Without it, a stripped STARTTLS (or a plaintext-only relay) sends the
+	// message body in the clear, and a server that advertises nothing would be
+	// silently accepted. Config validation forbids false in production.
+	RequireTLS bool
+	Timeout    time.Duration
 }
 
 // WebhookOptions configures the webhook sender.
@@ -235,12 +240,22 @@ func sendSMTP(ctx context.Context, opts *MailOptions, to string, message []byte)
 		return fmt.Errorf("smtp handshake: %w", err)
 	}
 	defer func() { _ = client.Close() }()
-	if ok, _ := client.Extension("STARTTLS"); ok {
+
+	advertisesTLS, _ := client.Extension("STARTTLS")
+	if opts.RequireTLS && !advertisesTLS {
+		return fmt.Errorf("smtp server %s does not advertise STARTTLS but mail.require_tls is true", opts.Host)
+	}
+	if advertisesTLS {
 		if err := client.StartTLS(&tls.Config{ServerName: opts.Host, MinVersion: tls.VersionTLS12}); err != nil {
 			return fmt.Errorf("smtp starttls: %w", err)
 		}
 	}
 	if opts.Username != "" {
+		// net/smtp's PlainAuth already refuses plaintext non-localhost servers;
+		// keep the explicit check so a future auth mechanism cannot regress it.
+		if _, tlsConn := client.TLSConnectionState(); !tlsConn {
+			return fmt.Errorf("refusing to send SMTP credentials to %s over a plaintext connection: enable STARTTLS or clear mail.username", opts.Host)
+		}
 		if err := client.Auth(smtp.PlainAuth("", opts.Username, opts.Password, opts.Host)); err != nil {
 			return fmt.Errorf("smtp auth: %w", err)
 		}

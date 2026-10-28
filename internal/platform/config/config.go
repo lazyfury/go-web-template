@@ -258,6 +258,10 @@ type MessageMail struct {
 	Username string `mapstructure:"username"`
 	Password string `mapstructure:"password"`
 	From     string `mapstructure:"from"`
+	// RequireTLS refuses sends unless the server advertises STARTTLS. Default
+	// true; production validation rejects false (plaintext relay = credentials
+	// and message bodies in the clear). Local mail catchers set it false.
+	RequireTLS bool `mapstructure:"require_tls"`
 }
 
 // MessageSMS configures the SMS sender. Empty Provider disables SMS delivery.

@@ -217,3 +217,21 @@ func TestMailSenderComposesMessage(t *testing.T) {
 		}
 	}
 }
+
+// TestSendersReportTheirChannel keeps the worker's sender map honest: a mismatched
+// Channel() would route deliveries to the wrong adapter and only fail in prod.
+func TestSendersReportTheirChannel(t *testing.T) {
+	if got := NewMailSender(nil).Channel(); got != ChannelEmail {
+		t.Errorf("mail sender channel = %q, want %q", got, ChannelEmail)
+	}
+	if got := NewWebhookSender(WebhookOptions{}).Channel(); got != ChannelWebhook {
+		t.Errorf("webhook sender channel = %q, want %q", got, ChannelWebhook)
+	}
+	sms, err := NewTwilioSender(&SMSOptions{Provider: "twilio", AccountSID: "AC1", AuthToken: "token", From: "+100"})
+	if err != nil {
+		t.Fatalf("NewTwilioSender: %v", err)
+	}
+	if got := sms.Channel(); got != ChannelSMS {
+		t.Errorf("sms sender channel = %q, want %q", got, ChannelSMS)
+	}
+}

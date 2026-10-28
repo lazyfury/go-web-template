@@ -22,12 +22,13 @@ func buildMessageSenders(cfg *config.Config) (map[message.Channel]message.Sender
 	}
 	if cfg.Message.Mail.Host != "" {
 		senders[message.ChannelEmail] = message.NewMailSender(&message.MailOptions{
-			Host:     cfg.Message.Mail.Host,
-			Port:     cfg.Message.Mail.Port,
-			Username: cfg.Message.Mail.Username,
-			Password: cfg.Message.Mail.Password,
-			From:     cfg.Message.Mail.From,
-			Timeout:  cfg.Message.DeliveryTimeout,
+			Host:       cfg.Message.Mail.Host,
+			Port:       cfg.Message.Mail.Port,
+			Username:   cfg.Message.Mail.Username,
+			Password:   cfg.Message.Mail.Password,
+			From:       cfg.Message.Mail.From,
+			RequireTLS: cfg.Message.Mail.RequireTLS,
+			Timeout:    cfg.Message.DeliveryTimeout,
 		})
 	}
 	if cfg.Message.SMS.Provider != "" {

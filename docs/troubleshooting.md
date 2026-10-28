@@ -17,8 +17,10 @@
 ## 2. 配置
 
 - **YAML 时长必须是字符串**：`"10s"`、`"1h"`；裸数字会被当作纳秒。`APP_*` 环境变量同理。
+- **配置一致性由测试钉住**：`internal/platform/config/parity_test.go` 比对 `Config` 字段/`setDefaults`/`config.example.yaml` 三方，新增键漏同步会红。
 - **配置失败语义**：显式 `-config path` 指向不存在文件 = fail-fast；不传且默认文件缺失 = 默认值 + 环境变量。
 - 新增配置项：`config.go` 加字段 → `loader.go` `setDefaults` 加默认值 → `configs/config.example.yaml` 同步 → 必要时加 Validate 分支。
+- **邮件投递报 `smtp server ... does not advertise STARTTLS`**：`message.mail.require_tls` 默认 true（production 不允许 false）。本地 MailHog/Mailpit 等无 TLS 的收件服务显式设 `require_tls: false` 或用 `APP_MESSAGE_MAIL_REQUIRE_TLS=false`。
 
 ## 3. 数据库 / 迁移
 

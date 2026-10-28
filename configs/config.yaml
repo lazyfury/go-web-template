@@ -138,6 +138,9 @@ message:
     username: ""
     password: ""
     from: ""
+    # 必须 STARTTLS；production 不允许 false（明文中继 = 凭据和正文裸奔）。
+    # 本地 MailHog/Mailpit 等无 TLS 的收件服务显式置 false。
+    require_tls: true
   sms:
     provider: ""
     account_sid: ""

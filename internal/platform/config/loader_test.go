@@ -675,3 +675,27 @@ func TestCORSOriginsAreTrimmed(t *testing.T) {
 		}
 	}
 }
+
+// TestMailRequireTLS keeps the SMTP transport from silently degrading:
+// production must not allow a plaintext relay (credentials and message bodies
+// leave the process unencrypted), while local mail catchers can opt out.
+func TestMailRequireTLS(t *testing.T) {
+	if !Defaults().Message.Mail.RequireTLS {
+		t.Error("message.mail.require_tls must default to true")
+	}
+
+	cfg := Defaults()
+	cfg.App.Env = "production"
+	cfg.Auth.JWTSecret = "0123456789abcdef0123456789abcdef"
+	cfg.Message.Mail.Host = "smtp.example.com"
+	cfg.Message.Mail.From = "noreply@example.com"
+	cfg.Message.Mail.RequireTLS = false
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("production + mail.require_tls=false must be rejected")
+	}
+
+	cfg.App.Env = "development"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("development + mail.require_tls=false must be allowed: %v", err)
+	}
+}

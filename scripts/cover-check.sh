@@ -29,6 +29,7 @@ internal/platform/passwd/passwd.go
 internal/platform/redisx/ratelimit.go
 internal/web/middleware_ratelimit.go
 internal/user/repository.go
+internal/message/sender.go
 "
 
 if [ ! -f "$PROFILE" ]; then
@@ -95,7 +96,7 @@ BEGIN { n = split(crit, files, " "); for (i = 1; i <= n; i++) if (files[i] != ""
 $3 == "0.0%" {
 	path = $1; sub(/:[0-9]+:$/, "", path)
 	sub(/^github\.com\/example\/go-web-template\//, "", path)
-	for (f in c) if (index(path, f) == 1) { printf "%s %s\n", $1, $2 }
+	for (f in c) if (index(path, f) == 1) { printf "%s (%s)\n", path, $2 }
 }')
 if [ -n "$zero" ]; then
 	echo "FAIL: 关键文件存在 0% 覆盖的函数（至少给一条执行路径）:" >&2
