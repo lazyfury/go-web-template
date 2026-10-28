@@ -273,7 +273,8 @@ const openPreviewInNewTab = () => {
   if (previewURL.value) window.open(previewURL.value, '_blank', 'noopener')
 }
 
-const formatTime = (value: string) => new Date(value).toLocaleString()
+const formatTime = (value: string) =>
+  new Date(value).toLocaleString('zh-CN', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 const accept = DefaultAllowedExt.join(',')
 
 onMounted(load)
@@ -310,15 +311,20 @@ onMounted(load)
       </div>
 
       <el-table v-loading="loading" :data="items" class="px-2">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column label="可见性" width="90">
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column label="可见性" width="88">
           <template #default="{ row }">
-            <el-tag :type="FileVisibilityMeta[(row as FileItem).visibility].tagType" size="small" effect="light">
+            <el-tag
+              :type="FileVisibilityMeta[(row as FileItem).visibility].tagType"
+              size="small"
+              effect="light"
+              disable-transitions
+            >
               {{ FileVisibilityMeta[(row as FileItem).visibility].label }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="文件名" min-width="220" show-overflow-tooltip>
+        <el-table-column label="文件名" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <button
               class="truncate text-left text-[var(--primary)] hover:underline"
@@ -328,53 +334,64 @@ onMounted(load)
             </button>
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="150" show-overflow-tooltip>
+        <el-table-column label="类型" width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ (row as FileItem).mime_type || '—' }}</template>
         </el-table-column>
-        <el-table-column label="大小" width="100">
+        <el-table-column label="大小" width="90">
           <template #default="{ row }">{{ formatFileSize((row as FileItem).size_bytes) }}</template>
         </el-table-column>
-        <el-table-column label="业务类型" width="110">
+        <el-table-column label="业务类型" width="100">
           <template #default="{ row }">
             <span class="text-xs">{{ (row as FileItem).biz_type || '—' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="上传时间" width="170">
+        <el-table-column label="上传时间" width="150">
           <template #default="{ row }">{{ formatTime((row as FileItem).created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="330" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openPreview(row as FileItem)">预览</el-button>
-            <el-button link type="primary" @click="download(row as FileItem, 'attachment')">下载</el-button>
-            <el-dropdown trigger="click" @command="(command: string | number | object) => handleShareCommand(command, row as FileItem)">
-              <el-button link type="primary">
-                分享<span class="i-ep-arrow-down ml-1" />
+            <!--
+              用 flex + items-center 统一基线：el-dropdown 是 inline-flex 包装器，
+              和裸 el-button 混排时会因为 Element 的 .el-button + .el-button 外边距、
+              行内基线差异而看起来高低不齐。这里显式 !ml-0 + gap 控制间距。
+            -->
+            <div class="flex items-center gap-1.5 whitespace-nowrap">
+              <el-button link type="primary" class="!ml-0" @click="openPreview(row as FileItem)">预览</el-button>
+              <el-button link type="primary" class="!ml-0" @click="download(row as FileItem, 'attachment')">下载</el-button>
+              <el-dropdown
+                trigger="click"
+                class="flex items-center"
+                @command="(command: string | number | object) => handleShareCommand(command, row as FileItem)"
+              >
+                <el-button link type="primary" class="!ml-0">
+                  分享<span class="i-ep-arrow-down ml-1" />
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item
+                      command="public"
+                      :disabled="(row as FileItem).visibility === 0"
+                      title="长期有效、可撤销、匿名可读；私有文件需先设为公开"
+                    >
+                      复制公开链接（长期，可撤销）
+                    </el-dropdown-item>
+                    <el-dropdown-item command="temporary">复制临时链接（10 分钟）</el-dropdown-item>
+                    <el-dropdown-item
+                      command="revoke"
+                      divided
+                      :disabled="(row as FileItem).visibility === 0"
+                      title="撤销后已缓存的页面最多在缓存过期后才失效"
+                    >
+                      撤销公开链接
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button v-if="canWrite" link type="primary" class="!ml-0" @click="toggleVisibility(row as FileItem)">
+                {{ (row as FileItem).visibility === 1 ? '设为私有' : '设为公开' }}
               </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item
-                    command="public"
-                    :disabled="(row as FileItem).visibility === 0"
-                    title="长期有效、可撤销、匿名可读；私有文件需先设为公开"
-                  >
-                    复制公开链接（长期，可撤销）
-                  </el-dropdown-item>
-                  <el-dropdown-item command="temporary">复制临时链接（10 分钟）</el-dropdown-item>
-                  <el-dropdown-item
-                    command="revoke"
-                    divided
-                    :disabled="(row as FileItem).visibility === 0"
-                    title="撤销后已缓存的页面最多在缓存过期后才失效"
-                  >
-                    撤销公开链接
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <el-button v-if="canWrite" link type="primary" @click="toggleVisibility(row as FileItem)">
-              {{ (row as FileItem).visibility === 1 ? '设为私有' : '设为公开' }}
-            </el-button>
-            <el-button v-if="canWrite" link type="danger" @click="remove(row as FileItem)">删除</el-button>
+              <el-button v-if="canWrite" link type="danger" class="!ml-0" @click="remove(row as FileItem)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
         <template #empty>
