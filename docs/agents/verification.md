@@ -31,6 +31,14 @@ make fuzz FUZZTIME=30s  # 改 token 解析/输入校验后跑一轮
 - 改了路由/`routekit.Op`：`make openapi` 并提交 `docs/openapi.json`。
 - 工具缺失：`make tools`；版本 pin 在 Makefile 顶部，不要 `@latest`。
 
+## 定期门（月度）
+
+- `make deps-outdated` 列出 Go 与前端可升级依赖；按批次升级（一次一个 ecosystem），
+  再跑 `make ci` + `make audit` + `make image-scan`。工具版本只改 Makefile 顶部的 pin，
+  不要用 `@latest`。
+- `make fuzz FUZZTIME=60s` 与 `make bench` 各跑一次，记录 baseline 漂移。
+- 季度：按 `docs/security-review-2026-10.md` §6 重跑黑盒矩阵。
+
 ## 证据要求
 
 - **禁止未运行就声称通过**：最终回复贴真实输出的最后几行。
