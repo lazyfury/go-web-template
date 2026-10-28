@@ -212,6 +212,7 @@ make test           # 单元测试（内存 SQLite，无需 postgres）
 make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
 make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
+make ci             # 全量门：check + web-check + audit（本地提交前 / 接入 CI 都跑这个）
 make smoke          # 本地冒烟：探针 + 登录/JWT + 权限 + CRUD + refresh
 make verify-auth    # 认证端到端（需 postgres）：宽限期/登出即时/body 传输/会话上限
 make audit          # 安全+SQL 机械审计（auth/迁移改动、发布前必跑）
@@ -241,13 +242,17 @@ make test
 
 ## 质量门（本地）
 
-仓库不配置远端 CI，提交前在本地跑：
+仓库不内置远端 CI 配置；三层门收敛成一个入口，接入 CI 时直接调它：
 
 ```bash
-make check                              # golangci-lint + gofmt + vet + race + build + OpenAPI 黄金文件 + tidy
-(cd web/admin && pnpm api:check)        # 校验生成的 API 类型与 docs/openapi.json 同步
-(cd web/admin && pnpm build)            # vue-tsc + vite build
+make ci         # = check + web-check + audit（全量；首次先 make web-install）
+make check      # 只取 Go 部分：golangci-lint + gofmt + vet + race + 覆盖率 + build + OpenAPI 黄金文件 + tidy
+make web-check  # 只取前端：eslint + vue-tsc + vitest + pnpm api:check + build
+make audit      # 安全/SQL 机械审计 + 401/403 回归 + govulncheck（auth/迁移改动、发布前）
 ```
+
+需要真实 PostgreSQL 的 `make smoke` / `make verify-auth` 不在 `make ci` 里（模板保证无 Docker 也能全绿），
+发布前单独跑。
 
 Docker 端到端：
 

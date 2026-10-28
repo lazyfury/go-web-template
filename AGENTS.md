@@ -75,11 +75,13 @@ Go Web 单体模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → se
 | 门 | 何时跑 | 覆盖什么 |
 |---|---|---|
 | `make check` | **每次提交前（必跑）** | lint、gofmt、vet、race、覆盖率下限（`COVER_MIN`）、build、OpenAPI 黄金文件、tidy |
+| `make ci` | 提交前 / 接入 CI | `check` + `web-check` + `audit` 一次跑完（不含需要真实 PG 的 smoke/verify-auth） |
 | `make audit` | auth/JWT/鉴权/迁移 SQL、发布前 | 密钥/日志卫生、可移植 SQL、迁移配对、401/403 回归、govulncheck |
 | `make smoke` / `make verify-auth` | 有 postgres 时；auth 改动必跑 `verify-auth` | 真实进程 + 真实 PG 端到端 |
 
 - **禁止未运行就声称通过**：贴真实输出最后几行。
-- 前端改动：`make web-check`（eslint + vue-tsc + vitest + `pnpm api:check` + build 一次跑完）。
+- 前端改动：`make web-check`（eslint + vue-tsc + vitest + `pnpm api:check` + build 一次跑完；首次 `make web-install`）。
+- 不确定该跑哪层就跑 `make ci`；它不包含需要真实 PostgreSQL 的 `make smoke` / `make verify-auth`。
 - 详细边界、证据要求、子集验证：`docs/agents/verification.md`。
 
 ### 3.4 子 agent（默认不拆）

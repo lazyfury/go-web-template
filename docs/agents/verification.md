@@ -14,13 +14,15 @@
 
 ```bash
 make test          # 纯 Go 改动最快闭环，内存 SQLite，不需要 docker
-make check         # 提交前唯一门槛
+make check         # 提交前唯一门槛（Go）
+make ci            # 全量门 = check + web-check + audit（本地提交前 / 接入 CI）
 make audit         # auth/鉴权/迁移/发布前
 make smoke         # 有 PG 时；脚本自起自停
 make verify-auth   # 改登录/refresh/会话后必跑
 ```
 
-- 前端改动：`make web-check`（eslint + vue-tsc + vitest + `pnpm api:check` + build）。`pnpm api:check` 会重新生成 `src/types/openapi.ts` 并用 `git diff --exit-code` 判断漂移。
+- 前端改动：`make web-check`（eslint + vue-tsc + vitest + `pnpm api:check` + build）；首次在新机器上先 `make web-install`。
+- 不想记组合就跑 `make ci`；它**不包含**需要真实 PG 的 `make smoke` / `make verify-auth`。`pnpm api:check` 会重新生成 `src/types/openapi.ts` 并用 `git diff --exit-code` 判断漂移。
 - 改了路由/`routekit.Op`：`make openapi` 并提交 `docs/openapi.json`。
 - 工具缺失：`make tools`；版本 pin 在 Makefile 顶部，不要 `@latest`。
 

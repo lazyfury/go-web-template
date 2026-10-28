@@ -33,6 +33,7 @@ MIGRATE_VERSION       ?= v4.20.1
 .PHONY: help tools golangci-lint-tool air-tool govulncheck-tool migrate-tool \
         build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
+        ci web-install web-deps \
         migrate-up migrate-down migrate-create \
         web-check docker-build image-scan jwt-secret docker-up docker-down docker-logs clean
 
@@ -114,6 +115,11 @@ db-up: ## 起本地 postgres（有 docker 走 compose，否则检查本机 postg
 
 check: lint gate ## 提交前唯一门槛 = lint + gate
 
+# 全量门：三层门里除「需要真实 PG」的两项（smoke / verify-auth）之外的全部。
+# 存在的理由：check 不包含前端，web-check 与 audit 靠人记，结果就是前端回归
+# 只在本地某次手动调用时才被发现。本地提交前 / 接入 CI 都只需调这一个目标。
+ci: check web-check audit ## 全量门（本地/CI 唯一入口）= check + web-check + audit
+
 gate: fmt-check vet test-race cover-check build tidy-check ## 本地校验链（不含 golangci-lint）
 
 fmt-check: ## 校验 gofmt（docs/ 含生成物与 Markdown，豁免）
@@ -176,7 +182,15 @@ vuln: ## 依赖漏洞扫描
 	@./scripts/check-tools.sh govulncheck
 	$(GOVULNCHECK) ./...
 
-web-check: ## 前端门：eslint + vue-tsc + vitest + API 类型未漂移 + 构建（改 web/admin 时跑）
+web-install: ## 安装前端依赖（frozen lockfile；新机器/CI 用）
+	cd web/admin && pnpm install --frozen-lockfile
+
+web-deps: ## 内部前置：确认前端依赖已安装（否则给出可执行的提示）
+	@test -x web/admin/node_modules/.bin/eslint || { \
+		echo "web/admin 依赖未安装：先运行 make web-install"; exit 1; \
+	}
+
+web-check: web-deps ## 前端门：eslint + vue-tsc + vitest + API 类型未漂移 + 构建（改 web/admin 时跑）
 	cd web/admin && pnpm lint && pnpm typecheck && pnpm test && pnpm api:check && pnpm build
 
 audit: ## 安全/SQL 静态审计 + 鉴权矩阵回归（auth/迁移改动、发布前跑）
