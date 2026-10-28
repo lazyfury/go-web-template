@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -164,6 +165,15 @@ func (c *Config) normalize() {
 		}
 	}
 	c.Auth.JWTRetiredSecrets = retired
+	// 逗号分隔的环境变量同样带空格：不 trim 的话 "https://a, https://b" 里的第二项
+	// 既不匹配浏览器发来的 Origin，也过不了 gin-contrib/cors 的 scheme 校验。
+	origins := make([]string, 0, len(c.CORS.AllowedOrigins))
+	for _, origin := range c.CORS.AllowedOrigins {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	c.CORS.AllowedOrigins = origins
 }
 
 // Load reads the configuration from a YAML file (optional) and environment
@@ -310,6 +320,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("http.trusted_proxies entry %q is neither an IP nor a CIDR", proxy)
 		}
 	}
+	if err := c.validateCORS(); err != nil {
+		return err
+	}
 	if c.Message.MaxAttempts <= 0 {
 		return fmt.Errorf("message.max_attempts must be positive")
 	}
@@ -342,6 +355,51 @@ func (c *Config) Validate() error {
 		}
 	}
 	return c.validateAuth()
+}
+
+// validateCORS rejects origin lists that cannot work in a browser, so the
+// failure is a startup error with a readable message instead of a silent CORS
+// failure (or a panic inside gin-contrib/cors, which validates the same field
+// by panicking in cors.New).
+//
+// The credentialed case matters most: the admin SPA relies on the HttpOnly
+// refresh cookie, and browsers reject `Access-Control-Allow-Origin: *` together
+// with `Access-Control-Allow-Credentials: true`. A deployment that enables
+// cors.allow_credentials but leaves the shipped `*` default would therefore
+// log 200s while every refresh from the browser fails.
+func (c *Config) validateCORS() error {
+	if len(c.CORS.AllowedOrigins) == 0 && c.CORS.AllowCredentials {
+		// web.CORS falls back to "*" for an empty list, which is the same
+		// credentialed-wildcard trap as an explicit "*".
+		return fmt.Errorf("cors.allowed_origins must be set explicitly while cors.allow_credentials is true (an empty list falls back to \"*\", which browsers reject on credentialed requests)")
+	}
+	for i, origin := range c.CORS.AllowedOrigins {
+		switch {
+		case origin == "":
+			return fmt.Errorf("cors.allowed_origins[%d] is empty", i)
+		case origin == "*":
+			if c.CORS.AllowCredentials {
+				return fmt.Errorf("cors.allowed_origins cannot be \"*\" while cors.allow_credentials is true: browsers reject a wildcard origin on credentialed requests (the refresh-cookie flow stops working); list the frontend origins explicitly")
+			}
+		case strings.Contains(origin, "*"):
+			// gin-contrib/cors only expands wildcard patterns when AllowWildcard is
+			// set, and this template does not set it: such an entry would silently
+			// never match instead of failing loudly.
+			return fmt.Errorf("cors.allowed_origins[%d] %q uses a wildcard pattern, which is not supported: list explicit origins (for example https://app.example.com)", i, origin)
+		default:
+			u, err := url.Parse(origin)
+			if err != nil {
+				return fmt.Errorf("cors.allowed_origins[%d] %q is not a valid URL: %w", i, origin, err)
+			}
+			if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return fmt.Errorf("cors.allowed_origins[%d] %q must be an absolute http(s) origin, for example https://app.example.com", i, origin)
+			}
+			if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+				return fmt.Errorf("cors.allowed_origins[%d] %q must be an origin only (no path, query, fragment or userinfo)", i, origin)
+			}
+		}
+	}
+	return nil
 }
 
 // placeholderSecretMarkers lists the families of non-secrets that show up in

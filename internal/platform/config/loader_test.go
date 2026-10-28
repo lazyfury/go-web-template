@@ -606,3 +606,72 @@ func TestMessageLeaseMustCoverDeliveryTimeout(t *testing.T) {
 		t.Errorf("lease == delivery_timeout must be accepted: %v", err)
 	}
 }
+
+// TestValidateCORS pins the two origin lists that a browser would silently
+// reject: a wildcard (explicit "*" or the empty-list fallback) together with
+// credentialed requests, and wildcard patterns that gin-contrib/cors never
+// expands. Both used to start fine and then break the refresh-cookie flow at
+// runtime, where the server only sees 200s and the browser drops the response.
+func TestValidateCORS(t *testing.T) {
+	tests := []struct {
+		name        string
+		origins     []string
+		credentials bool
+		wantErr     string
+	}{
+		{name: "wildcard without credentials", origins: []string{"*"}, wantErr: ""},
+		{name: "wildcard with credentials", origins: []string{"*"}, credentials: true, wantErr: "allow_credentials"},
+		{name: "empty list with credentials", origins: nil, credentials: true, wantErr: "allow_credentials"},
+		{name: "wildcard pattern with credentials", origins: []string{"https://*.example.com"}, credentials: true, wantErr: "wildcard pattern"},
+		{name: "wildcard pattern without credentials", origins: []string{"https://*.example.com"}, wantErr: "wildcard pattern"},
+		{name: "origin without scheme", origins: []string{"app.example.com"}, wantErr: "absolute http(s)"},
+		{name: "origin with path", origins: []string{"https://app.example.com/admin"}, wantErr: "origin only"},
+		{name: "origin with query", origins: []string{"https://app.example.com?x=1"}, wantErr: "origin only"},
+		{name: "non-http scheme", origins: []string{"ftp://app.example.com"}, wantErr: "absolute http(s)"},
+		{name: "explicit origins with credentials", origins: []string{"https://app.example.com", "http://localhost:5173"}, credentials: true},
+		{name: "trailing slash is an origin", origins: []string{"https://app.example.com/"}, credentials: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.CORS.AllowedOrigins = tc.origins
+			cfg.CORS.AllowCredentials = tc.credentials
+
+			err := cfg.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() = nil, want error containing %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate() = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestCORSOriginsAreTrimmed covers the comma-separated environment form:
+// "https://a, https://b" leaves a leading space on the second entry, which
+// neither matches the browser Origin nor passes gin's scheme check.
+func TestCORSOriginsAreTrimmed(t *testing.T) {
+	t.Setenv("APP_CORS_ALLOWED_ORIGINS", "https://a.example.com, https://b.example.com")
+	t.Setenv("APP_CORS_ALLOW_CREDENTIALS", "true")
+
+	cfg, err := Load("", "APP")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"https://a.example.com", "https://b.example.com"}
+	if len(cfg.CORS.AllowedOrigins) != len(want) {
+		t.Fatalf("allowed_origins = %q, want %q", cfg.CORS.AllowedOrigins, want)
+	}
+	for i := range want {
+		if cfg.CORS.AllowedOrigins[i] != want[i] {
+			t.Fatalf("allowed_origins[%d] = %q, want %q", i, cfg.CORS.AllowedOrigins[i], want[i])
+		}
+	}
+}

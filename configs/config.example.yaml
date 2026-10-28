@@ -41,6 +41,8 @@ log:
   format: json
 
 cors:
+  # allow_credentials=true 时禁止 "*"（浏览器拒收带凭据的通配来源，refresh cookie 流程会静默失效）；
+  # 每项必须是 https://host[:port] 形式，不支持 https://*.example.com 通配。
   allowed_origins:
     - "*"
   allowed_methods:
