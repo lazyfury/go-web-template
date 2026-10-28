@@ -22,6 +22,7 @@ type Config struct {
 	Auth       Auth       `mapstructure:"auth"`
 	Message    Message    `mapstructure:"message"`
 	Retention  Retention  `mapstructure:"retention"`
+	Storage    Storage    `mapstructure:"storage"`
 	OTel       OTel       `mapstructure:"otel"`
 }
 
@@ -267,6 +268,66 @@ type Retention struct {
 	// MessageRetention keeps messages this long after their own expires_at.
 	// Messages without expires_at never expire and are never pruned.
 	MessageRetention time.Duration `mapstructure:"message_retention"`
+}
+
+// Storage configures the file module's object storage. The business module owns
+// the metadata (files/file_links); this section only decides where the bytes
+// live and which blobs are accepted.
+type Storage struct {
+	// Driver selects the backend: local (filesystem) or s3 (any S3-compatible
+	// endpoint, including Aliyun OSS and MinIO).
+	Driver string `mapstructure:"driver"`
+	// MaxUploadBytes caps one uploaded file. It is deliberately separate from
+	// http.max_body_bytes: JSON payloads stay small while uploads get a bigger
+	// budget on their own routes.
+	MaxUploadBytes int64 `mapstructure:"max_upload_bytes"`
+	// AllowedMIME is the allowlist of sniffed content types. The client-supplied
+	// Content-Type is never trusted; it must match what the bytes actually are.
+	AllowedMIME []string `mapstructure:"allowed_mime"`
+	// AllowedExt is the allowlist of file extensions (lowercase, leading dot).
+	AllowedExt []string `mapstructure:"allowed_ext"`
+	// InlineMIME lists types that may render inline in the browser. Everything
+	// else is forced to Content-Disposition: attachment (an uploaded SVG or HTML
+	// that renders inline is stored XSS on the API origin).
+	InlineMIME []string `mapstructure:"inline_mime"`
+	// SigningSecret signs local-driver download URLs (HMAC-SHA256). Production
+	// requires >= 32 bytes and a non-placeholder value, exactly like the JWT key.
+	SigningSecret string `mapstructure:"signing_secret"`
+	// OrphanTTL is how long an uploaded file may stay unreferenced before the
+	// janitor treats it as an abandoned upload and deletes the blob.
+	OrphanTTL time.Duration `mapstructure:"orphan_ttl"`
+	// Local configures the filesystem driver.
+	Local StorageLocal `mapstructure:"local"`
+	// S3 configures the S3-compatible driver.
+	S3 StorageS3 `mapstructure:"s3"`
+}
+
+// StorageLocal configures the filesystem driver. Files live under Root, which
+// must be writable and outside the repository history (it is gitignored).
+// BaseURL is the public origin used to build signed download URLs.
+type StorageLocal struct {
+	Root    string `mapstructure:"root"`
+	BaseURL string `mapstructure:"base_url"`
+}
+
+// StorageS3 configures an S3-compatible backend. Leave Endpoint empty for AWS
+// itself; set it (and UsePathStyle) for MinIO/Aliyun OSS/R2.
+type StorageS3 struct {
+	// Endpoint is the S3 API base URL, for example https://oss-cn-hangzhou.aliyuncs.com.
+	Endpoint string `mapstructure:"endpoint"`
+	Region   string `mapstructure:"region"`
+	Bucket   string `mapstructure:"bucket"`
+	// AccessKey/SecretKey are optional: an empty pair falls back to the SDK's
+	// default credential chain (env vars, IAM role), which is what production
+	// should use instead of baking keys into config files.
+	AccessKey string `mapstructure:"access_key"`
+	SecretKey string `mapstructure:"secret_key"`
+	// UsePathStyle forces path-style addressing (bucket in the path). Required
+	// by MinIO and some OSS configurations.
+	UsePathStyle bool `mapstructure:"use_path_style"`
+	// PresignTTL bounds the lifetime of a presigned download URL (SigV4 allows
+	// at most 7 days).
+	PresignTTL time.Duration `mapstructure:"presign_ttl"`
 }
 
 // MessageMail configures the SMTP sender. Empty Host disables email delivery.

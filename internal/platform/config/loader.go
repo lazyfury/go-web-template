@@ -138,11 +138,91 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("retention.delivery_retention", "720h")
 	v.SetDefault("retention.message_retention", "2160h")
 
+	// 文件存储：默认本地磁盘（模板只要求 PostgreSQL 之外的一个可写目录）。
+	// 生产用 s3（MinIO / 阿里云 OSS / R2 都走 S3 兼容协议）。
+	v.SetDefault("storage.driver", "local")
+	v.SetDefault("storage.max_upload_bytes", 10<<20)
+	v.SetDefault("storage.allowed_mime", []string{
+		"image/png", "image/jpeg", "image/webp", "image/gif",
+		"application/pdf", "text/plain", "application/zip",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	})
+	v.SetDefault("storage.allowed_ext", []string{
+		".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".zip", ".docx", ".xlsx",
+	})
+	// 可内联渲染的类型：其余一律强制 attachment。
+	v.SetDefault("storage.inline_mime", []string{
+		"image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf",
+	})
+	// 本地驱动签名密钥：仓库内默认值只配 development；production 校验会拒绝
+	// 占位值并要求 >=32 字节（APP_STORAGE_SIGNING_SECRET）。
+	v.SetDefault("storage.signing_secret", "dev-only-insecure-storage-secret-change-me-32b")
+	v.SetDefault("storage.orphan_ttl", "24h")
+	v.SetDefault("storage.local.root", ".local/uploads")
+	v.SetDefault("storage.local.base_url", "http://localhost:8080")
+	v.SetDefault("storage.s3.endpoint", "")
+	v.SetDefault("storage.s3.region", "us-east-1")
+	v.SetDefault("storage.s3.bucket", "")
+	v.SetDefault("storage.s3.access_key", "")
+	v.SetDefault("storage.s3.secret_key", "")
+	v.SetDefault("storage.s3.use_path_style", false)
+	v.SetDefault("storage.s3.presign_ttl", "10m")
+
 	v.SetDefault("otel.enabled", false)
 	v.SetDefault("otel.endpoint", "127.0.0.1:4317")
 	v.SetDefault("otel.insecure", true)
 	v.SetDefault("otel.sample_ratio", 1.0)
 	v.SetDefault("otel.service_name", "")
+}
+
+// normalizeStorage makes the allowlists comparable with what the file service
+// derives from a filename: extensions lowercase with a leading dot, MIME types
+// lowercase without parameters, and no trailing slash on the local base URL.
+func (c *Config) normalizeStorage() {
+	s := &c.Storage
+	s.Driver = strings.ToLower(strings.TrimSpace(s.Driver))
+	s.SigningSecret = strings.TrimSpace(s.SigningSecret)
+	s.Local.Root = strings.TrimSpace(s.Local.Root)
+	s.Local.BaseURL = strings.TrimRight(strings.TrimSpace(s.Local.BaseURL), "/")
+	s.S3.Endpoint = strings.TrimRight(strings.TrimSpace(s.S3.Endpoint), "/")
+	s.S3.Bucket = strings.TrimSpace(s.S3.Bucket)
+	s.S3.Region = strings.TrimSpace(s.S3.Region)
+	s.S3.AccessKey = strings.TrimSpace(s.S3.AccessKey)
+	s.S3.SecretKey = strings.TrimSpace(s.S3.SecretKey)
+	s.AllowedMIME = normalizeList(s.AllowedMIME, func(v string) string {
+		return strings.ToLower(strings.TrimSpace(v))
+	})
+	s.InlineMIME = normalizeList(s.InlineMIME, func(v string) string {
+		return strings.ToLower(strings.TrimSpace(v))
+	})
+	s.AllowedExt = normalizeList(s.AllowedExt, func(v string) string {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v != "" && !strings.HasPrefix(v, ".") {
+			v = "." + v
+		}
+		return v
+	})
+}
+
+// normalizeList trims, drops empties and de-duplicates a config list in place
+// (order preserved) so later membership checks do not need to care about how
+// the operator typed it.
+func normalizeList(values []string, clean func(string) string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = clean(value)
+		if value == "" {
+			continue
+		}
+		if _, dup := seen[value]; dup {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 // Defaults returns the built-in default configuration.
@@ -173,6 +253,7 @@ func (c *Config) normalize() {
 		}
 	}
 	c.Auth.JWTRetiredSecrets = retired
+	c.normalizeStorage()
 	// 逗号分隔的环境变量同样带空格：不 trim 的话 "https://a, https://b" 里的第二项
 	// 既不匹配浏览器发来的 Origin，也过不了 gin-contrib/cors 的 scheme 校验。
 	origins := make([]string, 0, len(c.CORS.AllowedOrigins))
@@ -376,7 +457,85 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("retention windows must not be negative")
 		}
 	}
-	return c.validateAuth()
+	// Auth first: a missing/placeholder JWT secret is the more urgent error, and
+	// the auth tests assert on that message. Storage is validated right after so a
+	// production deployment cannot start with a placeholder download-URL key
+	// either.
+	if err := c.validateAuth(); err != nil {
+		return err
+	}
+	return c.validateStorage()
+}
+
+// validateStorage rejects storage combinations that would start fine and then
+// fail on the first upload: an unknown driver, an empty allowlist, a local
+// backend without a writable root or a signing key, an S3 backend without a
+// bucket, or a placeholder signing secret in production (anyone who read the
+// repository could then mint download URLs).
+func (c *Config) validateStorage() error {
+	s := &c.Storage
+	switch s.Driver {
+	case "local":
+		if strings.TrimSpace(s.Local.Root) == "" {
+			return fmt.Errorf("storage.local.root must not be empty when storage.driver=local")
+		}
+		if s.Local.BaseURL == "" {
+			return fmt.Errorf("storage.local.base_url is required when storage.driver=local (signed download URLs are absolute)")
+		}
+		u, err := url.Parse(s.Local.BaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("storage.local.base_url %q must be an absolute http(s) URL, for example http://localhost:8080", s.Local.BaseURL)
+		}
+	case "s3":
+		if strings.TrimSpace(s.S3.Bucket) == "" {
+			return fmt.Errorf("storage.s3.bucket is required when storage.driver=s3")
+		}
+		if strings.TrimSpace(s.S3.Region) == "" {
+			return fmt.Errorf("storage.s3.region is required when storage.driver=s3")
+		}
+		if s.S3.Endpoint != "" {
+			u, err := url.Parse(s.S3.Endpoint)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return fmt.Errorf("storage.s3.endpoint %q must be an absolute http(s) URL or empty for AWS", s.S3.Endpoint)
+			}
+		}
+	default:
+		return fmt.Errorf("invalid storage.driver %q (local|s3)", s.Driver)
+	}
+	if s.MaxUploadBytes <= 0 || s.MaxUploadBytes > 1<<30 {
+		return fmt.Errorf("storage.max_upload_bytes must be between 1 and 1073741824 (1 GiB)")
+	}
+	if len(s.AllowedMIME) == 0 {
+		return fmt.Errorf("storage.allowed_mime must not be empty: an unrestricted upload endpoint turns the API into a file host")
+	}
+	if len(s.AllowedExt) == 0 {
+		return fmt.Errorf("storage.allowed_ext must not be empty")
+	}
+	for _, ext := range s.AllowedExt {
+		if !strings.HasPrefix(ext, ".") || len(ext) < 2 {
+			return fmt.Errorf("storage.allowed_ext entry %q must start with a dot, for example .png", ext)
+		}
+	}
+	if s.SigningSecret == "" {
+		return fmt.Errorf("storage.signing_secret is required: set APP_STORAGE_SIGNING_SECRET")
+	}
+	if c.IsProduction() {
+		if len(s.SigningSecret) < minJWTSecretBytes {
+			return fmt.Errorf("storage.signing_secret must be at least %d bytes in production: set APP_STORAGE_SIGNING_SECRET", minJWTSecretBytes)
+		}
+		if isPlaceholderSecret(s.SigningSecret) {
+			return fmt.Errorf("storage.signing_secret still uses a placeholder shipped in this repository: set APP_STORAGE_SIGNING_SECRET to a random value of at least %d bytes", minJWTSecretBytes)
+		}
+	}
+	if s.Driver == "s3" {
+		if s.S3.PresignTTL <= 0 || s.S3.PresignTTL > 7*24*time.Hour {
+			return fmt.Errorf("storage.s3.presign_ttl must be in (0, 168h]: SigV4 presigned URLs cannot live longer than 7 days")
+		}
+	}
+	if s.OrphanTTL <= 0 {
+		return fmt.Errorf("storage.orphan_ttl must be positive (0 would delete every upload that is not linked yet)")
+	}
+	return nil
 }
 
 // validateCORS rejects origin lists that cannot work in a browser, so the

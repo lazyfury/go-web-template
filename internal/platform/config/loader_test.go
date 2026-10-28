@@ -179,6 +179,9 @@ func TestValidateAcceptsRandomSecretInProduction(t *testing.T) {
 	cfg := Defaults()
 	cfg.App.Env = "production"
 	cfg.Auth.JWTSecret = "Qk3f9vT2zR7pLmW1sXc8nB4hYd6gJa0eUq5rItOy"
+	// The local file driver signs download URLs with its own key; in production it
+	// must be a real random secret too.
+	cfg.Storage.SigningSecret = "Zx8vN2qR5tY7uI0oP3aS6dF9gH1jK4lMbNcVeWqAz"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("random secret rejected in production: %v", err)
 	}
