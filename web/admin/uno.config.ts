@@ -50,6 +50,9 @@ export default defineConfig({
   shortcuts: {
     // 常用组合：卡片、页面容器、表单操作区
     'app-card': 'bg-white rounded-lg border border-line shadow-card',
-    'app-page': 'space-y-4',
+    // 页面容器用 flex + gap 而不是 space-y-*：space-y 会给「直接子节点」加
+    // margin-top，而 el-dialog/el-drawer 默认不 teleport，遮罩（.el-overlay）
+    // 作为子节点被 margin 顶下去，会在顶部露出一条白边。gap 不产生 margin。
+    'app-page': 'flex flex-col gap-4',
   },
 })

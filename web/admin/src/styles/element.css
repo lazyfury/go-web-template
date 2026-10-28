@@ -51,6 +51,12 @@
 }
 
 /* ── 对话框 ──────────────────────────────────────────── */
+/* 遮罩必须贴死视口：它可能作为页面容器的子节点被 margin 工具类（space-y-*）
+   推下去，导致顶部露出白边。这条是兜底，根因是容器不要用 margin 间距。 */
+.el-overlay {
+  margin: 0 !important;
+}
+
 .el-dialog {
   --el-dialog-border-radius: var(--radius-lg);
   border-radius: var(--radius-lg);

@@ -193,7 +193,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="app-page space-y-4 p-4 md:p-5">
+  <div class="app-page p-4 md:p-5">
     <div class="app-card overflow-hidden">
       <div class="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div>
