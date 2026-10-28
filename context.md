@@ -255,7 +255,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/message-deliveries` | GET | 是 | `messages:manage` | 外部投递记录（status/channel 过滤） | 200 `DeliveryListResponse` | 400/401/403 |
 | `/api/v1/message-deliveries/:id/retry` | POST | 是 | `messages:manage` | 手动重试 failed/dead 投递 | 204 | 400/401/403/404/409 |
 | `/api/v1/files` | POST | 是 | `files:write` | `multipart/form-data`：`file` + 可选 `biz_type`/`visibility`；服务端嗅探类型（≤ `storage.max_upload_bytes`，默认 10 MiB） | 201 `StoredFileDTO` | 400/401/403/413 |
-| `/api/v1/files` | GET | 是 | `files:read` | 分页列表（member 只看自己的；admin 全量）：page/page_size/biz_type/keyword | 200 `FileListResponse` | 401/403 |
+| `/api/v1/files` | GET | 是 | `files:read` | 分页列表（member 只看自己的；admin 全量）：page/page_size/biz_type/keyword | 200 `Page` | 401/403 |
 | `/api/v1/files/:id` | GET | 是 | `files:read` | 元数据；member 仅本人或 public 文件 | 200 `StoredFileDTO` | 400/401/403/404 |
 | `/api/v1/files/:id/url` | GET | 是 | `files:read` | 签名下载 URL（`disposition=inline\|attachment`、`ttl_seconds` ≤3600） | 200 `URLResponse` | 400/401/403/404 |
 | `/api/v1/files/:id` | PATCH | 是 | `files:write` | 改 visibility（owner/admin） | 200 `StoredFileDTO` | 400/401/403/404 |

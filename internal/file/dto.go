@@ -35,8 +35,8 @@ type StoredFileDTO struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
-// FilePage is one page of files.
-type FilePage struct {
+// Page is one page of files.
+type Page struct {
 	Items    []StoredFileDTO `json:"items"`
 	Total    int64           `json:"total"`
 	Page     int             `json:"page"`

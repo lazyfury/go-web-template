@@ -115,7 +115,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 	page, pageSize = normalizePagination(page, pageSize)
-	httpx.OK(c, FilePage{
+	httpx.OK(c, Page{
 		Items:    toStoredFileDTOs(files),
 		Total:    total,
 		Page:     page,

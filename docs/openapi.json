@@ -1216,7 +1216,7 @@
                       "format": "int32"
                     },
                     "data": {
-                      "$ref": "#/components/schemas/FilePage"
+                      "$ref": "#/components/schemas/Page"
                     },
                     "message": {
                       "type": "string"
@@ -3397,35 +3397,6 @@
           "page_size"
         ]
       },
-      "FilePage": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/StoredFileDTO"
-            }
-          },
-          "page": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "page_size": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64"
-          }
-        },
-        "required": [
-          "items",
-          "total",
-          "page",
-          "page_size"
-        ]
-      },
       "GroupDTO": {
         "type": "object",
         "properties": {
@@ -3729,6 +3700,35 @@
           "token_type",
           "expires_in",
           "user"
+        ]
+      },
+      "Page": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoredFileDTO"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
         ]
       },
       "RecipientsRequest": {

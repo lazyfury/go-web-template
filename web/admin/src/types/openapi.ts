@@ -570,15 +570,6 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
-        FilePage: {
-            items: components["schemas"]["StoredFileDTO"][];
-            /** Format: int32 */
-            page: number;
-            /** Format: int32 */
-            page_size: number;
-            /** Format: int64 */
-            total: number;
-        };
         GroupDTO: {
             /** Format: date-time */
             created_at: string;
@@ -674,6 +665,15 @@ export interface components {
             refresh_token?: string;
             token_type: string;
             user: components["schemas"]["UserView"];
+        };
+        Page: {
+            items: components["schemas"]["StoredFileDTO"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
         };
         RecipientsRequest: {
             all?: boolean;
@@ -1615,7 +1615,7 @@ export interface operations {
                     "application/json": {
                         /** Format: int32 */
                         code: number;
-                        data?: components["schemas"]["FilePage"];
+                        data?: components["schemas"]["Page"];
                         message: string;
                         request_id?: string;
                     };
