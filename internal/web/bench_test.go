@@ -31,7 +31,7 @@ func BenchmarkRateLimitMiddleware(b *testing.B) {
 	engine.Use(limiters.Middleware("bench", true, func(c *gin.Context) string { return c.ClientIP() }, 1e9, 1e9))
 	engine.GET("/api/v1/ping", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/ping", http.NoBody)
 	request.RemoteAddr = "203.0.113.7:12345"
 
 	b.ReportAllocs()

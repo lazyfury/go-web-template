@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -137,6 +138,17 @@ func (l *Limiters) Middleware(name string, enabled bool, keyFn func(*gin.Context
 	l.count++
 	l.mu.Unlock()
 
+	// A constant "1" lies to clients on slow buckets (the password guard refills
+	// one token every auth.password_rps seconds); tell them when a token is
+	// actually available again. Capped so a tiny rps cannot park a client for
+	// minutes on one request.
+	retryAfter := 1
+	if rps > 0 {
+		if seconds := int(math.Ceil(1 / rps)); seconds > retryAfter {
+			retryAfter = min(seconds, 60)
+		}
+	}
+
 	return func(c *gin.Context) {
 		allowed, err := l.store.Allow(c.Request.Context(), name, keyFn(c), rps, burst)
 		if err != nil {
@@ -146,7 +158,7 @@ func (l *Limiters) Middleware(name string, enabled bool, keyFn func(*gin.Context
 			rateLimitStoreErrors.WithLabelValues(name).Inc()
 			l.logStoreError(name, err)
 		} else if !allowed {
-			c.Header("Retry-After", strconv.Itoa(1))
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
 			httpx.Error(c, http.StatusTooManyRequests, apperr.CodeTooManyRequests, "too many requests, please slow down")
 			return
 		}

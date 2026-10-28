@@ -510,3 +510,26 @@ func TestRateLimitKeyed(t *testing.T) {
 		t.Fatalf("second user:1 = %d, want 429", code)
 	}
 }
+
+// TestRateLimitRetryAfterFollowsBucketSpeed pins the hint: a bucket that refills
+// one token every 2s must tell the client 2s, not a constant 1s.
+func TestRateLimitRetryAfterFollowsBucketSpeed(t *testing.T) {
+	t.Parallel()
+
+	engine := gin.New()
+	engine.Use(NewLimiters().Middleware("slow", true, clientIPKey, 0.5, 1))
+	engine.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	request := newRequest(t, http.MethodGet, "/")
+	request.RemoteAddr = "198.51.100.9:4321"
+	if w := serve(t, engine, request); w.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want 200", w.Code)
+	}
+	w := serve(t, engine, request)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("second status = %d, want 429", w.Code)
+	}
+	if got := w.Header().Get("Retry-After"); got != "2" {
+		t.Fatalf("retry-after = %q, want 2 (rps=0.5)", got)
+	}
+}

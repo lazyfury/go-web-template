@@ -1,6 +1,9 @@
 package web
 
 import (
+	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,15 +13,65 @@ import (
 	"github.com/example/go-web-template/internal/platform/httpx"
 )
 
+// loggableQueryKeys is the allowlist of query parameters that may appear in the
+// access log. Free-text parameters (keyword, q, email, ...) are user input and
+// may be personal data, so they never reach the log; unknown keys are dropped
+// silently. Everything else (paging, filters, sort) is an enum or a number.
+var loggableQueryKeys = map[string]struct{}{
+	"page":      {},
+	"page_size": {},
+	"status":    {},
+	"channel":   {},
+	"level":     {},
+	"unread":    {},
+	"read":      {},
+	"sort":      {},
+	"order":     {},
+}
+
+// loggerQueryValueLimit bounds each logged value: an attacker can put anything
+// in an allowlisted key, and a megabyte-long query would otherwise be written
+// verbatim into every access log line.
+const loggerQueryValueLimit = 32
+
+// sanitizedQuery rebuilds the query string from allowlisted keys only. An
+// unparsable query is dropped instead of being logged raw.
+func sanitizedQuery(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return ""
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if _, ok := loggableQueryKeys[key]; ok {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	var parts []string
+	for _, key := range keys {
+		for _, value := range values[key] {
+			if len(value) > loggerQueryValueLimit {
+				value = value[:loggerQueryValueLimit]
+			}
+			parts = append(parts, key+"="+value)
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
 // Logger returns a zap-based access-log middleware. Place it after RequestID
 // so every log line carries the request id.
 func Logger(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
-		if raw != "" {
-			path = path + "?" + raw
+		if query := sanitizedQuery(c.Request.URL.RawQuery); query != "" {
+			path = path + "?" + query
 		}
 
 		c.Next()
