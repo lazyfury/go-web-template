@@ -14,11 +14,14 @@ export type PermissionKey =
   | 'messages:read'
   | 'messages:send'
   | 'messages:manage'
+  | 'files:read'
+  | 'files:write'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import UsersView from '@/views/UsersView.vue'
 import DictsView from '@/views/DictsView.vue'
+import FilesView from '@/views/FilesView.vue'
 import BasicSettingsView from '@/views/BasicSettingsView.vue'
 import SeoSettingsView from '@/views/SeoSettingsView.vue'
 import MessagesView from '@/views/MessagesView.vue'
@@ -95,6 +98,12 @@ export const routes: RouteRecordRaw[] = [
         name: 'settings-seo',
         component: SeoSettingsView,
         meta: { title: 'SEO设置', permission: 'dicts:write' },
+      },
+      {
+        path: 'files',
+        name: 'files',
+        component: FilesView,
+        meta: { title: '文件管理', permission: 'files:read' },
       },
       {
         path: 'messages',

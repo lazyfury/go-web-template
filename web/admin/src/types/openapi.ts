@@ -189,6 +189,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List files (members: own files, admins: all files) */
+        get: operations["listFiles"];
+        put?: never;
+        /**
+         * Upload one file (multipart/form-data)
+         * @description The `file` part carries the bytes; `biz_type` and `visibility` are optional text fields. The content type is sniffed server-side and must be on storage.allowed_mime; the size limit is storage.max_upload_bytes (default 10 MiB).
+         */
+        post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get file metadata */
+        get: operations["getFile"];
+        put?: never;
+        post?: never;
+        /** Delete a file (soft delete, blob purged asynchronously) */
+        delete: operations["deleteFile"];
+        options?: never;
+        head?: never;
+        /** Change a file's visibility (owner or admin) */
+        patch: operations["updateFileVisibility"];
+        trace?: never;
+    };
+    "/files/{id}/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a short-lived signed download URL */
+        get: operations["getFileURL"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/message-deliveries": {
         parameters: {
             query?: never;
@@ -513,6 +570,15 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        FileListResponse: {
+            items: components["schemas"]["StoredFileDTO"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /** Format: int64 */
+            total: number;
+        };
         GroupDTO: {
             /** Format: date-time */
             created_at: string;
@@ -669,6 +735,28 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        StoredFileDTO: {
+            biz_type: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @description Relative API path returning a signed URL */
+            download_path: string;
+            ext: string;
+            /** Format: int64 */
+            id: number;
+            mime_type: string;
+            name: string;
+            /** Format: int64 */
+            owner_id?: number | null;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            visibility: 0 | 1;
+        };
         TemplateDTO: {
             body: string;
             /** @enum {string} */
@@ -697,6 +785,11 @@ export interface components {
             page_size: number;
             /** Format: int64 */
             total: number;
+        };
+        URLResponse: {
+            /** Format: date-time */
+            expires_at: string;
+            url: string;
         };
         UnreadCountResponse: {
             /** Format: int64 */
@@ -749,6 +842,28 @@ export interface components {
             status?: 0 | 1 | null;
             subject?: string | null;
             variables?: string[] | null;
+        };
+        UpdateVisibilityRequest: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            visibility: 0 | 1;
+        };
+        UploadRequest: {
+            /** @description Business type, e.g. avatar or attachment */
+            biz_type?: string;
+            /**
+             * Format: binary
+             * @description File content (max storage.max_upload_bytes)
+             */
+            file: string;
+            /**
+             * Format: int32
+             * @description 0=private (default), 1=public to authenticated users
+             * @enum {integer|null}
+             */
+            visibility?: 0 | 1 | null;
         };
         UserDTO: {
             /** Format: date-time */
@@ -1468,6 +1583,229 @@ export interface operations {
             400: components["responses"]["Error400"];
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    listFiles: {
+        parameters: {
+            query?: {
+                /** @description Page number (default 1) */
+                page?: number;
+                /** @description Page size (default 20, max 100) */
+                page_size?: number;
+                /** @description Filter by business type */
+                biz_type?: string;
+                /** @description Keyword matched against the original file name */
+                keyword?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description file page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["FileListResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One multipart part named file plus optional biz_type/visibility fields. */
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UploadRequest"];
+            };
+        };
+        responses: {
+            /** @description stored file */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["StoredFileDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description file metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["StoredFileDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    deleteFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    updateFileVisibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVisibilityRequest"];
+            };
+        };
+        responses: {
+            /** @description updated file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["StoredFileDTO"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    getFileURL: {
+        parameters: {
+            query?: {
+                /** @description inline or attachment (inline only for whitelisted types) */
+                disposition?: string;
+                /** @description URL lifetime in seconds (default 600, max 3600) */
+                ttl_seconds?: number;
+            };
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description signed download URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["URLResponse"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
             413: components["responses"]["Error413"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
