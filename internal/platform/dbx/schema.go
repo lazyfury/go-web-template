@@ -11,7 +11,7 @@ import (
 // written against. Bump it together with every new migration pair:
 // TestRequiredSchemaVersionMatchesMigrations reads ../../../migrations and
 // fails when the constant and the files drift apart.
-const RequiredSchemaVersion int64 = 10
+const RequiredSchemaVersion int64 = 11
 
 // SchemaStatus is what /readyz needs to know about the database schema.
 type SchemaStatus struct {

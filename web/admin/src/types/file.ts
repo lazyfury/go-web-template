@@ -40,6 +40,17 @@ export interface FileURL {
   expires_at: string
 }
 
+/**
+ * 长期公开资产链接（后端 file_shares）。
+ * 与 FileURL 的区别：token 可撤销、可永久有效，适合文章封面/头像；
+ * 短签名 URL 用于私有文件临时下载。
+ */
+export interface AssetLink {
+  url: string
+  purpose: string
+  expires_at?: string
+}
+
 /** 下载方式：只有白名单类型允许 inline 渲染。 */
 export type FileDisposition = 'inline' | 'attachment'
 

@@ -14,13 +14,18 @@ import (
 
 func newTestRepository(t *testing.T) (Repository, *gorm.DB) {
 	t.Helper()
-	db := testutil.NewSQLiteDB(t, &File{}, &Link{})
+	db := testutil.NewSQLiteDB(t, &File{}, &Link{}, &Share{})
 	// AutoMigrate does not know about the partial unique index from the
 	// migration; create it here so the idempotent-attach contract is actually
 	// enforced by the database (same predicate as 000010).
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_file_links_unique
 		ON file_links (owner_type, owner_id, slot, file_id) WHERE deleted_at IS NULL`).Error; err != nil {
 		t.Fatalf("create partial unique index: %v", err)
+	}
+	// Same for the share table: one active share per (file, purpose).
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_file_shares_file_purpose
+		ON file_shares (file_id, purpose) WHERE revoked_at IS NULL`).Error; err != nil {
+		t.Fatalf("create share unique index: %v", err)
 	}
 	return NewRepository(db), db
 }
@@ -219,3 +224,70 @@ func TestRepositoryUpdateVisibility(t *testing.T) {
 		t.Errorf("UpdateVisibility(missing) = %v, want not found", err)
 	}
 }
+
+func TestRepositoryShares(t *testing.T) {
+	repo, _ := newTestRepository(t)
+	ctx := context.Background()
+	record := createFile(t, repo, 7, "logo", "avatar")
+	now := time.Now()
+
+	share := &Share{FileID: record.ID, Token: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Purpose: "asset"}
+	if err := repo.CreateShare(ctx, share); err != nil {
+		t.Fatalf("CreateShare: %v", err)
+	}
+	// The partial unique index allows only one active share per (file, purpose).
+	if err := repo.CreateShare(ctx, &Share{FileID: record.ID, Token: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Purpose: "asset"}); !errors.Is(err, apperr.ErrConflict) {
+		t.Fatalf("duplicate share = %v, want conflict", err)
+	}
+
+	found, err := repo.FindActiveShareByToken(ctx, share.Token, now)
+	if err != nil || found.FileID != record.ID {
+		t.Fatalf("FindActiveShareByToken = %+v, %v", found, err)
+	}
+	if _, err := repo.FindActiveShareByToken(ctx, "missing", now); !errors.Is(err, apperr.ErrNotFound) {
+		t.Errorf("missing token = %v, want not found", err)
+	}
+
+	// Expiry is part of the active predicate.
+	expired := &Share{FileID: record.ID, Token: "ccccccccccccccccccccccccccccccccccccccccccc", Purpose: "og", ExpiresAt: ptrTime(now.Add(-time.Minute))}
+	if err := repo.CreateShare(ctx, expired); err != nil {
+		t.Fatalf("CreateShare(expired): %v", err)
+	}
+	if _, err := repo.FindActiveShareByToken(ctx, expired.Token, now); !errors.Is(err, apperr.ErrNotFound) {
+		t.Errorf("expired token = %v, want not found", err)
+	}
+
+	// Revoking frees the (file, purpose) slot again.
+	if err := repo.RevokeShares(ctx, record.ID, "asset", now); err != nil {
+		t.Fatalf("RevokeShares: %v", err)
+	}
+	if _, err := repo.FindActiveShareByToken(ctx, share.Token, now); !errors.Is(err, apperr.ErrNotFound) {
+		t.Errorf("revoked token = %v, want not found", err)
+	}
+	if err := repo.CreateShare(ctx, &Share{FileID: record.ID, Token: "ddddddddddddddddddddddddddddddddddddddddddd", Purpose: "asset"}); err != nil {
+		t.Errorf("CreateShare after revoke = %v", err)
+	}
+}
+
+func TestRepositoryUsageSince(t *testing.T) {
+	repo, db := newTestRepository(t)
+	ctx := context.Background()
+	first := createFile(t, repo, 7, "a", "avatar")
+	second := createFile(t, repo, 7, "b", "avatar")
+	createFile(t, repo, 8, "c", "avatar")
+
+	// Backdate one row outside the window.
+	old := time.Now().Add(-48 * time.Hour)
+	if err := db.Model(&File{}).Where("id = ?", first.ID).Update("created_at", old).Error; err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	files, bytes, err := repo.UsageSince(ctx, 7, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("UsageSince: %v", err)
+	}
+	if files != 1 || bytes != second.SizeBytes {
+		t.Errorf("usage = %d files / %d bytes, want 1 / %d", files, bytes, second.SizeBytes)
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }

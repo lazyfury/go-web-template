@@ -185,6 +185,18 @@ func routeMatrix() []routeCase {
 			path:   filePath(""),
 			body:   bodyOf(map[string]any{"visibility": 1}),
 			member: http.StatusForbidden, admin: http.StatusOK},
+		{name: "share file", spec: "/api/v1/files/{id}/share", method: http.MethodPost,
+			path:   filePath("/share"),
+			body:   bodyOf(map[string]any{"purpose": "matrix"}),
+			member: http.StatusForbidden, admin: http.StatusOK},
+		{name: "revoke file share", spec: "/api/v1/files/{id}/share", method: http.MethodDelete,
+			path:   filePath("/share"),
+			member: http.StatusForbidden, admin: http.StatusNoContent},
+		// Public asset route: token is the credential; a bad token is 404 for
+		// every caller (never 401/403, never an id oracle).
+		{name: "public asset", spec: "/a/{token}/{name}", method: http.MethodGet,
+			path: constPath("/a/not-a-real-token/logo.png"),
+			anon: http.StatusNotFound, member: http.StatusNotFound, admin: http.StatusNotFound},
 		{name: "delete file", spec: "/api/v1/files/{id}", method: http.MethodDelete,
 			path:   filePath(""),
 			member: http.StatusForbidden, admin: http.StatusNoContent},

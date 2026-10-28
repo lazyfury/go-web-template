@@ -120,6 +120,36 @@ const download = async (row: FileItem, disposition: 'inline' | 'attachment') => 
   }
 }
 
+/**
+ * 长期公开链接（文章封面/头像用）：后端 file_shares 生成随机 token，
+ * 同 (file, purpose) 幂等、可撤销；链接本身可被 CDN/浏览器缓存。
+ */
+const copyPublicLink = async (row: FileItem) => {
+  try {
+    const link = await fileApi.share(row.id, { purpose: 'asset' })
+    await navigator.clipboard.writeText(link.url)
+    ElMessage.success('已复制长期外链（可撤销，缓存生效期间仍可能被命中）')
+  } catch (error) {
+    notifyError(error, '生成外链失败')
+  }
+}
+
+const revokePublicLink = async (row: FileItem) => {
+  try {
+    await ElMessageBox.confirm(`确定撤销「${row.name}」的所有公开外链？已缓存的页面最多在缓存过期后才失效。`, '撤销外链', {
+      type: 'warning',
+      confirmButtonText: '撤销',
+      cancelButtonText: '取消',
+    })
+    await fileApi.revokeShare(row.id)
+    ElMessage.success('已撤销公开外链')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    notifyError(error, '撤销外链失败')
+  }
+}
+
+/** 短签名链接：私有文件临时下载用（TTL 上限 1h），不具备撤销能力。 */
 const copyLink = async (row: FileItem) => {
   try {
     const result = await fileApi.url(row.id, 'attachment')
@@ -228,10 +258,12 @@ onMounted(load)
         <el-table-column label="上传时间" width="170">
           <template #default="{ row }">{{ formatTime((row as FileItem).created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="430" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="download(row as FileItem, 'attachment')">下载</el-button>
-            <el-button link type="primary" @click="copyLink(row as FileItem)">复制链接</el-button>
+            <el-button link type="primary" @click="copyPublicLink(row as FileItem)">复制外链</el-button>
+            <el-button link type="primary" @click="copyLink(row as FileItem)">临时链接</el-button>
+            <el-button link type="warning" @click="revokePublicLink(row as FileItem)">撤销外链</el-button>
             <el-button v-if="canWrite" link type="primary" @click="toggleVisibility(row as FileItem)">
               {{ (row as FileItem).visibility === 1 ? '设为私有' : '设为公开' }}
             </el-button>

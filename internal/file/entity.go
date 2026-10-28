@@ -86,6 +86,25 @@ type Link struct {
 // TableName keeps the table name explicit.
 func (Link) TableName() string { return "file_links" }
 
+// Share is a long-lived public capability URL for one file. It is the
+// "article cover / avatar / product image" half of the download story: unlike a
+// signed URL it can be permanent and revoked, at the cost of one indexed lookup
+// per request (absorption by the HTTP cache is the mitigation).
+type Share struct {
+	ID      uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	FileID  uint64 `gorm:"column:file_id;not null" json:"file_id"`
+	Token   string `gorm:"column:token;type:varchar(64);not null" json:"-"`
+	Purpose string `gorm:"column:purpose;type:varchar(32);not null;default:asset" json:"purpose"`
+	// ExpiresAt is nil for a permanent share.
+	ExpiresAt *time.Time `gorm:"column:expires_at" json:"expires_at,omitempty"`
+	RevokedAt *time.Time `gorm:"column:revoked_at" json:"-"`
+	CreatedBy *uint64    `gorm:"column:created_by" json:"created_by,omitempty"`
+	CreatedAt time.Time  `gorm:"column:created_at;not null" json:"created_at"`
+}
+
+// TableName keeps the table name explicit.
+func (Share) TableName() string { return "file_shares" }
+
 // IsOwner reports whether userID uploaded the file.
 func (f *File) IsOwner(userID uint64) bool {
 	return f.OwnerID != nil && *f.OwnerID == userID

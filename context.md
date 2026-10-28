@@ -99,14 +99,17 @@ otel:     {enabled: false, endpoint: 127.0.0.1:4317, insecure: true,
 storage:  {driver: local|s3, max_upload_bytes: 10485760, allowed_mime: [...], allowed_ext: [...],
            inline_mime: [...], signing_secret, orphan_ttl: 24h,
            local: {root: .local/uploads, base_url: http://localhost:8080},
-           s3:    {endpoint, region, bucket, access_key, secret_key, use_path_style, presign_ttl: 10m}}
+           s3:    {endpoint, region, bucket, access_key, secret_key, use_path_style, presign_ttl: 10m},
+           assets: {base_url, cache_ttl: 24h},
+           public_token_bytes: 32, upload_rps: 2, upload_burst: 10,
+           upload_daily_files: 200, upload_daily_bytes: 104857600}
 retention:{enabled: true, interval: 1h, timeout: 1m,
            refresh_token_retention: 168h,   # 过期 refresh token 再留 7 天
            delivery_retention: 720h,        # 终态投递记录保留 30 天（pending 永不删）
            message_retention: 2160h}        # 过期消息再留 90 天（无 expires_at 永不删）
 ```
 
-- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_READ_HEADER_TIMEOUT`（header 阶段超时，防 slowloris）、`APP_HTTP_MAX_BODY_BYTES`、`APP_HTTP_MAX_HEADER_BYTES`（请求头上限，默认 16 KiB；stdlib 默认 1 MiB 太大）、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_JWT_KEY_ID`/`APP_AUTH_JWT_RETIRED_SECRETS`（密钥轮换：`kid` + 只验不签的旧密钥，逗号分隔）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_VERIFY_CACHE_TTL`（认证校验缓存，默认 5s，0=关闭）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_OTEL_ENABLED`/`APP_OTEL_ENDPOINT`/`APP_OTEL_INSECURE`/`APP_OTEL_SAMPLE_RATIO`/`APP_OTEL_SERVICE_NAME`（分布式追踪，默认关闭）、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）、`APP_STORAGE_DRIVER`、`APP_STORAGE_MAX_UPLOAD_BYTES`、**`APP_STORAGE_SIGNING_SECRET`**（本地驱动下载 URL 的 HMAC 密钥，生产必填 ≥32 字节非占位值）、`APP_STORAGE_LOCAL_ROOT`/`APP_STORAGE_LOCAL_BASE_URL`、`APP_STORAGE_S3_ENDPOINT`/`_REGION`/`_BUCKET`/`_ACCESS_KEY`/`_SECRET_KEY`/`_USE_PATH_STYLE`/`_PRESIGN_TTL`（S3 兼容：MinIO / 阿里云 OSS / R2）、`APP_STORAGE_ORPHAN_TTL`。
+- 关键环境变量：`APP_PORT`、`APP_DATABASE_HOST/PORT/USER/PASSWORD/DBNAME`、`APP_LOG_LEVEL/FORMAT`、`APP_RATELIMIT_RPS/BURST`、`APP_HTTP_REQUEST_TIMEOUT`、`APP_HTTP_READ_HEADER_TIMEOUT`（header 阶段超时，防 slowloris）、`APP_HTTP_MAX_BODY_BYTES`、`APP_HTTP_MAX_HEADER_BYTES`（请求头上限，默认 16 KiB；stdlib 默认 1 MiB 太大）、`APP_CORS_ALLOWED_ORIGINS`（逗号分隔）、`APP_SWAGGER_ENABLED`、`APP_METRICS_ENABLED`、`APP_HTTP_TRUSTED_PROXIES`（可信反代 IP/CIDR；空=不信任）、**`APP_AUTH_JWT_SECRET`**（生产必填 ≥32 字节且非模板占位值）、`APP_AUTH_JWT_KEY_ID`/`APP_AUTH_JWT_RETIRED_SECRETS`（密钥轮换：`kid` + 只验不签的旧密钥，逗号分隔）、`APP_AUTH_PASSWORD_RPS/BURST`（改密按用户限流）、`APP_AUTH_VERIFY_CACHE_TTL`（认证校验缓存，默认 5s，0=关闭）、`APP_AUTH_COOKIE_SECURE`、`APP_SEED_PASSWORD`（`cmd/admin` / `cmd/seeding` 读取）、`APP_MESSAGE_WORKER_ENABLED`/`APP_MESSAGE_POLL_INTERVAL`/`APP_MESSAGE_MAX_ATTEMPTS`、`APP_RATELIMIT_BACKEND`（`memory`|`redis`，多副本必须 `redis`）、`APP_REDIS_ADDR`/`APP_REDIS_PASSWORD`/`APP_REDIS_DB`、`APP_OTEL_ENABLED`/`APP_OTEL_ENDPOINT`/`APP_OTEL_INSECURE`/`APP_OTEL_SAMPLE_RATIO`/`APP_OTEL_SERVICE_NAME`（分布式追踪，默认关闭）、`APP_RETENTION_ENABLED`/`APP_RETENTION_INTERVAL`/`APP_RETENTION_REFRESH_TOKEN_RETENTION`/`APP_RETENTION_DELIVERY_RETENTION`/`APP_RETENTION_MESSAGE_RETENTION`（保留期清理，默认开启）、`APP_STORAGE_DRIVER`、`APP_STORAGE_MAX_UPLOAD_BYTES`、**`APP_STORAGE_SIGNING_SECRET`**（本地驱动下载 URL 的 HMAC 密钥，生产必填 ≥32 字节非占位值）、`APP_STORAGE_LOCAL_ROOT`/`APP_STORAGE_LOCAL_BASE_URL`、`APP_STORAGE_S3_ENDPOINT`/`_REGION`/`_BUCKET`/`_ACCESS_KEY`/`_SECRET_KEY`/`_USE_PATH_STYLE`/`_PRESIGN_TTL`（S3 兼容：MinIO / 阿里云 OSS / R2）、`APP_STORAGE_ORPHAN_TTL`、`APP_STORAGE_ASSETS_BASE_URL`/`APP_STORAGE_ASSETS_CACHE_TTL`（长期外链前缀与缓存时间 = 撤销最坏延迟）、`APP_STORAGE_PUBLIC_TOKEN_BYTES`、`APP_STORAGE_UPLOAD_RPS`/`APP_STORAGE_UPLOAD_BURST`/`APP_STORAGE_UPLOAD_DAILY_FILES`/`APP_STORAGE_UPLOAD_DAILY_BYTES`（上传按用户限流 + 24h 配额）。
 - `cors.allowed_origins` 在启动时校验（`validateCORS`）：`allow_credentials=true` 时禁止 `*`（含空列表回落到 `*`）、禁止 `https://*.example.com` 这类通配模式（`gin-contrib/cors` 未开 `AllowWildcard`，不会展开），且每项必须是「scheme://host[:port]」形式的 origin（不带 path/query）。这些组合以前能启动成功、但浏览器会静默拒收（refresh cookie 流程直接失效），或让 `cors.New` 在装配期 panic；现在统一变成可读的配置错误。逗号分隔的环境变量会被 trim。
 - 邮件/短信/Webhook 凭证（`message.mail.password`、`message.sms.auth_token`、`message.webhook_secret`）必须走环境变量/密钥管理，不要写进镜像配置。
 - `APP_AUTH_JWT_SECRET` **显式置空**按「没设置」处理（不会被 viper 忽略后回落到 `configs/config.yaml` 的开发默认值，否则报错会误导成占位值问题）；`auth.jwt_secret` 为空直接启动失败；`app.env=production` 时长度 <32 或命中占位标记（`change_me`/`insecure`/`placeholder`/`example`/`dev-only`/`local-compose-default`/`replace-with`/`your-secret`）→ 启动失败（fail-fast）。**仓库内任何配置文件都不允许携带可用密钥**：`TestRepoConfigSecretsAreRejected` 扫描 `configs/*.yaml`、`.env.example`、`deploy/docker-compose.yml`（含 `${VAR:-default}` 形态）钉死这条；本地编排由 `make docker-up` 生成 `.local/jwt-secret` 注入。
@@ -196,6 +199,7 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
 | `files.visibility`/`status`/`owner_id` | 0=私有 1=公开；0=pending 1=ready 2=deleting；上传者（用户删除时 SET NULL） |
 | `files.deleted_at` | 软删；查询显式 `deleted_at IS NULL`（`*time.Time` 不触发 GORM 软删作用域） |
 | `file_links.(file_id,owner_type,owner_id,slot)` | 跨模块挂载；部分唯一索引 `(owner_type,owner_id,slot,file_id) WHERE deleted_at IS NULL` 保证幂等 |
+| `file_shares.(file_id,token,purpose,expires_at,revoked_at)` | 长期公开资产外链：随机 token（32B base64url）、可永久（`expires_at NULL`）、可撤销；`(token) WHERE revoked_at IS NULL` 与 `(file_id,purpose) WHERE revoked_at IS NULL` 两个部分唯一索引 |
 | 索引 | `(owner_id,created_at DESC)`、`(status,created_at)`（清理）、`(sha256,size_bytes)`、`(owner_type,owner_id)`、`(file_id)` |
 
 - 删除是两阶段：`status=2(deleting)` → worker 删 blob → 硬删行。顺序反了就留孤儿对象。
@@ -259,7 +263,9 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/files/:id` | GET | 是 | `files:read` | 元数据；member 仅本人或 public 文件 | 200 `StoredFileDTO` | 400/401/403/404 |
 | `/api/v1/files/:id/url` | GET | 是 | `files:read` | 签名下载 URL（`disposition=inline\|attachment`、`ttl_seconds` ≤3600） | 200 `URLResponse` | 400/401/403/404 |
 | `/api/v1/files/:id` | PATCH | 是 | `files:write` | 改 visibility（owner/admin） | 200 `StoredFileDTO` | 400/401/403/404 |
-| `/api/v1/files/:id` | DELETE | 是 | `files:write` | 软删 + 异步清理 blob | 204 | 400/401/403/404 |
+| `/api/v1/files/:id/share` | POST | 是 | `files:write` | 创建/复用长期公开外链（`purpose`、`expires_in_seconds`；同 file+purpose 幂等） | 200 `AssetLink` | 400/401/403/404/409 |
+| `/api/v1/files/:id/share` | DELETE | 是 | `files:write` | 撤销外链（`purpose` 为空 = 全部） | 204 | 400/401/403/404 |
+| `/api/v1/files/:id` | DELETE | 是 | `files:write` | 软删 + 撤销外链 + 异步清理 blob | 204 | 400/401/403/404 |
 
 - `dicts:read` 授予 admin + member；`dicts:write` 仅 admin。消费侧只返回启用组/项，管理侧可见停用数据。
 - `files:read`/`files:write` 授予 admin + member；成员级归属（只能读写自己的）在 service 校验，`public` 文件仅放开读。
@@ -276,6 +282,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/openapi.json` | GET | OpenAPI 3.0 文档（`swagger.enabled` 控制） | 200 | — |
 | `/swagger/*any` | GET | Swagger UI，读取 `/openapi.json`（`swagger.enabled` 控制） | 200 | — |
 | `/files/:id/:disposition/:exp/:sig` | GET | 本地驱动的签名下载（HMAC 即凭证，不在 `/api/v1`；不进 OpenAPI） | 200（支持 Range） | 404（签名错/过期/已删） |
+| `/a/:token/:name` | GET/HEAD | 长期公开资产外链（token 即凭证，不在 `/api/v1`；不进 OpenAPI） | 200（`Cache-Control: public` + ETag/304 + Range） | 404（未知/过期/已撤销） |
 中间件对 `/api/v1/*` 生效：先 `RateLimit`，再 `Timeout` 向 `c.Request.Context()` 注入 `http.request_timeout` deadline（service/repository 通过 ctx 传递；handler 不检查 ctx 时不会自动中断，硬超时由 http server 的 read/write timeout 兜底）。运维端点豁免限流。
 
 ## 7. 中间件与可观测性
@@ -289,7 +296,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 - 指标：`http_requests_total{method,path,status}`、`http_request_duration_seconds{method,path}`、`http_requests_in_flight`；path 用路由模式（`/api/v1/users/:id`），未匹配路由固定记为 `unmatched`（避免扫描器打爆基数）。另有 `build_info{version,commit}`（值恒 1，区分构建）与 `db_pool_*`（database/sql 池：open/in_use/idle/max_open/wait，由 `dbx.RegisterPoolMetrics` 幂等注册）。
 - 本地演示：`make observability-up` 用 compose profile 额外拉起 Prometheus（:9090）与 Grafana（:3000），自动打开 `/metrics`、挂载 `deploy/prometheus/alerts.yml` 与 `deploy/grafana/dashboard.json`；生产式编排仍默认关闭 `/metrics`。
 - 追踪（可选，`otel.enabled` 默认关闭）：`otelgin` 为每个请求建 span（探针 `/healthz`/`/readyz`/`/metrics` 排除），GORM 查询（`dbx` 自带 callback，不引 MySQL/ClickHouse 驱动）、webhook 出站（`otelhttp`）、投递与清理 worker 任务都是子 span；`trace_id` 进访问日志、`X-Trace-Id` 进响应头，失败时 `Trace.Search` 可直接按 id 定位。默认 OTLP gRPC → `otel.endpoint`；本地 `make observability-up` 指向 Tempo，生产可换任意 OTLP 后端。采样 `otel.sample_ratio`（head-based，ParentBased）。
-- 业务指标（`/metrics` 默认开启，`metrics.enabled=false` 关闭）：`auth_login_total{result}`、`auth_refresh_total{result}`、`auth_session_revocations_total{reason}`、`auth_account_lockouts_total`（认证域，reason 由 repo 的吊销咽喉点打出）、`message_delivery_attempts_total{channel,result}`、`message_delivery_duration_seconds{channel}`（投递 worker）、`housekeeping_purged_rows_total{task}`、`housekeeping_task_failures_total{task}`、`file_uploads_total{result}`、`file_upload_bytes_total{mime_group}`、`file_storage_operations_total{driver,operation,result}`、`file_storage_operation_duration_seconds{driver,operation}`（保留期清理）、`worker_last_success_timestamp_seconds{worker}`（两个 worker 共用，`internal/platform/workerx`：只要一轮完整跑完就刷新；失败轮次不刷新，清理任务失败轮次也不刷新）。标签都是闭集，不含用户/邮箱/目标地址。
+- 业务指标（`/metrics` 默认开启，`metrics.enabled=false` 关闭）：`auth_login_total{result}`、`auth_refresh_total{result}`、`auth_session_revocations_total{reason}`、`auth_account_lockouts_total`（认证域，reason 由 repo 的吊销咽喉点打出）、`message_delivery_attempts_total{channel,result}`、`message_delivery_duration_seconds{channel}`（投递 worker）、`housekeeping_purged_rows_total{task}`、`housekeeping_task_failures_total{task}`、`file_uploads_total{result}`、`file_upload_bytes_total{mime_group}`、`file_asset_requests_total{result}`（外链请求=CDN 未命中）、`file_storage_operations_total{driver,operation,result}`、`file_storage_operation_duration_seconds{driver,operation}`（保留期清理）、`worker_last_success_timestamp_seconds{worker}`（两个 worker 共用，`internal/platform/workerx`：只要一轮完整跑完就刷新；失败轮次不刷新，清理任务失败轮次也不刷新）。标签都是闭集，不含用户/邮箱/目标地址。
 - 限流：每 IP token bucket（`x/time/rate`），X-Forwarded-For 取第一跳；超限 429 + `Retry-After`（按桶速率算，`ceil(1/rps)` 秒，上限 60；不再是常数 1）。桶默认在进程内存（`ratelimit.backend=memory`），多副本切 `backend=redis`（Lua 脚本原子记账，时间取 Redis `TIME`，空桶靠 `PEXPIRE` 回收）。存储不可用时**fail-open** + `ratelimit_store_errors_total` 计数 + 限频日志：限流是保护层，不是放行权威。
 - 超时：`Timeout` 只注入 context deadline，不另起 goroutine、不伪造响应（`gin.Context` 非并发安全，goroutine 版会 data race）。需要硬拒绝时在 handler 内检查 `ctx.Err()` 并返回业务错误。
 - 优雅停机：SIGINT/SIGTERM → `signal.NotifyContext` → `http.Server.Shutdown`（`http.shutdown_timeout` 上限）。
@@ -334,7 +341,7 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 16. **Redis 是可选的跨副本加速层**：`ratelimit.backend=memory|redis`，默认 memory（模板只要求 PostgreSQL 就能跑）。切到 redis 后 token bucket 在 Lua 里原子记账、时间取 Redis `TIME`（唯一所有副本都认的钟）、空桶用 `PEXPIRE` 回收，因此 N 个副本等价于一个限流器。启动时 `PING` 失败直接退出（不允许静默退化成每副本一份额度）；运行期存储不可用则 fail-open + 指标 + 限频日志，且账号锁定仍在 DB（`users.locked_until`），认证安全不依赖 Redis。`/readyz` 不探 Redis：它挂掉只影响限流精度，不该摘掉全部流量。
 17. **认证校验缓存是「本进程写立即失效」型**：`auth.Service.VerifyAccess` 每次认证请求都要读用户的 `status/role/token_version`，默认用 `auth.verify_cache_ttl=5s` 的本地缓存摊掉这次读（`internal/auth/verify_cache.go`）。正确性靠**写路径显式失效**保障：`auth.Service`（改密/seed）与 `user.Service`（Update 的任意分支、Delete）都调用 `InvalidateAuthState`，所以单副本下「改密/禁用/删除/改角色 → 下一次请求即生效」仍然成立。跨副本只能靠 TTL：另一台机器最多滞后 `verify_cache_ttl`（上限 1m，超过启动失败）。失败/不存在**不缓存**（不做负缓存，避免把临时 DB 错误放大成一个 TTL），条目数上限 8192 且到期惰性删除。置 0 即关闭缓存。代价写清楚：这是「多一次 DB 读」与「跨副本吊销窗口」的显式交易，不是免费的。
 
-18. **文件存储：元数据在库、字节在 blobx、下载走签名 URL**：`files` 只存对象定位与展示元数据，字节在 `blobx.Store` 背后（local / S3 兼容）。上传由服务端嗅探真实 MIME（不信任客户端 Content-Type）、按白名单与大小上限校验、流式写存储并同时算 sha256；落库失败会回滚 blob。删除是两阶段（`status=deleting` → worker 删 blob → 硬删行），避免留下无法定位的孤儿对象。下载统一「先换短期签名 URL」：本地驱动是 HMAC 能力 URL（`/files/{id}/{disposition}/{exp}/{sig}`，签名错误一律 404），S3 驱动是预签名 GET——API 不代理字节，也不把对象 key/桶暴露给客户端。跨模块引用只走 `file_links` + `file.Binder`（`owner_type/owner_id/slot`），新模块接入不需要迁移，也不需要 import 文件域的 repository。公开（匿名）下载与浏览器直传 OSS 均未开放：前者会破坏 `/api/v1` 默认拒绝的前提，后者需要临时凭证交换 + 上传后校验。详见 `docs/design-file.md`。
+18. **文件存储：元数据在库、字节在 blobx、两种下载通道**：`files` 只存对象定位与展示元数据，字节在 `blobx.Store` 背后（local / S3 兼容）。上传由服务端嗅探真实 MIME（不信任客户端 Content-Type）、按白名单与大小上限校验、流式写存储并同时算 sha256；落库失败会回滚 blob。删除是两阶段（`status=deleting` → worker 删 blob → 硬删行），避免留下无法定位的孤儿对象。私有下载「先换短期签名 URL」：本地驱动是 HMAC 能力 URL（`/files/{id}/{disposition}/{exp}/{sig}`，签名错误一律 404），S3 驱动是预签名 GET——API 不代理字节，也不把对象 key/桶暴露给客户端。跨模块引用只走 `file_links` + `file.Binder`（`owner_type/owner_id/slot`），新模块接入不需要迁移，也不需要 import 文件域的 repository。**两种链接，不混用**：私有文件用短签名 URL（无状态、≤1h、不可撤销）；文章封面/头像/商品图这类需要长期嵌入 `<img src>` 的资产用 `file_shares` 随机 token（`GET /a/{token}/{name}`，可永久、可撤销、匿名可读、`Cache-Control: public` + ETag 让 CDN 吸收流量，缓存 TTL 即撤销最坏延迟）。业务表只存 `file_id`，URL 在渲染期解析，绝不落库。上传侧按用户限流 + 24h 次数/字节配额（`storage.upload_*`），并继续做 MIME 嗅探与大小/类型白名单。浏览器直传 OSS 仍未开放（需要临时凭证交换 + 上传后校验）。详见 `docs/design-file.md`。
 
 ## 10. 扩展指南
 
@@ -367,6 +374,8 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 
 **其他模块引用文件（file.Binder）**：在消费侧声明窄接口（`Attach/Detach/ListByOwner/DeleteByOwner/SignedURL`），由组合根注入 `*file.Service`；多附件用 `slot=""`，单值槽位用 `slot="avatar"` 这类名字。**不要**把下载 URL 存进业务表（URL 会过期/换驱动失效），也不要直接写 `files`/`file_links` 表。资源删除时调 `DeleteByOwner`；未引用文件由 janitor 按 `storage.orphan_ttl` 清理。`SignedURL` 是可信内部 API，不能接用户传来的 id。
 
+**其他模块渲染长期外链**：`file.Binder.PublicURL(ctx, fileID, purpose)`（幂等，同一 `(file, purpose)` 复用 token）→ 把返回的 `/a/{token}/{name}` 直接放进 HTML；资源删除/换图时调 `RevokeSharesForFile`。**不要把外链或签名 URL 存进业务表**。缓存 TTL 内已撤销的链接仍可能被 CDN/浏览器命中，需要秒级下架时把 `storage.assets.cache_ttl` 调小或用 CDN purge。
+
 **新增存储驱动**：实现 `blobx.Store`（`Driver/Put/Open/Stat/Delete/URL`）→ 在 `blobx.New` 加分支 → `files.storage` 记录驱动名，历史行继续由旧驱动解析。
 
 **新增配置项**：`config.go` 加字段 → `loader.go` `setDefaults` 加默认值 → `config.example.yaml`/`config.yaml` 同步 → 必要时加 Validate 分支。
@@ -394,7 +403,7 @@ items, _ := store.Get(ctx, "user.status") // []dict.Item，仅启用项
 - 测试库为每测试独立的命名内存 SQLite（`internal/testutil`），可并行；但仍需避免依赖真实 PostgreSQL 特性。
 - OpenAPI 反射只覆盖明确子集：query 数组/对象参数、`*any` 通配路径、自定义 `MarshalJSON`、复杂 `oneof` 尚未支持；不支持的类型会让启动失败，需调整 DTO 或后续扩展显式 schema 覆盖。
 - 保留期清理只在 `retention.enabled=true` 时运行，且是**硬删除**：窗口内需要取证的记录请调大窗口或关闭该任务；多副本同时跑 janitor 是幂等的（DELETE 按条件），但会产生重复的空扫描。
-- 文件模块：本地驱动（`storage.driver=local`）把字节写在单机目录，多副本必须共享卷或切 `s3`；公开（匿名）下载未开放，`public` 仅表示「所有登录用户可读」；浏览器直传 OSS 需要临时凭证交换端点，本期仍走服务端中转（受 `storage.max_upload_bytes` 与上传限流约束）。
+- 文件模块：本地驱动（`storage.driver=local`）把字节写在单机目录，多副本必须共享卷或切 `s3`；`visibility=public` 仅表示「所有登录用户可读」，**匿名可读只通过 `/a/{token}` 外链**；外链撤销在缓存 TTL 内可能仍被命中；浏览器直传 OSS 需要临时凭证交换端点，本期仍走服务端中转（受 `storage.max_upload_bytes`、按用户限流与 24h 配额约束）。
 - `storage.signing_secret` 轮换会让**已签发未过期**的本地下载链接立即 404（S3 驱动不受影响）。
 - `docs/openapi.json` 由 `make openapi` 更新；手工修改会在 `make check` 的黄金测试中失败。
 

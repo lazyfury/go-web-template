@@ -15,7 +15,7 @@
 - **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket；多副本可切 Redis 共享桶）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **字典/配置模块**：`dict_groups`（setting）+ `dict_items`（dict array）；消费侧 `GET /api/v1/dicts/:group`，管理侧 `/dict-groups`、`/dict-items`；业务模块可用 `dict.Store.Replace/Get/GetInto` 维护对象/数组型配置
-- **文件管理模块**：`files`（元数据）+ `file_links`（跨模块挂载）+ `internal/platform/blobx`（本地磁盘 / 任意 S3 兼容端点，OSS 走 S3 协议）；上传服务端嗅探 MIME、大小/类型白名单、流式落盘；下载统一走短期**签名 URL**（本地 HMAC / S3 预签名）；删除两阶段 + 后台清理孤儿文件；前端含文件管理页（上传/搜索/下载/复制链接/可见性/删除）
+- **文件管理模块**：`files`（元数据）+ `file_links`（跨模块挂载）+ `internal/platform/blobx`（本地磁盘 / 任意 S3 兼容端点，OSS 走 S3 协议）；上传服务端嗅探 MIME、大小/类型白名单、流式落盘；下载分两种：私有文件走短期**签名 URL**（本地 HMAC / S3 预签名，≤1h/≤7d、不可撤销），文章封面/头像这类长期资产走**随机 token 外链**（`/a/{token}/{name}`，可永久、可撤销、`Cache-Control: public` + ETag 让 CDN 吸收流量）；上传按用户限流 + 24h 次数/字节配额；删除两阶段 + 后台清理孤儿文件；前端含文件管理页（上传/搜索/下载/复制外链/临时链接/撤销外链/可见性/删除）
 - **消息/通知模块**：站内信收件箱 + 模板 + 邮件/短信/Webhook 投递 outbox（`/api/v1/messages`、`/message-templates`、`/message-deliveries`）；worker 支持租约重试与 SMTP/Twilio/Webhook sender，由 `cmd/server` 统一启停；前端含消息中心、顶栏未读红点、发送/模板/投递管理页
 - **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户管理 / 字典管理 / 系统设置 / 消息中心 / 消息管理开箱即用；API 类型由 `docs/openapi.json` 生成
@@ -181,6 +181,8 @@ storage:
 凭证走环境变量/IAM（`APP_STORAGE_S3_ACCESS_KEY`/`_SECRET_KEY` 可留空使用默认凭证链）。
 上传上限 `storage.max_upload_bytes`（默认 10 MiB），类型白名单 `allowed_mime`/`allowed_ext`，
 可内联渲染的类型 `inline_mime`（其余强制 `Content-Disposition: attachment`）。
+上传保护：`storage.upload_rps`/`upload_burst`（按用户）+ `upload_daily_files`/`upload_daily_bytes`（24h 配额）。
+长期外链：`storage.assets.base_url`（CDN/反代 origin）+ `storage.assets.cache_ttl`（= 撤销最坏延迟）。
 详见 `docs/design-file.md`。
 
 ## 配置

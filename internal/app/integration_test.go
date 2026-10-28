@@ -61,7 +61,7 @@ func newTestEnvWithConfig(t *testing.T, mutate func(*config.Config)) *testEnv {
 	db := testutil.NewSQLiteDB(t, &user.User{}, &auth.RefreshToken{},
 		&dict.Group{}, &dict.Item{},
 		&message.Message{}, &message.Recipient{}, &message.Delivery{}, &message.Template{},
-		&file.File{}, &file.Link{})
+		&file.File{}, &file.Link{}, &file.Share{})
 
 	cfg := config.Defaults()
 	cfg.RateLimit.Enabled = false
@@ -2002,4 +2002,179 @@ func TestFileAccessIsOwnerScoped(t *testing.T) {
 	if page.Total != 2 {
 		t.Errorf("admin list total = %d, want 2", page.Total)
 	}
+}
+
+// TestFileShareAssetLifecycle 覆盖长期公开资产链路：创建 share → 匿名 GET（缓存头/
+// ETag/304/Range/HEAD）→ 撤销 → 404。这是文章封面/头像的落地路径。
+func TestFileShareAssetLifecycle(t *testing.T) {
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+	payload := pngPayload(64)
+	dto := uploadOK(t, env.handler, admin.accessToken, "cover.png", payload, map[string]string{"biz_type": "image"})
+	path := "/api/v1/files/" + strconv.FormatUint(dto.ID, 10)
+
+	share := doJSONAuth(t, env.handler, http.MethodPost, path+"/share", map[string]any{"purpose": "article-cover"}, admin.accessToken)
+	if share.Code != http.StatusOK {
+		t.Fatalf("share = %d, body=%s", share.Code, share.Body.String())
+	}
+	var link struct {
+		URL     string `json:"url"`
+		Purpose string `json:"purpose"`
+	}
+	decodeInto(t, share, &link)
+	if link.Purpose != "article-cover" {
+		t.Errorf("purpose = %q", link.Purpose)
+	}
+	if !strings.HasPrefix(link.URL, env.cfg.Storage.Local.BaseURL+"/a/") {
+		t.Fatalf("asset url = %q, want the local base URL fallback", link.URL)
+	}
+	assetURL, err := url.Parse(link.URL)
+	if err != nil {
+		t.Fatalf("parse asset url: %v", err)
+	}
+
+	// Idempotent: the same (file, purpose) must return the same URL (cached HTML).
+	again := doJSONAuth(t, env.handler, http.MethodPost, path+"/share", map[string]any{"purpose": "article-cover"}, admin.accessToken)
+	var same struct {
+		URL string `json:"url"`
+	}
+	decodeInto(t, again, &same)
+	if same.URL != link.URL {
+		t.Errorf("share URL changed on reuse:\n %s\n %s", link.URL, same.URL)
+	}
+
+	// Anonymous read: the token is the credential, and the response is publicly
+	// cacheable (CDN absorbs the traffic).
+	resp := doJSON(t, env.handler, http.MethodGet, assetURL.RequestURI(), nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("asset GET = %d, body=%s", resp.Code, resp.Body.String())
+	}
+	if !bytes.Equal(resp.Body.Bytes(), payload) {
+		t.Errorf("asset body = %d bytes, want %d", resp.Body.Len(), len(payload))
+	}
+	if ct := resp.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("asset content type = %q", ct)
+	}
+	if cc := resp.Header().Get("Cache-Control"); !strings.Contains(cc, "public") || !strings.Contains(cc, "max-age=") {
+		t.Errorf("asset cache-control = %q, want public + max-age", cc)
+	}
+	if resp.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Errorf("missing Referrer-Policy on asset")
+	}
+	etag := resp.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("asset response has no ETag")
+	}
+	if cd := resp.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "inline;") {
+		t.Errorf("asset disposition = %q, want inline for image/png", cd)
+	}
+
+	// Conditional request: a warm cache revalidates for free.
+	cond := httptest.NewRequestWithContext(context.Background(), http.MethodGet, assetURL.RequestURI(), nil)
+	cond.Header.Set("If-None-Match", etag)
+	condRec := httptest.NewRecorder()
+	env.handler.ServeHTTP(condRec, cond)
+	if condRec.Code != http.StatusNotModified {
+		t.Errorf("conditional GET = %d, want 304", condRec.Code)
+	}
+
+	// HEAD works (CDNs and <img> preflight use it).
+	head := httptest.NewRequestWithContext(context.Background(), http.MethodHead, assetURL.RequestURI(), nil)
+	headRec := httptest.NewRecorder()
+	env.handler.ServeHTTP(headRec, head)
+	if headRec.Code != http.StatusOK || headRec.Body.Len() != 0 {
+		t.Errorf("HEAD = %d, body=%d bytes", headRec.Code, headRec.Body.Len())
+	}
+
+	// Range still works for videos/large images.
+	rangeReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, assetURL.RequestURI(), nil)
+	rangeReq.Header.Set("Range", "bytes=0-7")
+	rangeRec := httptest.NewRecorder()
+	env.handler.ServeHTTP(rangeRec, rangeReq)
+	if rangeRec.Code != http.StatusPartialContent || !bytes.Equal(rangeRec.Body.Bytes(), payload[:8]) {
+		t.Errorf("range = %d, body=%q", rangeRec.Code, rangeRec.Body.Bytes())
+	}
+
+	// Revoke -> 404 immediately for a cache-cold client (cache TTL is the bound).
+	if w := doJSONAuth(t, env.handler, http.MethodDelete, path+"/share?purpose=article-cover", nil, admin.accessToken); w.Code != http.StatusNoContent {
+		t.Fatalf("revoke = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSON(t, env.handler, http.MethodGet, assetURL.RequestURI(), nil); w.Code != http.StatusNotFound {
+		t.Errorf("asset after revoke = %d, want 404", w.Code)
+	}
+	if w := doJSON(t, env.handler, http.MethodGet, "/a/short/x.png", nil); w.Code != http.StatusNotFound {
+		t.Errorf("bogus token = %d, want 404", w.Code)
+	}
+
+	// Deleting the file revokes its shares as well.
+	newShare := doJSONAuth(t, env.handler, http.MethodPost, path+"/share", nil, admin.accessToken)
+	if newShare.Code != http.StatusOK {
+		t.Fatalf("share after revoke = %d, body=%s", newShare.Code, newShare.Body.String())
+	}
+	var after struct {
+		URL string `json:"url"`
+	}
+	decodeInto(t, newShare, &after)
+	afterURL, _ := url.Parse(after.URL)
+	if w := doJSONAuth(t, env.handler, http.MethodDelete, path, nil, admin.accessToken); w.Code != http.StatusNoContent {
+		t.Fatalf("delete file = %d", w.Code)
+	}
+	if w := doJSON(t, env.handler, http.MethodGet, afterURL.RequestURI(), nil); w.Code != http.StatusNotFound {
+		t.Errorf("asset after file delete = %d, want 404", w.Code)
+	}
+}
+
+// TestFileShareIsOwnerScoped：外链是 owner/admin 的写操作，member 不能给别人的文件
+// 生成公开链接。
+func TestFileShareIsOwnerScoped(t *testing.T) {
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+	env.createMember(t, admin, memberEmail, "Share Member", "+10000000002")
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	dto := uploadOK(t, env.handler, admin.accessToken, "admin-cover.png", pngPayload(8), nil)
+	path := "/api/v1/files/" + strconv.FormatUint(dto.ID, 10) + "/share"
+
+	if w := doJSONAuth(t, env.handler, http.MethodPost, path, nil, member.accessToken); w.Code != http.StatusForbidden {
+		t.Errorf("member share admin file = %d, want 403, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONAuth(t, env.handler, http.MethodDelete, path, nil, member.accessToken); w.Code != http.StatusForbidden {
+		t.Errorf("member revoke admin file = %d, want 403", w.Code)
+	}
+	if w := doJSON(t, env.handler, http.MethodPost, path, nil); w.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous share = %d, want 401", w.Code)
+	}
+}
+
+// TestFileUploadQuotaAndPerUserLimit 钉住上传保护的两层：24h 配额（服务层）与
+// 按用户限流（中间件）。两者都不是 401 —— 调用方是已登录用户。
+func TestFileUploadQuotaAndPerUserLimit(t *testing.T) {
+	t.Run("daily quota", func(t *testing.T) {
+		env := newTestEnvWithConfig(t, func(cfg *config.Config) {
+			cfg.Storage.UploadDailyFiles = 1
+			cfg.Storage.UploadDailyBytes = 0
+		})
+		admin := env.loginAdmin(t)
+		uploadOK(t, env.handler, admin.accessToken, "one.png", pngPayload(8), nil)
+		w := doMultipartUpload(t, env.handler, "/api/v1/files", "two.png", pngPayload(8), admin.accessToken, nil)
+		if w.Code != http.StatusTooManyRequests {
+			t.Fatalf("second upload = %d, want 429, body=%s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("per-user rate limit", func(t *testing.T) {
+		env := newTestEnvWithConfig(t, func(cfg *config.Config) {
+			cfg.RateLimit.Enabled = true
+			cfg.Storage.UploadDailyFiles = 0
+			cfg.Storage.UploadDailyBytes = 0
+			cfg.Storage.UploadRPS = 0.001 // no refill during the test
+			cfg.Storage.UploadBurst = 1
+		})
+		admin := env.loginAdmin(t)
+		uploadOK(t, env.handler, admin.accessToken, "one.png", pngPayload(8), nil)
+		w := doMultipartUpload(t, env.handler, "/api/v1/files", "two.png", pngPayload(8), admin.accessToken, nil)
+		if w.Code != http.StatusTooManyRequests {
+			t.Fatalf("burst upload = %d, want 429, body=%s", w.Code, w.Body.String())
+		}
+	})
 }

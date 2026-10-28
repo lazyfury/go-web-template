@@ -152,3 +152,7 @@
 | 上传成功但列表为空 | member 只能看到自己上传的文件（`owner_id`）；public 只放开「读」，不放宽列表。admin 可见全量。 |
 | 删除后磁盘/桶里还有对象 | 删除是两阶段：`status=deleting` 后由 `internal/housekeeping` 清理。`retention.enabled=false` 时不会跑；也可手动跑一轮 janitor 或直接调 `PurgeDeleting`。 |
 | 容器内上传失败 `read-only file system` | compose 的 `read_only: true` 只允许写挂载点：确认 `uploads:/app/.local/uploads` 卷已挂载（`storage.driver=local` 时）。 |
+| 文章/头像外链 `/a/{token}` 返回 404 | token 被撤销（删除文件、`DELETE .../share`）或 `expires_at` 已过；重新调 `POST /api/v1/files/:id/share`。注意：CDN/浏览器在 `storage.assets.cache_ttl` 内仍可能命中旧响应。 |
+| 撤销外链后仍能打开 | 缓存未过期（`Cache-Control: public, max-age=storage.assets.cache_ttl`）。要秒级生效：调小 TTL 或走 CDN purge；不要把 TTL 当成撤销机制。 |
+| 上传返回 429 | 两层保护：`storage.upload_rps/upload_burst`（按用户令牌桶）或 24h 配额 `storage.upload_daily_files`/`upload_daily_bytes`。前者带 `Retry-After`，后者要等窗口滚动或调整配额。 |
+| 外链域名是 localhost | 设 `APP_STORAGE_ASSETS_BASE_URL`（CDN/反代 origin）；为空时回落到 `storage.local.base_url`。 |

@@ -7,6 +7,13 @@
 
 ### Added
 
+- **长期公开资产外链**（`file_shares`，迁移 `000011`）：`POST/DELETE /api/v1/files/:id/share` +
+  `GET|HEAD /a/{token}/{name}`。随机 token（32B base64url）、可永久有效、可撤销、匿名可读；
+  `Cache-Control: public` + 强 ETag/304 + Range，让 CDN 吸收流量（`storage.assets.cache_ttl` 即撤销最坏延迟）。
+  同 `(file, purpose)` 幂等，删除文件自动撤销。`file.Binder` 增加 `PublicURL`/`RevokeSharesForFile`。
+- **上传保护**：按用户令牌桶（`storage.upload_rps`/`upload_burst`，429 带 `Retry-After`）+
+  24h 滚动配额（`storage.upload_daily_files`/`upload_daily_bytes`，服务层基于 `files` 索引计数）。
+- 前端文件管理页：复制长期外链 / 临时链接 / 撤销外链。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
@@ -78,6 +85,13 @@
 
 ### Added
 
+- **长期公开资产外链**（`file_shares`，迁移 `000011`）：`POST/DELETE /api/v1/files/:id/share` +
+  `GET|HEAD /a/{token}/{name}`。随机 token（32B base64url）、可永久有效、可撤销、匿名可读；
+  `Cache-Control: public` + 强 ETag/304 + Range，让 CDN 吸收流量（`storage.assets.cache_ttl` 即撤销最坏延迟）。
+  同 `(file, purpose)` 幂等，删除文件自动撤销。`file.Binder` 增加 `PublicURL`/`RevokeSharesForFile`。
+- **上传保护**：按用户令牌桶（`storage.upload_rps`/`upload_burst`，429 带 `Retry-After`）+
+  24h 滚动配额（`storage.upload_daily_files`/`upload_daily_bytes`，服务层基于 `files` 索引计数）。
+- 前端文件管理页：复制长期外链 / 临时链接 / 撤销外链。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
@@ -142,6 +156,13 @@
 
 ### Added
 
+- **长期公开资产外链**（`file_shares`，迁移 `000011`）：`POST/DELETE /api/v1/files/:id/share` +
+  `GET|HEAD /a/{token}/{name}`。随机 token（32B base64url）、可永久有效、可撤销、匿名可读；
+  `Cache-Control: public` + 强 ETag/304 + Range，让 CDN 吸收流量（`storage.assets.cache_ttl` 即撤销最坏延迟）。
+  同 `(file, purpose)` 幂等，删除文件自动撤销。`file.Binder` 增加 `PublicURL`/`RevokeSharesForFile`。
+- **上传保护**：按用户令牌桶（`storage.upload_rps`/`upload_burst`，429 带 `Retry-After`）+
+  24h 滚动配额（`storage.upload_daily_files`/`upload_daily_bytes`，服务层基于 `files` 索引计数）。
+- 前端文件管理页：复制长期外链 / 临时链接 / 撤销外链。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。

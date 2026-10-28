@@ -162,12 +162,23 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		return nil, fmt.Errorf("init file storage: %w", err)
 	}
 	fileRepo := file.NewRepository(db)
+	// Long-lived asset links need a public origin: an explicit CDN/reverse-proxy
+	// origin when configured, else the local driver's base URL (dev).
+	assetBaseURL := cfg.Storage.Assets.BaseURL
+	if assetBaseURL == "" {
+		assetBaseURL = cfg.Storage.Local.BaseURL
+	}
 	fileService := file.NewService(fileRepo, store, &file.Options{
-		MaxUploadBytes: cfg.Storage.MaxUploadBytes,
-		AllowedMIME:    cfg.Storage.AllowedMIME,
-		AllowedExt:     cfg.Storage.AllowedExt,
-		InlineMIME:     cfg.Storage.InlineMIME,
-		Bucket:         cfg.Storage.S3.Bucket,
+		MaxUploadBytes:   cfg.Storage.MaxUploadBytes,
+		AllowedMIME:      cfg.Storage.AllowedMIME,
+		AllowedExt:       cfg.Storage.AllowedExt,
+		InlineMIME:       cfg.Storage.InlineMIME,
+		Bucket:           cfg.Storage.S3.Bucket,
+		AssetBaseURL:     assetBaseURL,
+		AssetCacheTTL:    cfg.Storage.Assets.CacheTTL,
+		PublicTokenBytes: cfg.Storage.PublicTokenBytes,
+		UploadDailyFiles: cfg.Storage.UploadDailyFiles,
+		UploadDailyBytes: cfg.Storage.UploadDailyBytes,
 	})
 	fileHandler := file.NewHandler(fileService, file.HandlerOptions{MaxUploadBytes: cfg.Storage.MaxUploadBytes})
 
@@ -284,16 +295,31 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	user.RegisterRoutes(protected, userHandler)
 	dict.RegisterRoutes(protected, dictHandler)
 	message.RegisterRoutes(protected, messageHandler)
-	file.RegisterRoutes(protected, fileHandler)
+	// Uploads are throttled per user, not per IP: the caller is authenticated and
+	// can rotate IPs freely. The rolling 24h count/byte quota lives in the service
+	// (it needs a DB read); this guard stops bursts before they touch storage.
+	uploadGuard := limiters.Middleware("upload", cfg.RateLimit.Enabled, func(c *gin.Context) string {
+		if principal, ok := authkit.PrincipalFrom(c); ok {
+			return "user:" + strconv.FormatUint(principal.UserID, 10)
+		}
+		return "ip:" + c.ClientIP()
+	}, cfg.Storage.UploadRPS, cfg.Storage.UploadBurst)
+	file.RegisterRoutes(protected, fileHandler, uploadGuard)
 
 	// Local-driver downloads are capability URLs: the HMAC signature is the
 	// credential, so the route lives outside /api/v1 (which is deny-by-default).
 	// With storage.driver=s3 this route is never issued and answers 404.
 	downloadHandler := file.NewDownloadHandler(fileService, []byte(cfg.Storage.SigningSecret))
-	engine.GET("/files/:id/:disposition/:exp/:sig",
-		limiters.Middleware("file-download", cfg.RateLimit.Enabled, clientIPKey, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
-		downloadHandler.ServeLocal,
-	)
+	downloadGuard := limiters.Middleware("file-download", cfg.RateLimit.Enabled, clientIPKey, cfg.RateLimit.RPS, cfg.RateLimit.Burst)
+	engine.GET("/files/:id/:disposition/:exp/:sig", downloadGuard, downloadHandler.ServeLocal)
+
+	// Long-lived public assets: GET|HEAD /a/{token}/{name}. Cached publicly so a
+	// CDN absorbs the traffic; the app only sees cache misses. The per-IP guard
+	// stays as a backstop against cache-busting token floods.
+	assetHandler := file.NewAssetHandler(fileService)
+	assetGuard := limiters.Middleware("files-asset", cfg.RateLimit.Enabled, clientIPKey, cfg.RateLimit.RPS, cfg.RateLimit.Burst)
+	engine.GET("/a/:token/:name", assetGuard, assetHandler.ServeAsset)
+	engine.HEAD("/a/:token/:name", assetGuard, assetHandler.ServeAsset)
 
 	if err := web.MountDocs(engine, api, cfg.Swagger.Enabled); err != nil {
 		return nil, fmt.Errorf("build openapi: %w", err)

@@ -87,6 +87,29 @@ userService := user.NewService(..., fileBinder)
 - 资源删除时调用 `DeleteByOwner`；未被引用的文件由 janitor 在 `storage.orphan_ttl` 后清理。
 - `SignedURL` 是**可信内部 API**（无 actor 校验），只能用于「服务端已经完成授权」的场景，不能接用户传来的 id。
 
+## 6.5 长期公开资产（`file_shares` + `/a/{token}`）
+
+文章封面、头像、商品图、视频封面这类资产需要**匿名可读 + 长期有效 + 可撤销**，签名 URL
+做不到（≤1h/≤7d，且不可撤销），所以单独用一张表：
+
+| | 短签名 URL | 长期外链 |
+|---|---|---|
+| 凭证 | 无状态 HMAC / S3 presign | 随机 token（32B base64url），入库 |
+| 有效期 | 本地 ≤1h、S3 ≤7d | 可永久（`expires_at NULL`） |
+| 撤销 | 不能 | 删/置 `revoked_at` 即 404 |
+| 缓存 | `private` | `public, max-age=cache_ttl` + ETag/304 |
+| 用途 | 私有附件临时下载 | `<img src>`、邮件、文章正文 |
+
+- 路由 `GET|HEAD /a/{token}/{name}`：`token` 是凭证（不在 `/api/v1`，不进 OpenAPI），
+  未知/过期/撤销统一 404；`inline` 仍受 `inline_mime` 白名单约束，其余强制 attachment。
+- 幂等：同一 `(file_id, purpose)` 复用有效 token（部分唯一索引），已缓存的 HTML 不会失效；
+  不同 `purpose`（`article-cover` / `og-image`）各自独立撤销。
+- 删除文件会先撤销全部外链；`ON DELETE CASCADE` 兜底。
+- 缓存是主要防线：`Cache-Control: public, max-age=storage.assets.cache_ttl` + 强 ETag（sha256 前缀），
+  CDN/浏览器命中不经过应用；`file_asset_requests_total` 只统计回源请求。
+- 撤销的最坏延迟 = `cache_ttl`；要秒级下架就调小 TTL 或用 CDN purge。
+- 业务表只存 `file_id`，URL 在渲染期用 `Binder.PublicURL` 生成，**不落库**。
+
 ## 7. 清理与保留
 
 `internal/housekeeping` 追加两个任务（由 `cmd/server` 启动，复用 ADR 14 的生命周期）：
@@ -107,8 +130,9 @@ userService := user.NewService(..., fileBinder)
 | 路径穿越 / 文件名注入 | `cleanFilename` + 服务端生成 key + `os.Root`（`blobx/local.go`） |
 | 存储型 XSS（HTML/SVG 内联） | 类型拒绝 + `inline_mime` 白名单 + `Content-Disposition` + `nosniff` |
 | 越权读/删 | `files:read/write` 之后 service 内做归属校验；列表强制 owner 过滤 |
-| 匿名遍历 | 无匿名 API；下载只认 HMAC/预签名（短 TTL，默认 10m，上限 1h） |
-| 资源耗损 | 单文件上限 + 路由级 BodyLimit + 上传/下载独立限流桶 |
+| 匿名遍历 | 无匿名 API；私有下载只认 HMAC/预签名（短 TTL）；外链 token 32B 随机、可撤销、只读 GET/HEAD |
+| token 泄露 | 外链 token 是公开资产的能力凭证（不承担机密性）；需要保密的内容不要建 share，走签名 URL |
+| 资源耗损 | 单文件上限 + 路由级 BodyLimit + **按用户**上传限流（`upload_rps/burst`）+ 24h 次数/字节配额 + 外链按 IP 限流 + 公共缓存吸收流量 |
 | 日志/指标泄漏 | 只记 id/size/mime；MIME 归并为闭集标签；不记文件名与签名 URL |
 | 弱签名密钥 | `storage.signing_secret` 生产要求 ≥32 字节且非占位值（与 JWT 同规则） |
 

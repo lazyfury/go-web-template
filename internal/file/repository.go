@@ -39,6 +39,15 @@ type Repository interface {
 	// references (abandoned uploads).
 	ListOrphans(ctx context.Context, before time.Time, limit int) ([]File, error)
 
+	// Shares (long-lived public asset links).
+	CreateShare(ctx context.Context, share *Share) error
+	FindActiveShareByToken(ctx context.Context, token string, now time.Time) (*Share, error)
+	FindActiveShareByPurpose(ctx context.Context, fileID uint64, purpose string, now time.Time) (*Share, error)
+	RevokeShares(ctx context.Context, fileID uint64, purpose string, at time.Time) error
+	// UsageSince reports one owner's upload count and byte total since a cutoff
+	// (rolling quota enforcement).
+	UsageSince(ctx context.Context, ownerID uint64, since time.Time) (files int64, bytes int64, err error)
+
 	CreateLink(ctx context.Context, link *Link) error
 	SoftDeleteLinks(ctx context.Context, fileID uint64, ownerType string, ownerID uint64, slot string, at time.Time) error
 	SoftDeleteLinksByOwner(ctx context.Context, ownerType string, ownerID uint64, at time.Time) error
@@ -161,6 +170,72 @@ func (r *gormRepository) ListOrphans(ctx context.Context, before time.Time, limi
 		return nil, apperr.Wrap(apperr.CodeDatabase, "list orphan files failed", err)
 	}
 	return files, nil
+}
+
+func (r *gormRepository) CreateShare(ctx context.Context, share *Share) error {
+	if err := r.db.WithContext(ctx).Create(share).Error; err != nil {
+		if isUniqueViolation(err) {
+			return apperr.Wrap(apperr.CodeConflict, "share already exists", err)
+		}
+		return apperr.Wrap(apperr.CodeDatabase, "create file share failed", err)
+	}
+	return nil
+}
+
+func (r *gormRepository) FindActiveShareByToken(ctx context.Context, token string, now time.Time) (*Share, error) {
+	var share Share
+	err := r.db.WithContext(ctx).
+		Where("token = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", token, now).
+		First(&share).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, apperr.ErrNotFound
+	}
+	if err != nil {
+		return nil, apperr.Wrap(apperr.CodeDatabase, "find file share failed", err)
+	}
+	return &share, nil
+}
+
+func (r *gormRepository) FindActiveShareByPurpose(ctx context.Context, fileID uint64, purpose string, now time.Time) (*Share, error) {
+	var share Share
+	err := r.db.WithContext(ctx).
+		Where("file_id = ? AND purpose = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", fileID, purpose, now).
+		First(&share).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, apperr.ErrNotFound
+	}
+	if err != nil {
+		return nil, apperr.Wrap(apperr.CodeDatabase, "find file share by purpose failed", err)
+	}
+	return &share, nil
+}
+
+func (r *gormRepository) RevokeShares(ctx context.Context, fileID uint64, purpose string, at time.Time) error {
+	query := r.db.WithContext(ctx).Model(&Share{}).
+		Where("file_id = ? AND revoked_at IS NULL", fileID)
+	if purpose != "" {
+		query = query.Where("purpose = ?", purpose)
+	}
+	if err := query.Update("revoked_at", at).Error; err != nil {
+		return apperr.Wrap(apperr.CodeDatabase, "revoke file shares failed", err)
+	}
+	return nil
+}
+
+func (r *gormRepository) UsageSince(ctx context.Context, ownerID uint64, since time.Time) (fileCount, byteCount int64, err error) {
+	var usage struct {
+		Files int64
+		Bytes int64
+	}
+	err = r.db.WithContext(ctx).
+		Model(&File{}).
+		Select("COUNT(*) AS files, COALESCE(SUM(size_bytes), 0) AS bytes").
+		Where("owner_id = ? AND deleted_at IS NULL AND created_at >= ?", ownerID, since).
+		Scan(&usage).Error
+	if err != nil {
+		return 0, 0, apperr.Wrap(apperr.CodeDatabase, "count upload usage failed", err)
+	}
+	return usage.Files, usage.Bytes, nil
 }
 
 func (r *gormRepository) CreateLink(ctx context.Context, link *Link) error {

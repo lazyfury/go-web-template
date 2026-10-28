@@ -83,8 +83,10 @@ func (s *fakeStore) URL(_ context.Context, key string, opt blobx.SignedURLOption
 type fakeRepo struct {
 	files     map[uint64]*File
 	links     []Link
+	shares    []Share
 	nextID    uint64
 	linkID    uint64
+	shareID   uint64
 	createErr error
 }
 
@@ -240,6 +242,68 @@ func (r *fakeRepo) ListFilesByOwner(_ context.Context, ownerType string, ownerID
 	return out, nil
 }
 
+func (r *fakeRepo) CreateShare(_ context.Context, share *Share) error {
+	for _, existing := range r.shares {
+		if existing.RevokedAt == nil && existing.FileID == share.FileID && existing.Purpose == share.Purpose {
+			return apperr.New(apperr.CodeConflict, "share already exists")
+		}
+	}
+	r.shareID++
+	share.ID = r.shareID
+	r.shares = append(r.shares, *share)
+	return nil
+}
+
+func (r *fakeRepo) FindActiveShareByToken(_ context.Context, token string, now time.Time) (*Share, error) {
+	for _, share := range r.shares {
+		if share.Token != token || share.RevokedAt != nil || (share.ExpiresAt != nil && !share.ExpiresAt.After(now)) {
+			continue
+		}
+		copied := share
+		return &copied, nil
+	}
+	return nil, apperr.ErrNotFound
+}
+
+func (r *fakeRepo) FindActiveShareByPurpose(_ context.Context, fileID uint64, purpose string, now time.Time) (*Share, error) {
+	for _, share := range r.shares {
+		if share.FileID != fileID || share.Purpose != purpose || share.RevokedAt != nil {
+			continue
+		}
+		if share.ExpiresAt != nil && !share.ExpiresAt.After(now) {
+			continue
+		}
+		copied := share
+		return &copied, nil
+	}
+	return nil, apperr.ErrNotFound
+}
+
+func (r *fakeRepo) RevokeShares(_ context.Context, fileID uint64, purpose string, at time.Time) error {
+	for i := range r.shares {
+		share := &r.shares[i]
+		if share.FileID != fileID || share.RevokedAt != nil {
+			continue
+		}
+		if purpose != "" && share.Purpose != purpose {
+			continue
+		}
+		share.RevokedAt = &at
+	}
+	return nil
+}
+
+func (r *fakeRepo) UsageSince(_ context.Context, ownerID uint64, since time.Time) (fileCount, byteCount int64, err error) {
+	for _, f := range r.files {
+		if f.OwnerID == nil || *f.OwnerID != ownerID || f.DeletedAt != nil || f.CreatedAt.Before(since) {
+			continue
+		}
+		fileCount++
+		byteCount += f.SizeBytes
+	}
+	return fileCount, byteCount, nil
+}
+
 func (r *fakeRepo) CountActiveLinks(_ context.Context, fileID uint64) (int64, error) {
 	var count int64
 	for _, link := range r.links {
@@ -276,6 +340,7 @@ func newTestService(t *testing.T) (*Service, *fakeRepo, *fakeStore) {
 		AllowedExt:     []string{".png", ".txt", ".pdf"},
 		InlineMIME:     []string{"image/png", "application/pdf"},
 		Bucket:         "test-bucket",
+		AssetBaseURL:   "http://assets.test",
 	})
 	return svc, repo, store
 }
@@ -696,4 +761,182 @@ func TestCleanFilename(t *testing.T) {
 			t.Errorf("cleanFilename(%q) = %v, want invalid argument", in, err)
 		}
 	}
+}
+
+// ---- public asset links (file_shares) ------------------------------------
+
+func TestPublicURLIsIdempotentAndRevocable(t *testing.T) {
+	svc, repo, _ := newTestService(t)
+	record := uploadPNG(t, svc, memberActor)
+	ctx := context.Background()
+
+	first, err := svc.PublicURL(ctx, record.ID, "")
+	if err != nil {
+		t.Fatalf("PublicURL: %v", err)
+	}
+	if first.Purpose != DefaultSharePurpose {
+		t.Errorf("purpose = %q, want %q", first.Purpose, DefaultSharePurpose)
+	}
+	if !strings.HasPrefix(first.URL, "http://assets.test/a/") || !strings.HasSuffix(first.URL, "/logo.png") {
+		t.Errorf("asset URL = %q", first.URL)
+	}
+	// Idempotent: same file+purpose must reuse the token so cached HTML stays valid.
+	second, err := svc.PublicURL(ctx, record.ID, "")
+	if err != nil {
+		t.Fatalf("PublicURL again: %v", err)
+	}
+	if second.URL != first.URL {
+		t.Errorf("URL changed between calls:\n %s\n %s", first.URL, second.URL)
+	}
+	if len(repo.shares) != 1 {
+		t.Errorf("shares = %d, want 1", len(repo.shares))
+	}
+
+	// Different purpose = different token (independent revocation).
+	og, err := svc.PublicURL(ctx, record.ID, "og-image")
+	if err != nil {
+		t.Fatalf("PublicURL(og): %v", err)
+	}
+	if og.URL == first.URL {
+		t.Error("different purposes shared one token")
+	}
+
+	// Asset resolution works for active tokens.
+	if _, err := svc.Asset(ctx, tokenOf(t, first.URL)); err != nil {
+		t.Fatalf("Asset(active) = %v", err)
+	}
+
+	// Revoking one purpose leaves the other alive.
+	if err := svc.RevokeSharesForFile(ctx, record.ID, DefaultSharePurpose); err != nil {
+		t.Fatalf("RevokeSharesForFile: %v", err)
+	}
+	if _, err := svc.Asset(ctx, tokenOf(t, first.URL)); err == nil {
+		t.Errorf("Asset(revoked) = %v, want not found", err)
+	}
+	if _, err := svc.Asset(ctx, tokenOf(t, og.URL)); err != nil {
+		t.Errorf("Asset(other purpose) = %v, want still active", err)
+	}
+}
+
+func TestShareRequiresOwnershipAndExpiry(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	record := uploadPNG(t, svc, memberActor)
+	ctx := context.Background()
+
+	if _, err := svc.Share(ctx, otherActor, record.ID, "", 0); !codeIs(err, apperr.CodeForbidden) {
+		t.Errorf("Share(foreign) = %v, want forbidden", err)
+	}
+	link, err := svc.Share(ctx, memberActor, record.ID, "article-cover", time.Hour)
+	if err != nil {
+		t.Fatalf("Share: %v", err)
+	}
+	if link.ExpiresAt == nil || time.Until(*link.ExpiresAt) > time.Hour+time.Second {
+		t.Errorf("expiry = %v, want ~1h", link.ExpiresAt)
+	}
+	if _, err := svc.Share(ctx, memberActor, record.ID, "", 30*time.Second); !codeIs(err, apperr.CodeInvalidArgument) {
+		t.Errorf("Share(too short) = %v, want invalid argument", err)
+	}
+	if _, err := svc.Share(ctx, memberActor, record.ID, "Bad Purpose", 0); !codeIs(err, apperr.CodeInvalidArgument) {
+		t.Errorf("Share(bad purpose) = %v, want invalid argument", err)
+	}
+	if _, err := svc.Share(ctx, adminActor, record.ID, "admin-share", 0); err != nil {
+		t.Errorf("Share(admin) = %v", err)
+	}
+	if err := svc.RevokeShares(ctx, otherActor, record.ID, ""); !codeIs(err, apperr.CodeForbidden) {
+		t.Errorf("RevokeShares(foreign) = %v, want forbidden", err)
+	}
+}
+
+func TestAssetRejectsBadTokens(t *testing.T) {
+	svc, repo, _ := newTestService(t)
+	record := uploadPNG(t, svc, memberActor)
+	link, err := svc.PublicURL(context.Background(), record.ID, "")
+	if err != nil {
+		t.Fatalf("PublicURL: %v", err)
+	}
+	token := tokenOf(t, link.URL)
+
+	// Expired share: active row but past expires_at.
+	past := time.Now().Add(-time.Minute)
+	for i := range repo.shares {
+		repo.shares[i].ExpiresAt = &past
+	}
+	if _, err := svc.Asset(context.Background(), token); err == nil {
+		t.Error("Asset(expired) = nil error")
+	}
+
+	for _, bad := range []string{"", "short", strings.Repeat("a", 65), "has space in it", "bad/token"} {
+		if _, err := svc.Asset(context.Background(), bad); err == nil {
+			t.Errorf("Asset(%q) = nil error, want not found", bad)
+		}
+	}
+}
+
+func TestDeleteRevokesShares(t *testing.T) {
+	svc, repo, _ := newTestService(t)
+	record := uploadPNG(t, svc, memberActor)
+	ctx := context.Background()
+	link, err := svc.PublicURL(ctx, record.ID, "")
+	if err != nil {
+		t.Fatalf("PublicURL: %v", err)
+	}
+	if err := svc.Delete(ctx, memberActor, record.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	for _, share := range repo.shares {
+		if share.RevokedAt == nil {
+			t.Errorf("share %d survived the delete", share.ID)
+		}
+	}
+	if _, err := svc.Asset(ctx, tokenOf(t, link.URL)); err == nil {
+		t.Error("Asset after delete = nil error")
+	}
+}
+
+func TestUploadQuota(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	svc.opts.UploadDailyFiles = 1
+	svc.opts.UploadDailyBytes = 1 << 20
+	ctx := context.Background()
+	uploadPNG(t, svc, memberActor)
+
+	_, err := svc.Upload(ctx, memberActor, UploadInput{
+		Filename: "second.png", Size: int64(len(pngBytes)), Body: bytes.NewReader(pngBytes),
+	})
+	if !codeIs(err, apperr.CodeTooManyRequests) {
+		t.Fatalf("second upload = %v, want daily-quota 429", err)
+	}
+	// Other users have their own budget.
+	if _, err := svc.Upload(ctx, otherActor, UploadInput{
+		Filename: "other.png", Size: int64(len(pngBytes)), Body: bytes.NewReader(pngBytes),
+	}); err != nil {
+		t.Errorf("other user upload = %v", err)
+	}
+
+	// Byte quota is checked independently of the file count.
+	svc.opts.UploadDailyFiles = 0
+	svc.opts.UploadDailyBytes = int64(len(pngBytes)) * 2
+	if _, err := svc.Upload(ctx, memberActor, UploadInput{
+		Filename: "third.png", Size: int64(len(pngBytes)), Body: bytes.NewReader(pngBytes),
+	}); codeIs(err, apperr.CodeTooManyRequests) {
+		t.Errorf("byte quota tripped too early: %v", err)
+	}
+	if _, err := svc.Upload(ctx, memberActor, UploadInput{
+		Filename: "fourth.png", Size: int64(len(pngBytes)), Body: bytes.NewReader(pngBytes),
+	}); !codeIs(err, apperr.CodeTooManyRequests) {
+		t.Errorf("byte quota not enforced: %v", err)
+	}
+}
+
+// tokenOf extracts the asset token from a share URL.
+func tokenOf(t *testing.T, link string) string {
+	t.Helper()
+	marker := "/a/"
+	idx := strings.Index(link, marker)
+	if idx < 0 {
+		t.Fatalf("asset URL %q has no /a/ segment", link)
+	}
+	rest := link[idx+len(marker):]
+	token, _, _ := strings.Cut(rest, "/")
+	return token
 }

@@ -37,6 +37,18 @@ type Options struct {
 	InlineMIME []string
 	// Bucket is recorded on each row (S3 bucket; empty for local).
 	Bucket string
+	// AssetBaseURL is the public origin of long-lived asset links (empty
+	// disables sharing: HTTP would return 500 rather than a dead link).
+	AssetBaseURL string
+	// AssetCacheTTL is the browser/CDN cache lifetime for /a/{token} responses;
+	// it is also the worst-case revocation delay.
+	AssetCacheTTL time.Duration
+	// PublicTokenBytes is the raw entropy of an asset token (default 32).
+	PublicTokenBytes int
+	// UploadDailyFiles/UploadDailyBytes cap one user's rolling 24h upload
+	// budget; 0 disables the cap.
+	UploadDailyFiles int
+	UploadDailyBytes int64
 	// Now is injectable for tests.
 	Now func() time.Time
 }
@@ -60,6 +72,12 @@ func NewService(repo Repository, store blobx.Store, opts *Options) *Service {
 	}
 	if opts == nil {
 		opts = &Options{}
+	}
+	if opts.AssetCacheTTL <= 0 {
+		opts.AssetCacheTTL = 24 * time.Hour
+	}
+	if opts.PublicTokenBytes < 16 || opts.PublicTokenBytes > 64 {
+		opts.PublicTokenBytes = 32
 	}
 	return &Service{
 		repo:        repo,
@@ -122,6 +140,9 @@ func (s *Service) Upload(ctx context.Context, actor authkit.Principal, in Upload
 	}
 	if in.Size > s.opts.MaxUploadBytes {
 		return nil, apperr.New(apperr.CodePayloadTooLarge, fmt.Sprintf("file exceeds the %d byte limit", s.opts.MaxUploadBytes))
+	}
+	if err := s.checkUploadQuota(ctx, actor.UserID); err != nil {
+		return nil, err
 	}
 	visibility := VisibilityPrivate
 	if in.Visibility != nil {
@@ -247,6 +268,11 @@ func (s *Service) Delete(ctx context.Context, actor authkit.Principal, id uint64
 	}
 	if !canWrite(actor, record) {
 		return apperr.New(apperr.CodeForbidden, "no access to this file")
+	}
+	// Revoke public links first: a soft-deleted row already answers 404, but an
+	// explicit revocation keeps the intent visible in the audit trail.
+	if err := s.repo.RevokeShares(ctx, id, "", s.opts.Now()); err != nil {
+		return err
 	}
 	return s.repo.MarkDeleting(ctx, id, s.opts.Now())
 }

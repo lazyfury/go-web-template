@@ -127,6 +127,14 @@ SIGNED_URL=$(printf '%s' "$URL_BODY" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p' | h
 # 下载不再带 Authorization：能力 URL 自带签名。
 [ "$(code "$SIGNED_URL")" = "200" ] || fail "签名下载非 200: $SIGNED_URL"
 [ "$(code "${SIGNED_URL}ff")" = "404" ] || fail "被篡改的签名下载应为 404"
+# 长期外链：创建 → 匿名 GET 200 → 撤销 → 404
+SHARE_BODY=$(body "${AUTH[@]}" -X POST "$BASE/api/v1/files/$FILE_ID/share" -H 'Content-Type: application/json' -d '{"purpose":"smoke"}')
+ASSET_URL=$(printf '%s' "$SHARE_BODY" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p' | head -1)
+[ -n "$ASSET_URL" ] || fail "未取得长期外链: $SHARE_BODY"
+[ "$(code "$ASSET_URL")" = "200" ] || fail "外链匿名访问非 200: $ASSET_URL"
+[ "$(code "${AUTH[@]}" -X DELETE "$BASE/api/v1/files/$FILE_ID/share")" = "204" ] || fail "撤销外链非 204"
+[ "$(code "$ASSET_URL")" = "404" ] || fail "撤销后外链应为 404"
+
 [ "$(code "${AUTH[@]}" -X DELETE "$BASE/api/v1/files/$FILE_ID")" = "204" ] || fail "删除文件非 204"
 [ "$(code "${AUTH[@]}" "$BASE/api/v1/files/$FILE_ID")" = "404" ] || fail "删除后文件详情应为 404"
 rm -f "$UPLOAD_FILE"
@@ -136,4 +144,4 @@ rm -f "$UPLOAD_FILE"
 [ "$(code "$BASE/openapi.json")" = "200" ] || fail "openapi.json 非 200"
 
 rm -f "$JAR"
-echo "smoke: PASS（liveness + readyz + 登录/JWT + 权限拒绝 + CRUD + 文件上传/签名下载 + refresh + OpenAPI/Swagger）"
+echo "smoke: PASS（liveness + readyz + 登录/JWT + 权限拒绝 + CRUD + 文件上传/签名下载/长期外链 + refresh + OpenAPI/Swagger）"

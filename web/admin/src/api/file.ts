@@ -1,5 +1,13 @@
 import { request } from './http'
-import type { FileDisposition, FileItem, FileListParams, FilePage, FileURL, FileVisibility } from '@/types/file'
+import type {
+  AssetLink,
+  FileDisposition,
+  FileItem,
+  FileListParams,
+  FilePage,
+  FileURL,
+  FileVisibility,
+} from '@/types/file'
 
 /**
  * 文件域 API。
@@ -53,6 +61,22 @@ export const fileApi = {
   /** PATCH /api/v1/files/:id（仅所有者/管理员） */
   updateVisibility(id: number, visibility: FileVisibility): Promise<FileItem> {
     return request.patch<FileItem>(`/files/${id}`, { visibility })
+  },
+
+  /**
+   * POST /api/v1/files/:id/share：创建/复用长期公开链接（owner/admin）。
+   * 同 (file, purpose) 幂等：重复调用返回同一个 URL，已缓存的 HTML 不会失效。
+   */
+  share(id: number, options: { purpose?: string; expiresInSeconds?: number } = {}): Promise<AssetLink> {
+    return request.post<AssetLink>(`/files/${id}/share`, {
+      purpose: options.purpose || undefined,
+      expires_in_seconds: options.expiresInSeconds || undefined,
+    })
+  },
+
+  /** DELETE /api/v1/files/:id/share（purpose 为空 = 撤销全部） */
+  revokeShare(id: number, purpose?: string): Promise<void> {
+    return request.delete<void>(`/files/${id}/share`, { params: { purpose: purpose || undefined } })
   },
 
   /** DELETE /api/v1/files/:id（软删，blob 由后台任务清理） */

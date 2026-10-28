@@ -300,6 +300,35 @@ type Storage struct {
 	Local StorageLocal `mapstructure:"local"`
 	// S3 configures the S3-compatible driver.
 	S3 StorageS3 `mapstructure:"s3"`
+	// Assets configures long-lived public asset links (file_shares tokens).
+	Assets StorageAssets `mapstructure:"assets"`
+	// PublicTokenBytes is the raw entropy of an asset token. 32 bytes (43 chars
+	// base64url) is the default; 16 is the floor, 64 the ceiling.
+	PublicTokenBytes int `mapstructure:"public_token_bytes"`
+	// UploadRPS/UploadBurst throttle uploads per user (in addition to the global
+	// per-IP limiter). One user cannot monopolise the disk/bandwidth budget.
+	UploadRPS   float64 `mapstructure:"upload_rps"`
+	UploadBurst int     `mapstructure:"upload_burst"`
+	// UploadDailyFiles / UploadDailyBytes cap one user's uploads over a rolling
+	// 24h window. 0 disables the cap.
+	UploadDailyFiles int   `mapstructure:"upload_daily_files"`
+	UploadDailyBytes int64 `mapstructure:"upload_daily_bytes"`
+}
+
+// StorageAssets configures public asset URLs served by GET /a/{token}/{name}.
+//
+// A share token is a bearer capability: unguessable (32 random bytes), long
+// lived (expires_at NULL) and revocable (revoked_at), unlike a signed URL which
+// cannot outlive its expiry nor be revoked.
+type StorageAssets struct {
+	// BaseURL is the public origin printed into asset URLs. Empty falls back to
+	// storage.local.base_url (fine for local dev; production should set the CDN
+	// or reverse-proxy origin so cached HTML never points at localhost).
+	BaseURL string `mapstructure:"base_url"`
+	// CacheTTL is how long browsers/CDNs may cache an asset response. It is also
+	// the worst-case revocation delay: a revoked share stays reachable from a warm
+	// cache for up to this long.
+	CacheTTL time.Duration `mapstructure:"cache_ttl"`
 }
 
 // StorageLocal configures the filesystem driver. Files live under Root, which

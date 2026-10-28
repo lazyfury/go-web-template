@@ -32,6 +32,13 @@ var (
 		},
 		[]string{"driver", "operation", "result"},
 	)
+	assetRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "file_asset_requests_total",
+			Help: "Public asset requests served by the app (CDN cache misses), by result.",
+		},
+		[]string{"result"},
+	)
 	storageOpDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "file_storage_operation_duration_seconds",
@@ -43,7 +50,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(uploadsTotal, uploadBytesTotal, storageOpsTotal, storageOpDuration)
+	prometheus.MustRegister(uploadsTotal, uploadBytesTotal, storageOpsTotal, storageOpDuration, assetRequestsTotal)
 }
 
 // observeUpload records one upload attempt.
@@ -52,6 +59,12 @@ func observeUpload(mimeType string, size int64, result string) {
 	if result == "ok" {
 		uploadBytesTotal.WithLabelValues(mimeGroup(mimeType)).Add(float64(size))
 	}
+}
+
+// observeAssetRequest records one public asset request. The token is never a
+// label: a per-token label would explode cardinality and leak capabilities.
+func observeAssetRequest(result string) {
+	assetRequestsTotal.WithLabelValues(result).Inc()
 }
 
 // observeStorageOp records one storage call.

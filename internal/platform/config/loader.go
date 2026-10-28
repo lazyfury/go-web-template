@@ -168,6 +168,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.s3.secret_key", "")
 	v.SetDefault("storage.s3.use_path_style", false)
 	v.SetDefault("storage.s3.presign_ttl", "10m")
+	// 长期资产链接（file_shares）：随机 token + 可撤销；缓存时间 = 撤销最坏延迟。
+	v.SetDefault("storage.assets.base_url", "")
+	v.SetDefault("storage.assets.cache_ttl", "24h")
+	v.SetDefault("storage.public_token_bytes", 32)
+	// 上传保护：先按用户限流，再按 24h 窗口限次数/字节数（0 = 不限）。
+	v.SetDefault("storage.upload_rps", 2.0)
+	v.SetDefault("storage.upload_burst", 10)
+	v.SetDefault("storage.upload_daily_files", 200)
+	v.SetDefault("storage.upload_daily_bytes", 100<<20)
 
 	v.SetDefault("otel.enabled", false)
 	v.SetDefault("otel.endpoint", "127.0.0.1:4317")
@@ -183,6 +192,7 @@ func (c *Config) normalizeStorage() {
 	s := &c.Storage
 	s.Driver = strings.ToLower(strings.TrimSpace(s.Driver))
 	s.SigningSecret = strings.TrimSpace(s.SigningSecret)
+	s.Assets.BaseURL = strings.TrimRight(strings.TrimSpace(s.Assets.BaseURL), "/")
 	s.Local.Root = strings.TrimSpace(s.Local.Root)
 	s.Local.BaseURL = strings.TrimRight(strings.TrimSpace(s.Local.BaseURL), "/")
 	s.S3.Endpoint = strings.TrimRight(strings.TrimSpace(s.S3.Endpoint), "/")
@@ -534,6 +544,24 @@ func (c *Config) validateStorage() error {
 	}
 	if s.OrphanTTL <= 0 {
 		return fmt.Errorf("storage.orphan_ttl must be positive (0 would delete every upload that is not linked yet)")
+	}
+	if s.Assets.BaseURL != "" {
+		u, err := url.Parse(s.Assets.BaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("storage.assets.base_url %q must be an absolute http(s) URL or empty", s.Assets.BaseURL)
+		}
+	}
+	if s.Assets.CacheTTL <= 0 {
+		return fmt.Errorf("storage.assets.cache_ttl must be positive: it bounds both CDN caching and the revocation delay")
+	}
+	if s.PublicTokenBytes < 16 || s.PublicTokenBytes > 64 {
+		return fmt.Errorf("storage.public_token_bytes must be between 16 and 64 (a shorter token stops being unguessable)")
+	}
+	if s.UploadRPS <= 0 || s.UploadBurst <= 0 {
+		return fmt.Errorf("storage.upload_rps and storage.upload_burst must be positive")
+	}
+	if s.UploadDailyFiles < 0 || s.UploadDailyBytes < 0 {
+		return fmt.Errorf("storage.upload_daily_files and storage.upload_daily_bytes must not be negative")
 	}
 	return nil
 }

@@ -229,6 +229,24 @@ export interface paths {
         patch: operations["updateFileVisibility"];
         trace?: never;
     };
+    "/files/{id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create or reuse a long-lived public asset link (owner or admin) */
+        post: operations["shareFile"];
+        /** Revoke a file's public asset links (all purposes when purpose is empty) */
+        delete: operations["revokeFileShare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/{id}/url": {
         parameters: {
             query?: never;
@@ -481,6 +499,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AssetLink: {
+            /** Format: date-time */
+            expires_at?: string | null;
+            purpose: string;
+            url: string;
+        };
         ChangePasswordRequest: {
             current_password: string;
             new_password: string;
@@ -734,6 +758,15 @@ export interface components {
             page_size: number;
             /** Format: int64 */
             total: number;
+        };
+        ShareRequest: {
+            /**
+             * Format: int32
+             * @description Link lifetime in seconds; omit or 0 for a permanent link
+             */
+            expires_in_seconds?: number | null;
+            /** @description Purpose scope, e.g. article-cover or og-image (default asset) */
+            purpose?: string;
         };
         StoredFileDTO: {
             biz_type: string;
@@ -1760,6 +1793,78 @@ export interface operations {
                         request_id?: string;
                     };
                 };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    shareFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ShareRequest"];
+            };
+        };
+        responses: {
+            /** @description public asset URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int32 */
+                        code: number;
+                        data?: components["schemas"]["AssetLink"];
+                        message: string;
+                        request_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            413: components["responses"]["Error413"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+        };
+    };
+    revokeFileShare: {
+        parameters: {
+            query?: {
+                /** @description Only revoke this purpose */
+                purpose?: string;
+            };
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["Error400"];
             401: components["responses"]["Error401"];

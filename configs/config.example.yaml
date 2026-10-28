@@ -190,6 +190,17 @@ storage:
   local:
     root: .local/uploads        # 已被 .gitignore，不要把用户文件放进仓库
     base_url: http://localhost:8080   # 签名下载 URL 的绝对前缀（部署时的公网入口）
+  # 长期资产链接（file_shares）：随机 token，可撤销、可永久有效；缓存时间即撤销最坏延迟
+  assets:
+    base_url: ""                # 空 = storage.local.base_url；生产填 CDN/反代 origin
+    cache_ttl: 24h
+  # 资产 token 的随机字节数（16..64，默认 32 = 43 字符 base64url）
+  public_token_bytes: 32
+  # 上传保护：按用户限流 + 24h 窗口限次数/字节数（0 = 不限）
+  upload_rps: 2
+  upload_burst: 10
+  upload_daily_files: 200
+  upload_daily_bytes: 104857600   # 100 MiB / 24h / user
   s3:
     endpoint: ""                # 空 = AWS；MinIO/OSS 填对应 endpoint
     region: us-east-1

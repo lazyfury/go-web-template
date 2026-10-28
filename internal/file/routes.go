@@ -3,6 +3,8 @@ package file
 import (
 	"reflect"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/example/go-web-template/internal/platform/apperr"
 	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/routekit"
@@ -12,7 +14,7 @@ import (
 //
 // files:read covers metadata and signed URLs (members only see their own rows,
 // enforced in the service); files:write covers upload/mutate/delete.
-func RegisterRoutes(rg *routekit.Group, h *Handler) {
+func RegisterRoutes(rg *routekit.Group, h *Handler, uploadGuards ...gin.HandlerFunc) {
 	rg.Registry().DescribeTag("files", "File upload, metadata and signed download URLs")
 
 	read := rg.Group("/files",
@@ -60,7 +62,12 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 		routekit.Middleware(authkit.RequirePermission(authkit.PermFilesWrite)),
 	)
 
-	write.POST("/files", &routekit.Op{
+	// Uploads get their own per-user guard from the composition root (rate limit
+	// + size/type/quota checks in the service). A dedicated subgroup keeps the
+	// guard off the metadata routes.
+	upload := write.Group("", routekit.Middleware(uploadGuards...))
+
+	upload.POST("/files", &routekit.Op{
 		ID:      "uploadFile",
 		Summary: "Upload one file (multipart/form-data)",
 		Description: "The `file` part carries the bytes; `biz_type` and `visibility` are optional text fields. " +
@@ -86,6 +93,26 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 		Responses: []routekit.Response{routekit.OK[StoredFileDTO]("updated file")},
 		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeNotFound, apperr.CodeForbidden},
 	}, h.UpdateVisibility)
+
+	write.POST("/files/:id/share", &routekit.Op{
+		ID:        "shareFile",
+		Summary:   "Create or reuse a long-lived public asset link (owner or admin)",
+		Params:    []routekit.Param{routekit.Path[uint64]("id", "File ID")},
+		Request:   routekit.JSON[ShareRequest](false),
+		Responses: []routekit.Response{routekit.OK[AssetLink]("public asset URL")},
+		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeNotFound, apperr.CodeConflict, apperr.CodeForbidden},
+	}, h.Share)
+
+	write.DELETE("/files/:id/share", &routekit.Op{
+		ID:      "revokeFileShare",
+		Summary: "Revoke a file's public asset links (all purposes when purpose is empty)",
+		Params: []routekit.Param{
+			routekit.Path[uint64]("id", "File ID"),
+			routekit.Query[string]("purpose", "Only revoke this purpose", false),
+		},
+		Responses: []routekit.Response{routekit.NoContent()},
+		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeNotFound, apperr.CodeForbidden},
+	}, h.RevokeShare)
 
 	write.DELETE("/files/:id", &routekit.Op{
 		ID:        "deleteFile",

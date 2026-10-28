@@ -216,6 +216,58 @@ func (h *Handler) Delete(c *gin.Context) {
 	httpx.NoContent(c)
 }
 
+// Share handles POST /api/v1/files/:id/share: create or reuse a long-lived
+// public asset link (owner/admin only).
+func (h *Handler) Share(c *gin.Context) {
+	actor, ok := requirePrincipal(c)
+	if !ok {
+		return
+	}
+	id, err := parseID(c)
+	if err != nil {
+		httpx.Fail(c, err)
+		return
+	}
+	// The body is optional (the request schema says required:false): an empty
+	// POST /files/:id/share means "default purpose, permanent".
+	var req ShareRequest
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpx.Fail(c, apperr.Wrap(apperr.CodeInvalidArgument, validationMessage(err), err))
+			return
+		}
+	}
+	var expiresIn time.Duration
+	if req.ExpiresInSeconds != nil && *req.ExpiresInSeconds > 0 {
+		expiresIn = time.Duration(*req.ExpiresInSeconds) * time.Second
+	}
+	link, err := h.svc.Share(c.Request.Context(), actor, id, req.Purpose, expiresIn)
+	if err != nil {
+		httpx.Fail(c, err)
+		return
+	}
+	httpx.OK(c, link)
+}
+
+// RevokeShare handles DELETE /api/v1/files/:id/share (all purposes when the
+// query parameter is empty).
+func (h *Handler) RevokeShare(c *gin.Context) {
+	actor, ok := requirePrincipal(c)
+	if !ok {
+		return
+	}
+	id, err := parseID(c)
+	if err != nil {
+		httpx.Fail(c, err)
+		return
+	}
+	if err := h.svc.RevokeShares(c.Request.Context(), actor, id, c.Query("purpose")); err != nil {
+		httpx.Fail(c, err)
+		return
+	}
+	httpx.NoContent(c)
+}
+
 // requirePrincipal reads the authenticated caller injected by authkit. Missing
 // means the route was mounted without Authenticate: fail closed with 401.
 func requirePrincipal(c *gin.Context) (authkit.Principal, bool) {

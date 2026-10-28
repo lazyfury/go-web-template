@@ -24,6 +24,13 @@ type UpdateVisibilityRequest struct {
 	Visibility *Visibility `json:"visibility" binding:"required,oneof=0 1"`
 }
 
+// ShareRequest is the payload for POST /files/:id/share. An empty purpose
+// defaults to "asset"; expires_in_seconds 0 (or omitted) means permanent.
+type ShareRequest struct {
+	Purpose          string `json:"purpose" binding:"omitempty,max=32" description:"Purpose scope, e.g. article-cover or og-image (default asset)"`
+	ExpiresInSeconds *int   `json:"expires_in_seconds" binding:"omitempty,min=60" description:"Link lifetime in seconds; omit or 0 for a permanent link"`
+}
+
 // StoredFileDTO is the HTTP representation of a file. Storage keys and buckets stay
 // internal: clients address files by id and get a signed URL.
 type StoredFileDTO struct {

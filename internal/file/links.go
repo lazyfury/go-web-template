@@ -44,6 +44,13 @@ type Binder interface {
 	// servers rendering a resource they already authorized, never for HTTP
 	// handlers that take a caller-supplied id.
 	SignedURL(ctx context.Context, fileID uint64, disposition string) (URLResult, error)
+	// PublicURL returns a long-lived, revocable asset URL (article cover, avatar,
+	// product image). It is also trusted-internal and meant for rendering.
+	PublicURL(ctx context.Context, fileID uint64, purpose string) (AssetLink, error)
+	// RevokeShares invalidates the public links of a file (all purposes when
+	// purpose is empty). Call it when the resource is deleted or the image is
+	// replaced.
+	RevokeSharesForFile(ctx context.Context, fileID uint64, purpose string) error
 }
 
 var _ Binder = (*Service)(nil)
