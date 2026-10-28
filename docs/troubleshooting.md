@@ -137,3 +137,18 @@
 | 容器反复重启（healthcheck 失败） | `make docker-logs`；多半是 DB 连不上（env 是否指向服务名）或端口冲突 |
 | 镜像启动即退 | `docker run --rm -e APP_LOG_FORMAT=console -it go-web-template:dev` 前台看日志 |
 | 构建慢 | 分层缓存：依赖层在前，源码 COPY 在后 |
+
+---
+
+## 文件上传 / 下载
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| `POST /api/v1/files` 返回 413 | 单文件超过 `storage.max_upload_bytes`（默认 10 MiB），或请求体超过路由级上限（`max_upload_bytes + 1 MiB`）。改 `APP_STORAGE_MAX_UPLOAD_BYTES` 后重启；反向代理（nginx `client_max_body_size`）也要同步放宽。 |
+| 上传返回 400 `file type is not allowed` | 服务端按字节嗅探出的 MIME 不在 `storage.allowed_mime`。注意：`.txt` 里放 HTML 会被嗅探成 `text/html` 并被拒（这是有意的）；Office 文档（docx/xlsx）嗅探结果是 `application/zip`，白名单里要有它。 |
+| 下载 URL 返回 404 | 本地驱动：签名错误/过期（默认 10 分钟，上限 1 小时）/文件已删；S3 驱动：预签名过期。重新调 `/api/v1/files/:id/url`。 |
+| 本地驱动下载地址打不开/域名不对 | `storage.local.base_url` 必须是浏览器可达的 origin（经反代时填公网域名；`make smoke` 用 `APP_STORAGE_LOCAL_BASE_URL=http://127.0.0.1:$PORT`）。 |
+| 生产启动失败：`storage.signing_secret still uses a placeholder` | 和 JWT 一样必须注入真实密钥：`APP_STORAGE_SIGNING_SECRET`（≥32 字节）。本地编排用 `make docker-up`（自动生成 `.local/storage-secret`）。 |
+| 上传成功但列表为空 | member 只能看到自己上传的文件（`owner_id`）；public 只放开「读」，不放宽列表。admin 可见全量。 |
+| 删除后磁盘/桶里还有对象 | 删除是两阶段：`status=deleting` 后由 `internal/housekeeping` 清理。`retention.enabled=false` 时不会跑；也可手动跑一轮 janitor 或直接调 `PurgeDeleting`。 |
+| 容器内上传失败 `read-only file system` | compose 的 `read_only: true` 只允许写挂载点：确认 `uploads:/app/.local/uploads` 卷已挂载（`storage.driver=local` 时）。 |

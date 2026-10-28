@@ -39,7 +39,10 @@ go build -o "$BIN" ./cmd/server
 go build -o "$ADMIN_BIN" ./cmd/admin
 
 echo "==> starting server on :$PORT (log: $LOG)"
+rm -rf /tmp/go-web-template-smoke-uploads
 APP_LOG_FORMAT=console APP_PORT="$PORT" APP_AUTH_COOKIE_SECURE=false \
+  APP_STORAGE_LOCAL_ROOT=/tmp/go-web-template-smoke-uploads \
+  APP_STORAGE_LOCAL_BASE_URL="$BASE" \
   nohup "$BIN" -config configs/config.yaml >"$LOG" 2>&1 &
 PID=$!
 trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT
@@ -109,9 +112,28 @@ printf '%s' "$REFRESH_BODY" | grep -q '"access_token"' || fail "refresh 未返�
 [ "$(body -b "$JAR" -X POST "$BASE/api/v1/auth/logout" -H "Authorization: Bearer $TOKEN" -o /dev/null -w '%{http_code}')" = "204" ] \
   || fail "logout 非 204"
 
+# 6b) 文件：multipart 上传 → 元数据 → 签名下载（匿名，签名即凭证）→ 软删
+UPLOAD_FILE=/tmp/go-web-template-smoke.png
+printf '\211PNG\r\n\032\nsmoke-file-body' >"$UPLOAD_FILE"
+UPLOAD_BODY=$(body "${AUTH[@]}" -X POST "$BASE/api/v1/files" \
+  -F "file=@$UPLOAD_FILE;filename=smoke.png;type=image/png" -F "biz_type=smoke")
+FILE_ID=$(printf '%s' "$UPLOAD_BODY" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p' | head -1)
+[ -n "$FILE_ID" ] || fail "上传文件未返回 id: $UPLOAD_BODY"
+[ "$(code "${AUTH[@]}" "$BASE/api/v1/files/$FILE_ID")" = "200" ] || fail "文件详情非 200 (id=$FILE_ID)"
+
+URL_BODY=$(body "${AUTH[@]}" "$BASE/api/v1/files/$FILE_ID/url?disposition=attachment")
+SIGNED_URL=$(printf '%s' "$URL_BODY" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p' | head -1)
+[ -n "$SIGNED_URL" ] || fail "未取得签名下载地址: $URL_BODY"
+# 下载不再带 Authorization：能力 URL 自带签名。
+[ "$(code "$SIGNED_URL")" = "200" ] || fail "签名下载非 200: $SIGNED_URL"
+[ "$(code "${SIGNED_URL}ff")" = "404" ] || fail "被篡改的签名下载应为 404"
+[ "$(code "${AUTH[@]}" -X DELETE "$BASE/api/v1/files/$FILE_ID")" = "204" ] || fail "删除文件非 204"
+[ "$(code "${AUTH[@]}" "$BASE/api/v1/files/$FILE_ID")" = "404" ] || fail "删除后文件详情应为 404"
+rm -f "$UPLOAD_FILE"
+
 # 7) 文档端点
 [ "$(code "$BASE/swagger/index.html")" = "200" ] || fail "swagger UI 非 200"
 [ "$(code "$BASE/openapi.json")" = "200" ] || fail "openapi.json 非 200"
 
 rm -f "$JAR"
-echo "smoke: PASS（liveness + readyz + 登录/JWT + 权限拒绝 + CRUD + refresh + OpenAPI/Swagger）"
+echo "smoke: PASS（liveness + readyz + 登录/JWT + 权限拒绝 + CRUD + 文件上传/签名下载 + refresh + OpenAPI/Swagger）"

@@ -46,6 +46,9 @@ COPY --from=builder /out/server /usr/local/bin/server
 # admin 用于容器内 bootstrap 管理员：docker compose exec app /usr/local/bin/admin seed --email ...
 COPY --from=builder /out/admin /usr/local/bin/admin
 COPY configs/config.yaml /app/configs/config.yaml
+# 本地文件驱动（storage.driver=local）的默认根目录；compose 会把命名卷挂到这里。
+# 预创建并 chown 是必须的：compose 的 read_only=true 只允许写这个挂载点。
+RUN mkdir -p /app/.local/uploads && chown -R app:app /app/.local
 
 USER app
 EXPOSE 8080

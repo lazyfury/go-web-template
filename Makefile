@@ -284,10 +284,15 @@ migrate-create: ## 新建迁移: make migrate-create NAME=add_posts_table
 # 本地编排用的 JWT 密钥：首次生成、之后复用；删除文件即轮换（所有 token 失效）。
 # 不在仓库里写死默认值：仓库自带的默认密钥 = 公开密钥，等于没有认证。
 JWT_SECRET_FILE ?= .local/jwt-secret
+STORAGE_SECRET_FILE ?= .local/storage-secret
 
 jwt-secret: ## 生成/复用本地编排的 JWT 密钥（.local/jwt-secret，gitignored）
 	@mkdir -p $(dir $(JWT_SECRET_FILE))
 	@test -s $(JWT_SECRET_FILE) || { umask 077; openssl rand -base64 48 | tr -d '\n' > $(JWT_SECRET_FILE); echo "已生成 $(JWT_SECRET_FILE)（本地编排用，勿提交；删除即轮换）"; }
+
+storage-secret: ## 生成/复用本地文件下载 URL 的签名密钥（.local/storage-secret，gitignored）
+	@mkdir -p $(dir $(STORAGE_SECRET_FILE))
+	@test -s $(STORAGE_SECRET_FILE) || { umask 077; openssl rand -base64 48 | tr -d '\n' > $(STORAGE_SECRET_FILE); echo "已生成 $(STORAGE_SECRET_FILE)（本地编排用，勿提交；删除即轮换，旧下载链接失效）"; }
 
 docker-build: ## 构建镜像
 	docker build -t $(APP_NAME):$(VERSION) .
@@ -310,10 +315,10 @@ image-scan: docker-build ## 扫描镜像 HIGH/CRITICAL 漏洞（trivy，需要�
 	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(TRIVY_ENV) $(TRIVY_IMAGE) \
 		image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(APP_NAME):$(VERSION)
 
-observability-up: jwt-secret ## 起编排 + Prometheus + Grafana（自动打开 /metrics；本地匿名看板）
+observability-up: jwt-secret storage-secret ## 起编排 + Prometheus + Grafana（自动打开 /metrics；本地匿名看板）
 	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
 	# APP_METRICS_ENABLED=true 只在这条路径打开：生产式默认关闭（见 security-review F7）。
-	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_AUTH_COOKIE_SECURE=false APP_METRICS_ENABLED=true \
+	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_STORAGE_SIGNING_SECRET="$$(cat $(STORAGE_SECRET_FILE))" APP_AUTH_COOKIE_SECURE=false APP_METRICS_ENABLED=true \
 		APP_OTEL_ENABLED=true APP_OTEL_ENDPOINT=tempo:4317 APP_OTEL_INSECURE=true APP_OTEL_SAMPLE_RATIO=1.0 \
 		docker compose -f deploy/docker-compose.yml --profile observability up -d --build
 	@echo "Prometheus: http://127.0.0.1:9090  Grafana: http://127.0.0.1:3000/d/go-web-template"
@@ -322,9 +327,10 @@ observability-up: jwt-secret ## 起编排 + Prometheus + Grafana（自动打开 
 observability-down: ## 停止 observability 编排（保留数据卷）
 	docker compose -f deploy/docker-compose.yml --profile observability down
 
-docker-up: jwt-secret ## 一键启动 postgres + redis + migrate + app（自动注入 JWT 密钥）
+docker-up: jwt-secret storage-secret ## 一键启动 postgres + redis + migrate + app（自动注入 JWT/存储签名密钥）
 	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
-	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_AUTH_COOKIE_SECURE=false \
+	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_STORAGE_SIGNING_SECRET="$$(cat $(STORAGE_SECRET_FILE))" \
+		APP_AUTH_COOKIE_SECURE=false \
 		docker compose -f deploy/docker-compose.yml up -d --build
 
 docker-down: ## 停止并移除容器（保留数据卷）

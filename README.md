@@ -15,12 +15,13 @@
 - **健壮性**：panic 恢复、请求超时（ctx deadline）、请求体上限、每 IP 限流（token bucket；多副本可切 Redis 共享桶）、CORS、优雅停机
 - **数据库**：GORM + PostgreSQL，连接池参数化、慢查询日志；`golang-migrate` 版本化 SQL 迁移（软删除示例）
 - **字典/配置模块**：`dict_groups`（setting）+ `dict_items`（dict array）；消费侧 `GET /api/v1/dicts/:group`，管理侧 `/dict-groups`、`/dict-items`；业务模块可用 `dict.Store.Replace/Get/GetInto` 维护对象/数组型配置
+- **文件管理模块**：`files`（元数据）+ `file_links`（跨模块挂载）+ `internal/platform/blobx`（本地磁盘 / 任意 S3 兼容端点，OSS 走 S3 协议）；上传服务端嗅探 MIME、大小/类型白名单、流式落盘；下载统一走短期**签名 URL**（本地 HMAC / S3 预签名）；删除两阶段 + 后台清理孤儿文件；前端含文件管理页（上传/搜索/下载/复制链接/可见性/删除）
 - **消息/通知模块**：站内信收件箱 + 模板 + 邮件/短信/Webhook 投递 outbox（`/api/v1/messages`、`/message-templates`、`/message-deliveries`）；worker 支持租约重试与 SMTP/Twilio/Webhook sender，由 `cmd/server` 统一启停；前端含消息中心、顶栏未读红点、发送/模板/投递管理页
 - **文档**：路由元数据（`routekit.Op`）自动生成 OpenAPI 3.0，响应 `data` 强类型；`/openapi.json` 提供契约，`/swagger/index.html` 在线预览
 - **前端**：`web/admin/` 配套 Admin 前端模板（Vue 3 + TS + Element Plus + UnoCSS），登录 / 仪表盘 / 用户管理 / 字典管理 / 系统设置 / 消息中心 / 消息管理开箱即用；API 类型由 `docs/openapi.json` 生成
 - **工程化**：Makefile、Docker 多阶段构建、docker-compose（DB+迁移+应用）、golangci-lint、单元测试全绿
 - **CLI**：Cobra 驱动 `cmd/admin`（`seed`/`show`）与 `cmd/seeding`（`users/dicts/templates/messages` 子命令 + `--only`）
-- **数据保留**：`internal/housekeeping` 由 `cmd/server` 启动，按窗口硬删除过期 refresh token / 终态投递记录 / 过期消息（`retention.*` 可配，任务级超时与失败可见）
+- **数据保留**：`internal/housekeeping` 由 `cmd/server` 启动，按窗口硬删除过期 refresh token / 终态投递记录 / 过期消息 / 已删文件与孤儿上传（`retention.*`、`storage.orphan_ttl` 可配，任务级超时与失败可见）
 
 ## 快速开始
 
@@ -28,7 +29,7 @@
 
 ```bash
 # 1. 一键起 postgres + 迁移 + 应用（compose 按生产式默认关闭文档端点）
-#    首次会生成 .local/jwt-secret（gitignored）并自动注入 APP_AUTH_JWT_SECRET
+#    首次会生成 .local/jwt-secret 与 .local/storage-secret（gitignored）并注入对应密钥
 make docker-up
 # 本地想看 Swagger UI 时（会重建 app 容器）：
 # APP_SWAGGER_ENABLED=true make docker-up
@@ -158,6 +159,29 @@ go-web-template/
 ├── Makefile               # build/run/dev/test/lint/openapi/migrate/docker 等
 └── .golangci.yml          # golangci-lint 配置
 ```
+
+## 文件存储
+
+默认 `storage.driver=local`：字节写在 `storage.local.root`（默认 `.local/uploads`，gitignored），
+下载走应用自签的短期 URL（`APP_STORAGE_LOCAL_BASE_URL` 必须是浏览器可达的 origin）。
+
+生产建议切 S3 兼容后端（阿里云 OSS / MinIO / R2 / AWS S3 共用一套驱动）：
+
+```yaml
+storage:
+  driver: s3
+  s3:
+    endpoint: https://oss-cn-hangzhou.aliyuncs.com
+    region: cn-hangzhou
+    bucket: my-bucket
+    use_path_style: false      # MinIO 需要 true
+    presign_ttl: 10m
+```
+
+凭证走环境变量/IAM（`APP_STORAGE_S3_ACCESS_KEY`/`_SECRET_KEY` 可留空使用默认凭证链）。
+上传上限 `storage.max_upload_bytes`（默认 10 MiB），类型白名单 `allowed_mime`/`allowed_ext`，
+可内联渲染的类型 `inline_mime`（其余强制 `Content-Disposition: attachment`）。
+详见 `docs/design-file.md`。
 
 ## 配置
 

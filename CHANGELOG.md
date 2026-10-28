@@ -7,6 +7,20 @@
 
 ### Added
 
+- **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
+  - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
+    元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
+  - 下载统一走短期签名 URL：本地驱动 HMAC 能力 URL（`GET /files/{id}/{disposition}/{exp}/{sig}`，
+    签名错/过期一律 404、支持 Range），S3 兼容驱动（OSS/MinIO/R2）用预签名 GET。
+  - 跨模块引用：`file.Binder`（`Attach/Detach/ListByOwner/DeleteByOwner/SignedURL`）+ `owner_type/owner_id/slot`，
+    新模块接入不需要迁移；孤儿上传与已删对象由 `housekeeping` 两阶段清理（`storage.orphan_ttl`）。
+  - 配置 `storage.*`（driver/max_upload_bytes/allowed_mime/allowed_ext/inline_mime/signing_secret/orphan_ttl/local/s3），
+    生产强制注入 `APP_STORAGE_SIGNING_SECRET`；上传路由使用独立 BodyLimit（全局 JSON 仍 1 MiB）。
+  - 前端「文件管理」页：上传（进度/业务类型/可见性）、搜索、下载/复制临时链接、可见性切换、删除。
+- 路由级请求体上限：`web.BodyLimitOverrides`（按 gin 路由模式放宽，上传路由用 `storage.max_upload_bytes + 1 MiB`）。
+- `make storage-secret`：生成/复用本地编排的存储签名密钥（`.local/storage-secret`，gitignored）；
+  `make docker-up` / `make observability-up` 自动注入；compose 增加 `uploads` 卷与 `APP_STORAGE_*` 环境变量；
+  `make smoke` 增加「上传 → 签名下载 → 篡改签名 404 → 删除后 404」链路。
 - `make migrate-roundtrip`：在 scratch 库上跑 `up → down -all → up`，证明 down SQL 真的可回滚
   （`audit` 只检查文件成对/非空）。已在真实 PG 上验证，并做过「故意写坏 down」的负向验证。
 - `make e2e` + Playwright 冒烟：真实浏览器 + 后端 + PG 跑「登录 → 新建用户 → 删除用户 → 退出登录」，
@@ -64,6 +78,20 @@
 
 ### Added
 
+- **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
+  - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
+    元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
+  - 下载统一走短期签名 URL：本地驱动 HMAC 能力 URL（`GET /files/{id}/{disposition}/{exp}/{sig}`，
+    签名错/过期一律 404、支持 Range），S3 兼容驱动（OSS/MinIO/R2）用预签名 GET。
+  - 跨模块引用：`file.Binder`（`Attach/Detach/ListByOwner/DeleteByOwner/SignedURL`）+ `owner_type/owner_id/slot`，
+    新模块接入不需要迁移；孤儿上传与已删对象由 `housekeeping` 两阶段清理（`storage.orphan_ttl`）。
+  - 配置 `storage.*`（driver/max_upload_bytes/allowed_mime/allowed_ext/inline_mime/signing_secret/orphan_ttl/local/s3），
+    生产强制注入 `APP_STORAGE_SIGNING_SECRET`；上传路由使用独立 BodyLimit（全局 JSON 仍 1 MiB）。
+  - 前端「文件管理」页：上传（进度/业务类型/可见性）、搜索、下载/复制临时链接、可见性切换、删除。
+- 路由级请求体上限：`web.BodyLimitOverrides`（按 gin 路由模式放宽，上传路由用 `storage.max_upload_bytes + 1 MiB`）。
+- `make storage-secret`：生成/复用本地编排的存储签名密钥（`.local/storage-secret`，gitignored）；
+  `make docker-up` / `make observability-up` 自动注入；compose 增加 `uploads` 卷与 `APP_STORAGE_*` 环境变量；
+  `make smoke` 增加「上传 → 签名下载 → 篡改签名 404 → 删除后 404」链路。
 - `make ci`：把 `check` + `web-check` + `audit` 收敛成一个全量入口，本地提交前与接入 CI 都只调它；
   顺带 `make web-install`（frozen lockfile）与 `make web-check` 的前置依赖检查（缺依赖时给可执行提示）。
 - 配置三方一致性测试（`internal/platform/config/parity_test.go`）：`Config` 结构体 tag ↔
@@ -114,6 +142,20 @@
 
 ### Added
 
+- **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
+  - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
+    元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
+  - 下载统一走短期签名 URL：本地驱动 HMAC 能力 URL（`GET /files/{id}/{disposition}/{exp}/{sig}`，
+    签名错/过期一律 404、支持 Range），S3 兼容驱动（OSS/MinIO/R2）用预签名 GET。
+  - 跨模块引用：`file.Binder`（`Attach/Detach/ListByOwner/DeleteByOwner/SignedURL`）+ `owner_type/owner_id/slot`，
+    新模块接入不需要迁移；孤儿上传与已删对象由 `housekeeping` 两阶段清理（`storage.orphan_ttl`）。
+  - 配置 `storage.*`（driver/max_upload_bytes/allowed_mime/allowed_ext/inline_mime/signing_secret/orphan_ttl/local/s3），
+    生产强制注入 `APP_STORAGE_SIGNING_SECRET`；上传路由使用独立 BodyLimit（全局 JSON 仍 1 MiB）。
+  - 前端「文件管理」页：上传（进度/业务类型/可见性）、搜索、下载/复制临时链接、可见性切换、删除。
+- 路由级请求体上限：`web.BodyLimitOverrides`（按 gin 路由模式放宽，上传路由用 `storage.max_upload_bytes + 1 MiB`）。
+- `make storage-secret`：生成/复用本地编排的存储签名密钥（`.local/storage-secret`，gitignored）；
+  `make docker-up` / `make observability-up` 自动注入；compose 增加 `uploads` 卷与 `APP_STORAGE_*` 环境变量；
+  `make smoke` 增加「上传 → 签名下载 → 篡改签名 404 → 删除后 404」链路。
 - 模块化单体骨架：`cmd → app → {web, auth, user, dict, message, platform/*}`，包内
   handler → service → repository 分层，`platform/*` 为叶子包。
 - 认证与权限：JWT access token + 轮换式 refresh cookie（滑动 30 天 / 绝对上限 90 天）、

@@ -116,6 +116,20 @@ services:
       # 本地 http 调试由 `make docker-up` 显式注入 false（浏览器才会回传 refresh
       # cookie）；手工 `docker compose up` 且用浏览器直连 http 时同样需要显式置 false。
       APP_AUTH_COOKIE_SECURE: "${APP_AUTH_COOKIE_SECURE:-true}"
+      # 文件存储：默认本地磁盘（挂载 uploads 卷），换成 S3 兼容后端时把 driver 改成 s3
+      # 并填 endpoint/region/bucket（凭证走环境变量或 IAM，不要写进本文件）。
+      APP_STORAGE_DRIVER: "${APP_STORAGE_DRIVER:-local}"
+      APP_STORAGE_MAX_UPLOAD_BYTES: "${APP_STORAGE_MAX_UPLOAD_BYTES:-10485760}"
+      APP_STORAGE_LOCAL_ROOT: "${APP_STORAGE_LOCAL_ROOT:-/app/.local/uploads}"
+      # 签名下载 URL 的绝对前缀，必须是浏览器可达的 origin（反代域名）。
+      APP_STORAGE_LOCAL_BASE_URL: "${APP_STORAGE_LOCAL_BASE_URL:-http://localhost:8080}"
+      # 本地下载 URL 的 HMAC 密钥：和 JWT 密钥一样必须外部注入（生产校验会拒绝占位值）。
+      # 本地编排由 `make docker-up` 生成并复用 .local/storage-secret。
+      APP_STORAGE_SIGNING_SECRET: "${APP_STORAGE_SIGNING_SECRET:-}"
+      APP_STORAGE_S3_ENDPOINT: "${APP_STORAGE_S3_ENDPOINT:-}"
+      APP_STORAGE_S3_REGION: "${APP_STORAGE_S3_REGION:-us-east-1}"
+      APP_STORAGE_S3_BUCKET: "${APP_STORAGE_S3_BUCKET:-}"
+      APP_STORAGE_S3_USE_PATH_STYLE: "${APP_STORAGE_S3_USE_PATH_STYLE:-false}"
     ports:
       - "8080:8080"
     # 运行时加固：镜像里的 /app 只读即可（配置在构建期复制），降权 + 禁提权 +
@@ -123,6 +137,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      # 本地文件驱动唯一需要可写的路径（compose 的 read_only 不包含挂载点）。
+      - uploads:/app/.local/uploads
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -199,6 +216,7 @@ services:
 
 volumes:
   pgdata:
+  uploads:
   promdata:
   grafanadata:
   tempodata:
