@@ -127,7 +127,11 @@ SIGNED_URL=$(printf '%s' "$URL_BODY" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p' | h
 # 下载不再带 Authorization：能力 URL 自带签名。
 [ "$(code "$SIGNED_URL")" = "200" ] || fail "签名下载非 200: $SIGNED_URL"
 [ "$(code "${SIGNED_URL}ff")" = "404" ] || fail "被篡改的签名下载应为 404"
-# 长期外链：创建 → 匿名 GET 200 → 撤销 → 404
+# 长期外链：私有文件必须被拒绝（409）→ 设为公开 → 创建 → 匿名 GET 200 → 撤销 → 404
+[ "$(code "${AUTH[@]}" -X POST "$BASE/api/v1/files/$FILE_ID/share" -H 'Content-Type: application/json' -d '{}')" = "409" ] \
+  || fail "私有文件生成公开链接应为 409"
+[ "$(code "${AUTH[@]}" -X PATCH "$BASE/api/v1/files/$FILE_ID" -H 'Content-Type: application/json' -d '{"visibility":1}')" = "200" ] \
+  || fail "设为公开非 200"
 SHARE_BODY=$(body "${AUTH[@]}" -X POST "$BASE/api/v1/files/$FILE_ID/share" -H 'Content-Type: application/json' -d '{"purpose":"smoke"}')
 ASSET_URL=$(printf '%s' "$SHARE_BODY" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p' | head -1)
 [ -n "$ASSET_URL" ] || fail "未取得长期外链: $SHARE_BODY"
