@@ -19,9 +19,11 @@ import (
 
 	"github.com/example/go-web-template/internal/auth"
 	"github.com/example/go-web-template/internal/dict"
+	"github.com/example/go-web-template/internal/file"
 	"github.com/example/go-web-template/internal/housekeeping"
 	"github.com/example/go-web-template/internal/message"
 	"github.com/example/go-web-template/internal/platform/authkit"
+	"github.com/example/go-web-template/internal/platform/blobx"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/dbx"
 	"github.com/example/go-web-template/internal/platform/passwd"
@@ -57,6 +59,7 @@ type App struct {
 	housekeeper   *housekeeping.Worker
 	limiters      *web.Limiters
 	redis         *redis.Client
+	storage       blobx.Store
 }
 
 // New opens the database and wires the application. It is the entry point used
@@ -151,6 +154,23 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		})
 	}
 
+	// File module: metadata in PostgreSQL, bytes behind blobx (local disk or any
+	// S3-compatible endpoint). The driver is chosen once here; the domain never
+	// branches on storage.driver.
+	store, err := blobx.New(context.Background(), &cfg.Storage)
+	if err != nil {
+		return nil, fmt.Errorf("init file storage: %w", err)
+	}
+	fileRepo := file.NewRepository(db)
+	fileService := file.NewService(fileRepo, store, &file.Options{
+		MaxUploadBytes: cfg.Storage.MaxUploadBytes,
+		AllowedMIME:    cfg.Storage.AllowedMIME,
+		AllowedExt:     cfg.Storage.AllowedExt,
+		InlineMIME:     cfg.Storage.InlineMIME,
+		Bucket:         cfg.Storage.S3.Bucket,
+	})
+	fileHandler := file.NewHandler(fileService, file.HandlerOptions{MaxUploadBytes: cfg.Storage.MaxUploadBytes})
+
 	// Retention janitor: the repositories own the DELETE statements, this
 	// scheduler only decides when and with which window. Tasks are independent,
 	// so one broken table does not stop the others from being pruned.
@@ -171,6 +191,24 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 				Name:      "messages",
 				Retention: cfg.Retention.MessageRetention,
 				Purge:     messageRepo.PurgeExpiredMessages,
+			},
+			{
+				// Abandoned uploads: ready rows with no active link, older than
+				// storage.orphan_ttl, move to status=deleting.
+				Name:      "files_orphans",
+				Retention: cfg.Storage.OrphanTTL,
+				Purge: func(ctx context.Context, before time.Time) (int64, error) {
+					return fileService.MarkOrphansDeleting(ctx, before, 200)
+				},
+			},
+			{
+				// Rows already marked deleting: remove the blob first, then the
+				// row. Retention 0 means "as soon as marked".
+				Name:      "files_purge",
+				Retention: 0,
+				Purge: func(ctx context.Context, before time.Time) (int64, error) {
+					return fileService.PurgeDeleting(ctx, before, 200)
+				},
 			},
 		}, housekeeping.Options{
 			Interval: cfg.Retention.Interval,
@@ -246,6 +284,16 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	user.RegisterRoutes(protected, userHandler)
 	dict.RegisterRoutes(protected, dictHandler)
 	message.RegisterRoutes(protected, messageHandler)
+	file.RegisterRoutes(protected, fileHandler)
+
+	// Local-driver downloads are capability URLs: the HMAC signature is the
+	// credential, so the route lives outside /api/v1 (which is deny-by-default).
+	// With storage.driver=s3 this route is never issued and answers 404.
+	downloadHandler := file.NewDownloadHandler(fileService, []byte(cfg.Storage.SigningSecret))
+	engine.GET("/files/:id/:disposition/:exp/:sig",
+		limiters.Middleware("file-download", cfg.RateLimit.Enabled, clientIPKey, cfg.RateLimit.RPS, cfg.RateLimit.Burst),
+		downloadHandler.ServeLocal,
+	)
 
 	if err := web.MountDocs(engine, api, cfg.Swagger.Enabled); err != nil {
 		return nil, fmt.Errorf("build openapi: %w", err)
@@ -260,6 +308,7 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 		housekeeper:   housekeeper,
 		limiters:      limiters,
 		redis:         redisClient,
+		storage:       store,
 	}, nil
 }
 
@@ -350,6 +399,9 @@ func (a *App) MessageWorker() *message.Worker { return a.messageWorker }
 // bucket sweeper. App never starts goroutines itself.
 func (a *App) Limiters() *web.Limiters { return a.limiters }
 
+// Storage exposes the configured file backend (tests assert blob cleanup).
+func (a *App) Storage() blobx.Store { return a.storage }
+
 // Housekeeper exposes the retention worker for cmd/server to start. It returns
 // nil when retention.enabled is false. App never starts goroutines itself.
 func (a *App) Housekeeper() *housekeeping.Worker { return a.housekeeper }
@@ -368,6 +420,11 @@ func (a *App) Close() error {
 	if a.redis != nil {
 		if err := a.redis.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close redis: %w", err))
+		}
+	}
+	if closer, ok := a.storage.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close file storage: %w", err))
 		}
 	}
 	return errors.Join(errs...)

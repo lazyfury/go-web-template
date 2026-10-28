@@ -80,7 +80,12 @@ func New(cfg *config.Config, logger *zap.Logger, health *Health, version string,
 		SecurityHeaders(cfg.IsProduction()),
 		CORS(&cfg.CORS),
 		Metrics(),
-		BodyLimit(cfg.HTTPServer.MaxBodyBytes),
+		// JSON payloads stay under http.max_body_bytes; upload routes are the
+		// one place that needs a bigger budget, and it comes from
+		// storage.max_upload_bytes (plus multipart framing overhead).
+		BodyLimitOverrides(cfg.HTTPServer.MaxBodyBytes, map[string]int64{
+			"/api/v1/files": cfg.Storage.MaxUploadBytes + (1 << 20),
+		}),
 	)
 
 	// Ops endpoints: liveness, readiness and (optionally) Prometheus metrics.

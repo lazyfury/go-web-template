@@ -37,6 +37,9 @@ type routeFixture struct {
 	templateID uint64
 	messageID  uint64
 	deliveryID uint64
+	// fileID is an admin-uploaded file: member probes on it must answer 403
+	// (cross-owner denial), which is the contract this matrix exists to pin.
+	fileID uint64
 }
 
 func newRouteFixture(t *testing.T) *routeFixture {
@@ -97,6 +100,11 @@ func newRouteFixture(t *testing.T) *routeFixture {
 		t.Fatal("fixture produced no deliveries")
 	}
 	f.deliveryID = deliveryPage.Items[0].ID
+	// One file owned by the admin: covers GET/PATCH/DELETE /files/:id and the
+	// signed-URL endpoint. A member must get 403 on all of them.
+	upload := doMultipartUpload(t, h, "/api/v1/files", "matrix.txt", []byte("matrix file content"), admin.accessToken, map[string]string{"biz_type": "attachment"})
+	f.fileID = idFromResponse(t, upload)
+
 	// Retry only accepts failed/dead rows; park one delivery there so the
 	// success path is exercised instead of only the 409 branch.
 	if err := env.db.Model(&message.Delivery{}).
@@ -141,6 +149,9 @@ type routeCase struct {
 	// caller's own credentials (change password).
 	adminBody func(f *routeFixture) any
 
+	// multipart tells the probe to build a multipart/form-data request (the
+	// upload route) instead of a JSON body.
+	multipart bool
 	// public operations are skipped for the member/admin probes: there is no
 	// role to compare, only the unauthenticated answer.
 	public bool
@@ -156,6 +167,32 @@ type routeCase struct {
 
 func routeMatrix() []routeCase {
 	return []routeCase{
+		// ---- files -------------------------------------------------------
+		{name: "upload file", spec: "/api/v1/files", method: http.MethodPost,
+			path:      constPath("/api/v1/files"),
+			multipart: true,
+			member:    http.StatusCreated, admin: http.StatusCreated},
+		{name: "list files", spec: "/api/v1/files", method: http.MethodGet,
+			path:   constPath("/api/v1/files"),
+			member: http.StatusOK, admin: http.StatusOK},
+		{name: "get file", spec: "/api/v1/files/{id}", method: http.MethodGet,
+			path:   filePath(""),
+			member: http.StatusForbidden, admin: http.StatusOK},
+		{name: "get file url", spec: "/api/v1/files/{id}/url", method: http.MethodGet,
+			path:   filePath("/url"),
+			member: http.StatusForbidden, admin: http.StatusOK},
+		{name: "update file visibility", spec: "/api/v1/files/{id}", method: http.MethodPatch,
+			path:   filePath(""),
+			body:   bodyOf(map[string]any{"visibility": 1}),
+			member: http.StatusForbidden, admin: http.StatusOK},
+		{name: "delete file", spec: "/api/v1/files/{id}", method: http.MethodDelete,
+			path:   filePath(""),
+			member: http.StatusForbidden, admin: http.StatusNoContent},
+		// Signed download route: outside /api/v1, the HMAC is the credential, so
+		// an anonymous caller with a bad signature gets 404 (never 401/403).
+		{name: "signed local download", spec: "/files/{id}/{disposition}/{exp}/{sig}", method: http.MethodGet,
+			path: constPath("/files/1/attachment/1/not-a-signature"),
+			anon: http.StatusNotFound, member: http.StatusNotFound, admin: http.StatusNotFound},
 		// ---- public ------------------------------------------------------
 		{name: "login", spec: "/api/v1/auth/login", method: http.MethodPost,
 			path:   constPath("/api/v1/auth/login"),
@@ -301,6 +338,13 @@ func routeMatrix() []routeCase {
 	}
 }
 
+// filePath builds /api/v1/files/{fixture file id}[suffix].
+func filePath(suffix string) func(*routeFixture) string {
+	return func(f *routeFixture) string {
+		return fmt.Sprintf("/api/v1/files/%d%s", f.fileID, suffix)
+	}
+}
+
 func constPath(path string) func(*routeFixture) string {
 	return func(*routeFixture) string { return path }
 }
@@ -321,6 +365,12 @@ func TestRouteMatrix(t *testing.T) {
 			if tc.body != nil {
 				body = tc.body(f)
 			}
+			probe := func(token string) *httptest.ResponseRecorder {
+				if tc.multipart {
+					return doMultipartUpload(t, f.h, path, "probe.txt", []byte("probe"), token, nil)
+				}
+				return doJSONWith(t, f.h, method, path, body, token, nil)
+			}
 
 			// 1. Anonymous: every protected operation answers 401, not 403/404
 			//    (an unauthenticated caller must not learn whether an id exists).
@@ -328,7 +378,7 @@ func TestRouteMatrix(t *testing.T) {
 			if wantAnon == 0 {
 				wantAnon = http.StatusUnauthorized
 			}
-			w := doJSON(t, f.h, method, path, body)
+			w := probe("")
 			if w.Code != wantAnon {
 				t.Errorf("anonymous %s %s = %d, want %d, body=%s", method, path, w.Code, wantAnon, w.Body.String())
 			}
@@ -338,7 +388,7 @@ func TestRouteMatrix(t *testing.T) {
 
 			// 2. Authenticated but malformed JSON: 400 from ShouldBindJSON, never
 			//    a 500 and never a silent success.
-			if tc.body != nil {
+			if tc.body != nil || tc.multipart {
 				req := httptest.NewRequestWithContext(context.Background(), method, path, bytes.NewBufferString("{"))
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("Authorization", "Bearer "+f.admin.accessToken)
@@ -352,6 +402,9 @@ func TestRouteMatrix(t *testing.T) {
 			//    member-scoped answer.
 			memberCookies := callerCookies(&tc, f.member)
 			w = doJSONWith(t, f.h, method, path, body, f.member.accessToken, memberCookies)
+			if tc.multipart {
+				w = probe(f.member.accessToken)
+			}
 			if w.Code != tc.member {
 				t.Errorf("member %s %s = %d, want %d, body=%s", method, path, w.Code, tc.member, w.Body.String())
 			}
@@ -364,6 +417,9 @@ func TestRouteMatrix(t *testing.T) {
 				adminBody = tc.adminBody(f)
 			}
 			w = doJSONWith(t, f.h, method, path, adminBody, f.admin.accessToken, adminCookies)
+			if tc.multipart {
+				w = probe(f.admin.accessToken)
+			}
 			if w.Code != tc.admin {
 				t.Errorf("admin %s %s = %d, want %d, body=%s", method, path, w.Code, tc.admin, w.Body.String())
 			}

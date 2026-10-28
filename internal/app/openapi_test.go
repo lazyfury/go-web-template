@@ -143,7 +143,9 @@ func isUndocumentedRoute(path string) bool {
 	case "/healthz", "/readyz", "/metrics", "/openapi.json":
 		return true
 	}
-	return strings.HasPrefix(path, "/swagger/")
+	// Signed local-download URLs are capability URLs (HMAC in the path), not API
+	// operations: they are deliberately absent from the OpenAPI document.
+	return strings.HasPrefix(path, "/swagger/") || strings.HasPrefix(path, "/files/")
 }
 
 func TestOpenAPIDisabled(t *testing.T) {

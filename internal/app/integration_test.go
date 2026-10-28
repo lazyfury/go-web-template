@@ -5,8 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +24,7 @@ import (
 	"github.com/example/go-web-template/internal/app"
 	"github.com/example/go-web-template/internal/auth"
 	"github.com/example/go-web-template/internal/dict"
+	"github.com/example/go-web-template/internal/file"
 	"github.com/example/go-web-template/internal/message"
 	"github.com/example/go-web-template/internal/platform/authkit"
 	"github.com/example/go-web-template/internal/platform/config"
@@ -54,7 +60,8 @@ func newTestEnvWithConfig(t *testing.T, mutate func(*config.Config)) *testEnv {
 	t.Helper()
 	db := testutil.NewSQLiteDB(t, &user.User{}, &auth.RefreshToken{},
 		&dict.Group{}, &dict.Item{},
-		&message.Message{}, &message.Recipient{}, &message.Delivery{}, &message.Template{})
+		&message.Message{}, &message.Recipient{}, &message.Delivery{}, &message.Template{},
+		&file.File{}, &file.Link{})
 
 	cfg := config.Defaults()
 	cfg.RateLimit.Enabled = false
@@ -63,6 +70,10 @@ func newTestEnvWithConfig(t *testing.T, mutate func(*config.Config)) *testEnv {
 	cfg.Auth.BcryptCost = 4
 	cfg.Auth.CookieSecure = false
 	cfg.Message.WebhookURLs = []string{"https://example.com/hook"}
+	// Uploads go to a per-test directory: a default relative root would write
+	// into the repository (and make tests share state).
+	cfg.Storage.Local.Root = t.TempDir()
+	cfg.Storage.Local.BaseURL = "http://files.test"
 	if mutate != nil {
 		mutate(cfg)
 	}
@@ -176,6 +187,37 @@ func doJSONWith(t *testing.T, h http.Handler, method, path string, body any, tok
 	}
 	for _, cookie := range cookies {
 		req.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+// doMultipartUpload posts one file part with optional text fields. It is the
+// multipart counterpart of doJSONWith, used by the upload route tests.
+func doMultipartUpload(t *testing.T, h http.Handler, path, filename string, content []byte, token string, fields map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write form field: %v", err)
+		}
+	}
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatalf("write file part: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -1443,8 +1485,8 @@ func TestHousekeepingIsWiredAndPurgesExpiredRows(t *testing.T) {
 	if keeper == nil {
 		t.Fatal("Housekeeper() is nil while retention.enabled is true")
 	}
-	if got := keeper.Tasks(); got != 3 {
-		t.Fatalf("tasks = %d, want 3 (refresh tokens, deliveries, messages)", got)
+	if got := keeper.Tasks(); got != 5 {
+		t.Fatalf("tasks = %d, want 5 (refresh tokens, deliveries, messages, file orphans, file purge)", got)
 	}
 	if err := keeper.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -1630,5 +1672,272 @@ func mustExec(t *testing.T, db *gorm.DB, sql string, args ...any) {
 	t.Helper()
 	if err := db.Exec(sql, args...).Error; err != nil {
 		t.Fatalf("exec %q: %v", sql, err)
+	}
+}
+
+// ---- file module ---------------------------------------------------------
+
+// pngPayload returns bytes that http.DetectContentType recognizes as image/png.
+func pngPayload(extra int) []byte {
+	out := []byte("\x89PNG\r\n\x1a\n")
+	return append(out, bytes.Repeat([]byte("p"), extra)...)
+}
+
+type fileDTO struct {
+	ID           uint64 `json:"id"`
+	Name         string `json:"name"`
+	MIMEType     string `json:"mime_type"`
+	SizeBytes    int64  `json:"size_bytes"`
+	BizType      string `json:"biz_type"`
+	Visibility   int    `json:"visibility"`
+	DownloadPath string `json:"download_path"`
+}
+
+func uploadOK(t *testing.T, h http.Handler, token, name string, content []byte, fields map[string]string) fileDTO {
+	t.Helper()
+	w := doMultipartUpload(t, h, "/api/v1/files", name, content, token, fields)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("upload = %d, body=%s", w.Code, w.Body.String())
+	}
+	var dto fileDTO
+	decodeInto(t, w, &dto)
+	return dto
+}
+
+// TestFileUploadDownloadDelete 覆盖真实链路：multipart 上传 → 元数据 → 签名 URL →
+// 匿名下载（签名即凭证）→ 软删 → janitor 清理 blob 与行。
+func TestFileUploadDownloadDelete(t *testing.T) {
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+	payload := pngPayload(128)
+
+	dto := uploadOK(t, env.handler, admin.accessToken, "logo.png", payload, map[string]string{
+		"biz_type": "avatar", "visibility": "1",
+	})
+	if dto.MIMEType != "image/png" || dto.Name != "logo.png" || dto.SizeBytes != int64(len(payload)) {
+		t.Fatalf("uploaded dto = %+v", dto)
+	}
+	if dto.BizType != "avatar" || dto.Visibility != 1 {
+		t.Errorf("biz_type/visibility = %q/%d", dto.BizType, dto.Visibility)
+	}
+	if dto.DownloadPath != "/api/v1/files/"+strconv.FormatUint(dto.ID, 10)+"/url" {
+		t.Errorf("download_path = %q", dto.DownloadPath)
+	}
+
+	// Metadata is readable by the owner.
+	got := doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/files/"+strconv.FormatUint(dto.ID, 10), nil, admin.accessToken)
+	if got.Code != http.StatusOK {
+		t.Fatalf("get file = %d, body=%s", got.Code, got.Body.String())
+	}
+
+	// A signed URL renders inline (image is on the inline allowlist).
+	urlResp := doJSONAuth(t, env.handler, http.MethodGet,
+		"/api/v1/files/"+strconv.FormatUint(dto.ID, 10)+"/url?disposition=inline&ttl_seconds=120", nil, admin.accessToken)
+	if urlResp.Code != http.StatusOK {
+		t.Fatalf("get url = %d, body=%s", urlResp.Code, urlResp.Body.String())
+	}
+	var signed struct {
+		URL       string    `json:"url"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	decodeInto(t, urlResp, &signed)
+	parsed, err := url.Parse(signed.URL)
+	if err != nil {
+		t.Fatalf("parse signed url: %v", err)
+	}
+	if !strings.HasPrefix(signed.URL, env.cfg.Storage.Local.BaseURL+"/files/") {
+		t.Fatalf("signed url = %q, want the configured base URL", signed.URL)
+	}
+	if time.Until(signed.ExpiresAt) > 2*time.Minute+time.Second {
+		t.Errorf("expiry = %v, want <= 120s", time.Until(signed.ExpiresAt))
+	}
+
+	// The capability URL works without any Authorization header.
+	download := doJSON(t, env.handler, http.MethodGet, parsed.RequestURI(), nil)
+	if download.Code != http.StatusOK {
+		t.Fatalf("download = %d, body=%s", download.Code, download.Body.String())
+	}
+	if !bytes.Equal(download.Body.Bytes(), payload) {
+		t.Errorf("download body = %d bytes, want %d", download.Body.Len(), len(payload))
+	}
+	if ct := download.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("content type = %q, want image/png", ct)
+	}
+	if cd := download.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "inline;") {
+		t.Errorf("content disposition = %q, want inline", cd)
+	}
+	if download.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("missing nosniff on download")
+	}
+
+	// Range requests work (http.ServeContent against the local *os.File).
+	rangeReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, parsed.RequestURI(), nil)
+	rangeReq.Header.Set("Range", "bytes=0-7")
+	rangeRec := httptest.NewRecorder()
+	env.handler.ServeHTTP(rangeRec, rangeReq)
+	if rangeRec.Code != http.StatusPartialContent {
+		t.Errorf("range download = %d, want 206", rangeRec.Code)
+	}
+	if !bytes.Equal(rangeRec.Body.Bytes(), payload[:8]) {
+		t.Errorf("range body = %q", rangeRec.Body.Bytes())
+	}
+
+	// Tampering with the signature answers 404 (never 403: no id oracle).
+	tampered := *parsed
+	tampered.Path = parsed.Path + "0"
+	if w := doJSON(t, env.handler, http.MethodGet, tampered.RequestURI(), nil); w.Code != http.StatusNotFound {
+		t.Errorf("tampered signature = %d, want 404", w.Code)
+	}
+	// Same for a different file id.
+	otherPath := strings.Replace(parsed.Path, "/files/"+strconv.FormatUint(dto.ID, 10)+"/", "/files/999999/", 1)
+	if w := doJSON(t, env.handler, http.MethodGet, otherPath+"?"+parsed.RawQuery, nil); w.Code != http.StatusNotFound {
+		t.Errorf("tampered id = %d, want 404", w.Code)
+	}
+
+	// Delete is soft: metadata disappears immediately.
+	if w := doJSONAuth(t, env.handler, http.MethodDelete, "/api/v1/files/"+strconv.FormatUint(dto.ID, 10), nil, admin.accessToken); w.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d, body=%s", w.Code, w.Body.String())
+	}
+	if w := doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/files/"+strconv.FormatUint(dto.ID, 10), nil, admin.accessToken); w.Code != http.StatusNotFound {
+		t.Errorf("get after delete = %d, want 404", w.Code)
+	}
+	if w := doJSON(t, env.handler, http.MethodGet, parsed.RequestURI(), nil); w.Code != http.StatusNotFound {
+		t.Errorf("download after delete = %d, want 404", w.Code)
+	}
+
+	// The janitor deletes the blob and then the row.
+	keeper := env.app.Housekeeper()
+	if keeper == nil {
+		t.Fatal("housekeeper is nil")
+	}
+	if err := keeper.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	var rows int64
+	if err := env.db.Model(&file.File{}).Where("id = ?", dto.ID).Count(&rows).Error; err != nil {
+		t.Fatalf("count files: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("file row survived the purge")
+	}
+	if blobs := countBlobs(t, env.cfg.Storage.Local.Root); blobs != 0 {
+		t.Errorf("%d blobs survived the purge", blobs)
+	}
+}
+
+func countBlobs(t *testing.T, root string) int {
+	t.Helper()
+	count := 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if strings.Contains(path, string(filepath.Separator)+".tmp"+string(filepath.Separator)) {
+			return nil
+		}
+		count++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk upload root: %v", err)
+	}
+	return count
+}
+
+// TestFileUploadEnforcesLimits 钉住三件事：路由级 BodyLimit 大于全局 1 MiB 上限、
+// 单文件大小上限、MIME 白名单（不信任客户端 Content-Type）。
+func TestFileUploadEnforcesLimits(t *testing.T) {
+	env := newTestEnvWithConfig(t, func(cfg *config.Config) { cfg.Storage.MaxUploadBytes = 1024 })
+	admin := env.loginAdmin(t)
+
+	// 2 KiB > max_upload_bytes but < body limit: the service must reject it.
+	tooBig := doMultipartUpload(t, env.handler, "/api/v1/files", "big.png", pngPayload(2048), admin.accessToken, nil)
+	if tooBig.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("oversize upload = %d, want 413, body=%s", tooBig.Code, tooBig.Body.String())
+	}
+
+	// HTML bytes named .txt: sniffed as text/html, which is not on the allowlist.
+	html := []byte("<html><body><script>alert(1)</script></body></html>")
+	badType := doMultipartUpload(t, env.handler, "/api/v1/files", "note.txt", html, admin.accessToken, nil)
+	if badType.Code != http.StatusBadRequest {
+		t.Errorf("html upload = %d, want 400, body=%s", badType.Code, badType.Body.String())
+	}
+
+	// Missing file part.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/files", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+admin.accessToken)
+	w := httptest.NewRecorder()
+	env.handler.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("upload without file part = %d, want 400", w.Code)
+	}
+}
+
+func TestFileUploadAllowsMoreThanTheJSONBodyLimit(t *testing.T) {
+	// Defaults: http.max_body_bytes = 1 MiB, storage.max_upload_bytes = 10 MiB.
+	// A 2 MiB upload only works because the route has its own body limit.
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+	dto := uploadOK(t, env.handler, admin.accessToken, "big.png", pngPayload(2<<20), nil)
+	if dto.SizeBytes != int64(2<<20)+8 {
+		t.Errorf("size = %d, want the full payload", dto.SizeBytes)
+	}
+}
+
+// TestFileAccessIsOwnerScoped 是文件域的 401/403 契约：匿名 401、跨用户 403、
+// 管理员全量可见；member 的列表永远只含自己的文件。
+func TestFileAccessIsOwnerScoped(t *testing.T) {
+	env := newTestEnv(t, false)
+	admin := env.loginAdmin(t)
+	env.createMember(t, admin, memberEmail, "File Member", "+10000000001")
+	member := env.login(t, memberEmail, memberPass, http.StatusOK)
+
+	adminFile := uploadOK(t, env.handler, admin.accessToken, "admin.png", pngPayload(16), nil)
+	memberFile := uploadOK(t, env.handler, member.accessToken, "member.png", pngPayload(16), nil)
+
+	// Anonymous: 401 on every /api/v1/files route.
+	if w := doJSON(t, env.handler, http.MethodGet, "/api/v1/files", nil); w.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous list = %d, want 401", w.Code)
+	}
+
+	// Cross-owner reads/deletes are 403, not 404 (the id is not a secret).
+	for _, path := range []string{
+		"/api/v1/files/" + strconv.FormatUint(adminFile.ID, 10),
+		"/api/v1/files/" + strconv.FormatUint(adminFile.ID, 10) + "/url",
+	} {
+		if w := doJSONAuth(t, env.handler, http.MethodGet, path, nil, member.accessToken); w.Code != http.StatusForbidden {
+			t.Errorf("member GET %s = %d, want 403, body=%s", path, w.Code, w.Body.String())
+		}
+	}
+	if w := doJSONAuth(t, env.handler, http.MethodDelete, "/api/v1/files/"+strconv.FormatUint(adminFile.ID, 10), nil, member.accessToken); w.Code != http.StatusForbidden {
+		t.Errorf("member delete admin file = %d, want 403", w.Code)
+	}
+
+	// Own file works; admin sees both.
+	if w := doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/files/"+strconv.FormatUint(memberFile.ID, 10), nil, member.accessToken); w.Code != http.StatusOK {
+		t.Errorf("member get own file = %d, want 200", w.Code)
+	}
+	if w := doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/files/"+strconv.FormatUint(memberFile.ID, 10), nil, admin.accessToken); w.Code != http.StatusOK {
+		t.Errorf("admin get member file = %d, want 200", w.Code)
+	}
+
+	list := doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/files", nil, member.accessToken)
+	var page struct {
+		Items []fileDTO `json:"items"`
+		Total int64     `json:"total"`
+	}
+	decodeInto(t, list, &page)
+	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != memberFile.ID {
+		t.Errorf("member list = %+v, want only their own file", page)
+	}
+
+	adminList := doJSONAuth(t, env.handler, http.MethodGet, "/api/v1/files", nil, admin.accessToken)
+	decodeInto(t, adminList, &page)
+	if page.Total != 2 {
+		t.Errorf("admin list total = %d, want 2", page.Total)
 	}
 }

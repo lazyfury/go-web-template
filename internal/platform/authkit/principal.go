@@ -46,6 +46,12 @@ const (
 	PermMessagesSend Permission = "messages:send"
 	// PermMessagesManage allows managing templates and delivery records.
 	PermMessagesManage Permission = "messages:manage"
+	// PermFilesRead allows reading file metadata and requesting download URLs
+	// (members are additionally restricted to their own files by the service).
+	PermFilesRead Permission = "files:read"
+	// PermFilesWrite allows uploading, re-sharing and deleting files. Ownership
+	// is enforced in the service, not by the permission.
+	PermFilesWrite Permission = "files:write"
 )
 
 // Principal is the authenticated caller extracted from a valid access token.

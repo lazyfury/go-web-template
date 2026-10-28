@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS file_links;
+DROP TABLE IF EXISTS files;
