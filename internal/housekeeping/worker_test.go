@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/example/go-web-template/internal/platform/workerx"
 	"github.com/example/go-web-template/internal/testutil"
 )
 
@@ -228,5 +231,35 @@ func TestRunOnceRecordsRetentionMetrics(t *testing.T) {
 	}
 	if got := testutil.CounterValueFor(t, "housekeeping_task_failures_total", "task", "metric-broken") - failures; got < 1 {
 		t.Errorf("task failure delta = %v, want at least 1", got)
+	}
+}
+
+// TestRunOnceMarksWorkerLiveness keeps the liveness timestamp honest in both
+// directions: a clean pass stamps it, a pass with a failed task must not.
+func TestRunOnceMarksWorkerLiveness(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	healthy := NewWorker([]Task{{
+		Name:  "live",
+		Purge: func(context.Context, time.Time) (int64, error) { return 0, nil },
+	}}, Options{Now: func() time.Time { return now }})
+	if err := healthy.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	got := testutil.GaugeValueFor(t, prometheus.DefaultGatherer,
+		"worker_last_success_timestamp_seconds", "worker", workerx.Housekeeping)
+	if got != float64(now.Unix()) {
+		t.Fatalf("liveness = %v, want %d", got, now.Unix())
+	}
+
+	broken := NewWorker([]Task{{
+		Name:  "broken",
+		Purge: func(context.Context, time.Time) (int64, error) { return 0, errors.New("lock timeout") },
+	}}, Options{Now: func() time.Time { return now.Add(time.Hour) }})
+	if err := broken.RunOnce(context.Background()); err == nil {
+		t.Fatal("RunOnce must surface the failed task")
+	}
+	if after := testutil.GaugeValueFor(t, prometheus.DefaultGatherer,
+		"worker_last_success_timestamp_seconds", "worker", workerx.Housekeeping); after != got {
+		t.Fatalf("liveness advanced on a failed pass: %v -> %v", got, after)
 	}
 }

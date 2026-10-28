@@ -128,6 +128,26 @@ groups:
           summary: "保留期清理任务失败"
           description: "表会无界增长；查该 task 的日志（表名在 label 里），常见原因是锁等待超过 retention.timeout。"
 
+      - alert: MessageWorkerStalled
+        expr: time() - worker_last_success_timestamp_seconds{worker="message_delivery"} > 900
+        for: 5m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "消息投递 worker 超过 15 分钟没有完成一轮"
+          description: "worker 卡在领取/发送上（DB 错误会让进程退出，所以同时看 AppDown）。查 SMTP/Webhook 超时与 message.lease。"
+
+      - alert: HousekeepingStalled
+        expr: time() - worker_last_success_timestamp_seconds{worker="housekeeping"} > 7200
+        for: 10m
+        labels:
+          severity: warning
+          service: go-web-template
+        annotations:
+          summary: "保留期清理 worker 超过 2 小时没有成功跑完"
+          description: "表会无界增长。先看 HousekeepingTaskFailing 与该 task 日志；retention.enabled=false 时该指标不存在。"
+
       - alert: RateLimitStoreErrors
         expr: increase(ratelimit_store_errors_total[5m]) > 0
         for: 5m

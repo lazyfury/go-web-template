@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/example/go-web-template/internal/platform/workerx"
 )
 
 // Task is one retention rule.
@@ -125,7 +127,14 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	return errors.Join(errs...)
+	joined := errors.Join(errs...)
+	if joined != nil {
+		return joined
+	}
+	// Only a pass where every task succeeded counts as healthy; a failing table
+	// would otherwise keep the timestamp fresh while growing unbounded.
+	workerx.MarkSuccess(workerx.Housekeeping, w.opts.Now())
+	return nil
 }
 
 func (w *Worker) runTask(ctx context.Context, task Task) error {

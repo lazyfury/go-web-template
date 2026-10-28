@@ -8,6 +8,8 @@
 | `prometheus/alerts.yml` | 告警规则（可用 `rule_files` 直接加载，或包成 prometheus-operator 的 `PrometheusRule`） |
 | `grafana/dashboard.json` | Grafana 看板（导入时选择 Prometheus 数据源；uid 固定为 `go-web-template`） |
 
+`build_info{version,commit}` 是一个值恒为 1 的指标：用它区分告警/看板对应的是哪个构建，避免翻容器日志。
+
 ## 1. 抓取配置
 
 `/metrics` 默认开启，但 `deploy/docker-compose.yml`（生产式编排）默认 `APP_METRICS_ENABLED=false`：
@@ -47,6 +49,8 @@ rule_files:
 | message | `DeliveryFailureRatio` | 失败率 > 20% 持续 10m |
 | message | `DeliveryLeaseLost` | 15m 内 > 5 次 `lease_lost`（重复投递风险） |
 | operations | `HousekeepingTaskFailing` | 1h 内出现清理任务失败 |
+| operations | `HousekeepingStalled` | 清理 worker 超过 2h 没有成功跑完 |
+| operations | `MessageWorkerStalled` | 投递 worker 超过 15m 没有完成一轮 |
 | operations | `RateLimitStoreErrors` | 5m 内出现 Redis 限流存储错误（已 fail-open） |
 
 阈值是起点：先按自己的流量基线调 `for` 与阈值，再谈「告警不吵」。
@@ -55,7 +59,8 @@ rule_files:
 
 `grafana/dashboard.json` 可直接导入（Dashboards → Import → 选择文件 → 绑 Prometheus 数据源）。
 面板：请求速率/状态码、p50/p95/p99、在途请求、登录与刷新结果、会话吊销原因、投递结果与耗时、
-保留期删除量。所有 label 都是闭集（`result`/`reason`/`task`/`channel`/`path` 路由模板），
+保留期删除量、worker 最近成功时间（`worker_last_success_timestamp_seconds`）、数据库连接池
+（`db_pool_*`，含等待计数/时长）。所有 label 都是闭集（`result`/`reason`/`task`/`channel`/`worker`/`path` 路由模板），
 不含用户/邮箱/目标地址，所以不需要担心 PII 或高基数。
 
 ## 4. 与代码同步

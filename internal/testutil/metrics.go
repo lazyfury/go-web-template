@@ -18,10 +18,18 @@ func CounterValue(tb testing.TB, name string) float64 {
 // key, value, key, value...
 func CounterValueFor(tb testing.TB, name string, labels ...string) float64 {
 	tb.Helper()
+	return GaugeValueFor(tb, prometheus.DefaultGatherer, name, labels...)
+}
+
+// GaugeValueFor sums gauges or counters matching labels from an arbitrary
+// gatherer. Tests that register metrics on their own registry use this instead
+// of touching the process-wide default.
+func GaugeValueFor(tb testing.TB, gatherer prometheus.Gatherer, name string, labels ...string) float64 {
+	tb.Helper()
 	if len(labels)%2 != 0 {
-		tb.Fatalf("CounterValueFor(%s): labels must be key/value pairs, got %d values", name, len(labels))
+		tb.Fatalf("GaugeValueFor(%s): labels must be key/value pairs, got %d values", name, len(labels))
 	}
-	families, err := prometheus.DefaultGatherer.Gather()
+	families, err := gatherer.Gather()
 	if err != nil {
 		tb.Fatalf("gather metrics: %v", err)
 	}

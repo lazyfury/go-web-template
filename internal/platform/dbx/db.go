@@ -2,6 +2,7 @@
 package dbx
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -37,8 +38,11 @@ func New(cfg *config.Database, logger *zap.Logger) (*gorm.DB, error) {
 		sqlDB.SetConnMaxLifetime(time.Hour)
 	}
 
-	// Fail fast: verify the connection is actually usable.
-	if err := sqlDB.Ping(); err != nil {
+	// Fail fast: verify the connection is actually usable. The timeout keeps a
+	// black-holed host from hanging startup behind the OS TCP timeout.
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(pingCtx); err != nil {
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 	return db, nil

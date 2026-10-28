@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/example/go-web-template/internal/platform/workerx"
 	"github.com/example/go-web-template/internal/testutil"
 )
 
@@ -284,5 +287,22 @@ func TestWorkerSkipsSendAfterLosingLease(t *testing.T) {
 	}
 	if len(repo.sent) != 0 || len(repo.failed) != 0 {
 		t.Errorf("sent = %+v failed = %+v, want no state change", repo.sent, repo.failed)
+	}
+}
+
+// TestRunOnceMarksWorkerLiveness pins the "worker is alive" signal: the
+// delivery counters cannot distinguish "nothing to claim" from "the loop is
+// stuck", so a completed pass stamps the shared worker metric.
+func TestRunOnceMarksWorkerLiveness(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	worker := fixedWorker(&workerRepo{}, nil, now)
+
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	got := testutil.GaugeValueFor(t, prometheus.DefaultGatherer,
+		"worker_last_success_timestamp_seconds", "worker", workerx.MessageDelivery)
+	if got != float64(now.Unix()) {
+		t.Fatalf("worker_last_success_timestamp_seconds = %v, want %d", got, now.Unix())
 	}
 }

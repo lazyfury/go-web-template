@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -80,6 +81,12 @@ func NewWithDB(cfg *config.Config, logger *zap.Logger, db *gorm.DB, opts ...Opti
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("access sql.DB: %w", err)
+	}
+	// Pool saturation shows up as latency everywhere else; expose it where the
+	// latency panel can attribute it. Registration is idempotent so tests that
+	// build several Apps in one process don't panic.
+	if err := dbx.RegisterPoolMetrics(prometheus.DefaultRegisterer, sqlDB); err != nil {
+		return nil, fmt.Errorf("register db pool metrics: %w", err)
 	}
 	if cfg.Auth.JWTSecret == "" {
 		return nil, fmt.Errorf("auth.jwt_secret is required (set APP_AUTH_JWT_SECRET)")

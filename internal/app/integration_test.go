@@ -1249,8 +1249,15 @@ func TestSecurityHeadersAndNoStoreAreWired(t *testing.T) {
 // 必须有开关能关掉（生产式编排默认就是关的）。
 func TestMetricsEndpointCanBeDisabled(t *testing.T) {
 	enabled := newTestEnv(t, false) // config.Defaults() → metrics.enabled=true
-	if w := doJSON(t, enabled.handler, http.MethodGet, "/metrics", nil); w.Code != http.StatusOK {
+	w := doJSON(t, enabled.handler, http.MethodGet, "/metrics", nil)
+	if w.Code != http.StatusOK {
 		t.Fatalf("/metrics with metrics.enabled=true = %d, want 200", w.Code)
+	}
+	// Pool metrics are registered by the composition root: without this
+	// assertion a refactor could drop the wiring and only production would
+	// notice (the endpoint still answers 200, just without db_pool_*).
+	if body := w.Body.String(); !strings.Contains(body, "db_pool_open_connections") {
+		t.Errorf("/metrics body is missing db_pool_open_connections")
 	}
 
 	disabled := newTestEnvWithConfig(t, func(cfg *config.Config) { cfg.Metrics.Enabled = false })

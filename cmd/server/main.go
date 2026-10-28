@@ -9,10 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/example/go-web-template/internal/app"
+	"github.com/example/go-web-template/internal/platform/buildinfo"
 	"github.com/example/go-web-template/internal/platform/config"
 	"github.com/example/go-web-template/internal/platform/logx"
 )
@@ -50,6 +52,12 @@ func main() {
 	// Signal-aware context: SIGINT / SIGTERM trigger graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// build_info makes "which build is this alert/dashboard line about?"
+	// answerable without grepping container logs.
+	if err := buildinfo.Register(prometheus.DefaultRegisterer, version, commit); err != nil {
+		logger.Warn("register build_info metric", zap.Error(err))
+	}
 
 	application, err := app.New(cfg, logger, app.WithVersion(version))
 	if err != nil {

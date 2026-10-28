@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/example/go-web-template/internal/platform/workerx"
 )
 
 // WorkerOptions configures the delivery worker.
@@ -112,6 +114,9 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		}
 		w.process(ctx, &deliveries[i])
 	}
+	// A completed pass is the worker's liveness signal: per-delivery results are
+	// already counted, but "nothing claimed" and "loop wedged" look identical.
+	workerx.MarkSuccess(workerx.MessageDelivery, w.opts.Now())
 	return nil
 }
 
