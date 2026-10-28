@@ -124,3 +124,27 @@ func TestRepositorySaveAuthStatePersistsZeroValues(t *testing.T) {
 		t.Errorf("profile columns not persisted by SaveAuthState: name=%q phone=%q", got.Name, got.Phone)
 	}
 }
+
+// TestRepositoryCreateDuplicateEmailIsConflict exercises the unique-index path
+// through the real database: the service layer pre-checks emails, so without
+// this test a concurrent insert (or a re-created soft-deleted address) would
+// surface as a 500 instead of 409 and nothing would notice.
+func TestRepositoryCreateDuplicateEmailIsConflict(t *testing.T) {
+	db := testutil.NewSQLiteDB(t, &User{})
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	first := &User{Name: "First", Email: "duplicate@example.com", Status: StatusActive}
+	if err := repo.Create(ctx, first); err != nil {
+		t.Fatalf("Create first: %v", err)
+	}
+
+	second := &User{Name: "Second", Email: "duplicate@example.com", Status: StatusActive}
+	err := repo.Create(ctx, second)
+	if err == nil {
+		t.Fatal("creating a duplicate email must fail")
+	}
+	if code := apperr.From(err).Code; code != apperr.CodeConflict {
+		t.Fatalf("code = %v, want %v (err: %v)", code, apperr.CodeConflict, err)
+	}
+}

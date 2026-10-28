@@ -115,6 +115,25 @@ func TestGormLoggerKeepsQueriesParameterized(t *testing.T) {
 	}
 }
 
+func TestGormLoggerInfoAndWarnHelpers(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	logger := newGormLogger(&config.Database{LogLevel: "info", SlowThreshold: time.Hour}, zap.New(core))
+
+	logger.Info(t.Context(), "gorm info %d", 1)
+	logger.Warn(t.Context(), "gorm warn")
+
+	entries := logs.All()
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2 (all: %v)", len(entries), entries)
+	}
+	if entries[0].Level != zapcore.InfoLevel || entries[0].Message != "gorm info 1" {
+		t.Errorf("first entry = %v %q, want info \"gorm info 1\"", entries[0].Level, entries[0].Message)
+	}
+	if entries[1].Level != zapcore.WarnLevel || entries[1].Message != "gorm warn" {
+		t.Errorf("second entry = %v %q, want warn \"gorm warn\"", entries[1].Level, entries[1].Message)
+	}
+}
+
 // openSqlite wires an in-memory database with the production logger, so the
 // tests exercise the real gorm call sites (Trace/Error) instead of calling the
 // adapter directly.

@@ -6,7 +6,7 @@
 
 | 门 | 何时跑 | 覆盖什么 |
 |---|---|---|
-| `make check` | **每次提交前（必跑）** | golangci-lint、gofmt 校验、go vet、race 测试、覆盖率下限（`make cover-check`，`COVER_MIN`）、build、OpenAPI 黄金文件、`go mod tidy` 同步 |
+| `make check` | **每次提交前（必跑）** | golangci-lint、gofmt 校验、go vet、race 测试、覆盖率门（`scripts/cover-check.sh`：总量 `COVER_MIN` + 每包 `COVER_PKG_MIN` + 关键文件零覆盖函数）、build、OpenAPI 黄金文件、`go mod tidy` 同步 |
 | `make audit` | auth/JWT/鉴权/迁移 SQL 改动、发布前 | 密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、govulncheck |
 | `make smoke` / `make verify-auth` | 有 postgres 时；改认证/会话后必跑 `verify-auth` | 真实进程 + 真实 PG 的端到端行为；`smoke` 覆盖探针/登录/权限/CRUD/refresh/OpenAPI |
 
@@ -29,7 +29,7 @@ make verify-auth   # 改登录/refresh/会话后必跑
 ## 证据要求
 
 - **禁止未运行就声称通过**：最终回复贴真实输出的最后几行。
-- `make check` 至少贴 `0 issues.`、测试结果与 `tidy-check: ok`。
+- `make check` 至少贴 `0 issues.`、`cover-check: ok`（含每包明细）与 `tidy-check: ok`。
 - auth/鉴权/迁移：附 `make audit` 的 `audit: PASS` 与 govulncheck 结果。
 - 有 PG：附 `make smoke` / `make verify-auth` 结果。
 - 没有环境跑的门必须写进“未验证项”，不要模糊成“应该没问题”。

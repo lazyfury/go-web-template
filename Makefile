@@ -21,7 +21,10 @@ GOVULNCHECK   ?= $(shell [ -x "$(TOOL_BIN)/govulncheck" ] && echo "$(TOOL_BIN)/g
 COVERPKG   ?= ./internal/...
 # 覆盖率下限（总量，口径 = COVERPKG）：低于它就当回归，不接受「数字看着还行」。
 # 抬高时只改这里；不要为了让红灯变绿而降低阈值。
-COVER_MIN  ?= 74
+COVER_MIN  ?= 76
+# 每包下限 + 关键文件「零覆盖函数」规则见 scripts/cover-check.sh：
+# 总量会被集成测试拉高，掩盖单个包整体腐烂；阈值调高同样只改这里。
+COVER_PKG_MIN ?= 55
 MIGRATE_URL ?= postgres://postgres:postgres@127.0.0.1:5432/go_web_template?sslmode=disable
 
 # 工具版本：Makefile 是唯一来源，升级时只改这里
@@ -157,13 +160,9 @@ coverage-func: ## 覆盖率文本摘要（agent/人类友好，不开浏览器�
 	$(GO) test ./... -coverpkg=$(COVERPKG) -coverprofile=coverage.out >/dev/null
 	$(GO) tool cover -func=coverage.out
 
-cover-check: ## 覆盖率下限校验（make check 的一部分，阈值见 COVER_MIN）
+cover-check: ## 覆盖率门：总量 + 每包下限 + 关键文件零覆盖函数（scripts/cover-check.sh）
 	$(GO) test ./... -count=1 -coverpkg=$(COVERPKG) -coverprofile=coverage.out >/dev/null
-	@total=$$($(GO) tool cover -func=coverage.out | tail -1 | awk '{gsub(/%/,"",$$3); print $$3}'); \
-	awk -v total="$$total" -v min="$(COVER_MIN)" 'BEGIN { \
-		printf "coverage %.1f%% (floor %s%%)\n", total, min; \
-		if (total + 0 < min + 0) { print "FAIL: coverage below floor"; exit 1 } \
-	}'
+	@COVER_MIN=$(COVER_MIN) COVER_PKG_MIN=$(COVER_PKG_MIN) ./scripts/cover-check.sh
 
 openapi: ## 重新生成 OpenAPI 契约（改了路由元数据后必须跑）
 	$(GO) test ./internal/app -run TestOpenAPIGolden -update
