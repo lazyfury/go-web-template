@@ -1,6 +1,7 @@
 # 依赖与构建产物
 /bin/
 /tmp/
+/dist/
 coverage.out
 *.exe
 *.test

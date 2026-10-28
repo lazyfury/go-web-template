@@ -15,6 +15,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d go_web_template"]
       interval: 5s
@@ -28,6 +31,8 @@ services:
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "6379:6379"
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -108,6 +113,19 @@ services:
       APP_AUTH_COOKIE_SECURE: "${APP_AUTH_COOKIE_SECURE:-true}"
     ports:
       - "8080:8080"
+    # 运行时加固：镜像里的 /app 只读即可（配置在构建期复制），降权 + 禁提权 +
+    # 丢弃全部 capability。写操作只有日志（stdout）与数据库。
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # 优雅停机窗口要覆盖 http.shutdown_timeout（默认 10s）+ 在途请求。
+    stop_grace_period: 30s
+    mem_limit: 512m
+    cpus: "1.0"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 10s

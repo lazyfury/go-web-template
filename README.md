@@ -279,6 +279,23 @@ docker compose -f deploy/docker-compose.yml up -d --build
 # 也就是说 `make docker-up`（自动生成并复用 .local/jwt-secret）是本地唯一推荐入口。
 ```
 
+## 容器与发布
+
+- **运行时加固**（`deploy/docker-compose.yml`）：app 容器 `read_only` + `tmpfs /tmp` +
+  `no-new-privileges` + `cap_drop: ALL` + 非 root（镜像内 UID 10001）+ 512MB/1CPU 上限 +
+  `stop_grace_period: 30s`（覆盖 `http.shutdown_timeout`）。基础镜像按 digest 固定
+  （`golang:1.27.3-alpine@sha256:…`、`alpine:3.21@sha256:…`），升级时同步改 digest。
+- **SBOM**：`make sbom` 用 trivy 生成 CycloneDX 到 `dist/sbom.cdx.json`（不入库）；
+  `make image-scan` 扫描 HIGH/CRITICAL，发布前必跑。
+- **多架构镜像**（需要 buildx + registry）：
+  ```bash
+  docker buildx build --platform linux/amd64,linux/arm64 \
+    -t registry.example.com/go-web-template:v0.3.0 --push .
+  ```
+- 生产部署清单：`APP_AUTH_JWT_SECRET` 外部注入（≥32 字节）、`APP_AUTH_COOKIE_SECURE=true`、
+  `APP_CORS_ALLOWED_ORIGINS` 写具体域名、`APP_METRICS_ENABLED`/`APP_SWAGGER_ENABLED` 按需关闭、
+  反代终止 TLS。
+
 ## 从模板开始你的项目
 
 1. 重命名模块路径（影响 go.mod 与所有 import）：

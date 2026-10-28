@@ -38,7 +38,7 @@ MIGRATE_VERSION       ?= v4.20.1
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up bench fuzz deps-outdated \
         ci web-install web-deps e2e \
         migrate-up migrate-down migrate-create migrate-roundtrip \
-        web-check docker-build image-scan jwt-secret docker-up docker-down docker-logs clean
+        web-check docker-build image-scan sbom jwt-secret docker-up docker-down docker-logs clean
 
 help: ## 显示所有命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -263,11 +263,22 @@ jwt-secret: ## 生成/复用本地编排的 JWT 密钥（.local/jwt-secret，git
 docker-build: ## 构建镜像
 	docker build -t $(APP_NAME):$(VERSION) .
 
+sbom: docker-build ## 生成 CycloneDX SBOM（trivy，需要网络）
+	@mkdir -p dist
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(TRIVY_ENV) \
+		-v "$(PWD)/dist:/out" $(TRIVY_IMAGE) \
+		image --format cyclonedx --output /out/sbom.cdx.json $(APP_NAME):$(VERSION)
+	@echo "SBOM: dist/sbom.cdx.json（$$(du -h dist/sbom.cdx.json | cut -f1)）"
+
 # 镜像漏洞扫描：trivy 跑在容器里，不需要本机安装。首次运行会拉镜像（需要网络）。
 # 只卡 HIGH/CRITICAL（--exit-code 1）；base 镜像 digest pin 与镜像签名不在本模板范围。
 TRIVY_IMAGE ?= aquasec/trivy:0.61.0
+# trivy 需要联网拉 vuln DB；-e VAR 形式只在调用方设置了该变量时透传，兼容公司代理。
+# 注意容器里的 127.0.0.1 不是宿主机：Docker Desktop 下应传 host.docker.internal:7890。
+TRIVY_ENV := -e HTTP_PROXY -e HTTPS_PROXY -e NO_PROXY
+
 image-scan: docker-build ## 扫描镜像 HIGH/CRITICAL 漏洞（trivy，需要网络）
-	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(TRIVY_IMAGE) \
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(TRIVY_ENV) $(TRIVY_IMAGE) \
 		image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(APP_NAME):$(VERSION)
 
 docker-up: jwt-secret ## 一键启动 postgres + redis + migrate + app（自动注入 JWT 密钥）
