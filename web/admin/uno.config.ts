@@ -13,6 +13,10 @@ export default defineConfig({
       },
     }),
   ],
+  // 图标规则带 `i-` 前缀，匹配前会先剥掉它：源码里的 `-`/`i--` 这类非图标 token
+  // 会以 "-" 的形式进入 presetIcons，每次构建都刷一条 failed to load icon "-"。
+  // 直接屏蔽两个原始 token，保留其它图标拼写错误的告警。
+  blocklist: ['-', 'i--'],
   transformers: [transformerDirectives()],
   content: {
     pipeline: {
