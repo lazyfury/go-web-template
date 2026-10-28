@@ -21,7 +21,7 @@ GOVULNCHECK   ?= $(shell [ -x "$(TOOL_BIN)/govulncheck" ] && echo "$(TOOL_BIN)/g
 COVERPKG   ?= ./internal/...
 # 覆盖率下限（总量，口径 = COVERPKG）：低于它就当回归，不接受「数字看着还行」。
 # 抬高时只改这里；不要为了让红灯变绿而降低阈值。
-COVER_MIN  ?= 76
+COVER_MIN  ?= 78
 # 每包下限 + 关键文件「零覆盖函数」规则见 scripts/cover-check.sh：
 # 总量会被集成测试拉高，掩盖单个包整体腐烂；阈值调高同样只改这里。
 COVER_PKG_MIN ?= 55
