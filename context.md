@@ -263,14 +263,15 @@ refresh token 走 `HttpOnly; SameSite=Strict` cookie（`gw_refresh`，Path `/api
 | `/api/v1/files/:id` | GET | 是 | `files:read` | 元数据；member 仅本人或 public 文件 | 200 `StoredFileDTO` | 400/401/403/404 |
 | `/api/v1/files/:id/url` | GET | 是 | `files:read` | 签名下载 URL（`disposition=inline\|attachment`、`ttl_seconds` ≤3600）；`inline` 仅对 `inline_mime` 生效，其余强制降级为 attachment | 200 `URLResponse` | 400/401/403/404 |
 | `/api/v1/files/:id/text` | GET | 是 | `files:read` | `text/*` 有界纯文本预览（≤256 KiB，返回 `truncated`）；后台预览用，避免 iframe/CORS | 200 `TextPreviewResponse` | 400/401/403/404 |
-| `/api/v1/files/:id` | PATCH | 是 | `files:write` | 改 visibility（owner/admin） | 200 `StoredFileDTO` | 400/401/403/404 |
-| `/api/v1/files/:id/share` | POST | 是 | `files:write` | 创建/复用长期公开外链（`purpose`、`expires_in_seconds`；同 file+purpose 幂等） | 200 `AssetLink` | 400/401/403/404/409 |
+| `/api/v1/files/:id` | PATCH | 是 | `files:write` | 改 visibility（owner/admin）；**设为私有会撤销全部公开外链** | 200 `StoredFileDTO` | 400/401/403/404 |
+| `/api/v1/files/:id/share` | POST | 是 | `files:write` | 创建/复用长期公开外链（`purpose`、`expires_in_seconds`；同 file+purpose 幂等）；**文件必须 `visibility=public`**，否则 409 | 200 `AssetLink` | 400/401/403/404/409 |
 | `/api/v1/files/:id/share` | DELETE | 是 | `files:write` | 撤销外链（`purpose` 为空 = 全部） | 204 | 400/401/403/404 |
 | `/api/v1/files/:id` | DELETE | 是 | `files:write` | 软删 + 撤销外链 + 异步清理 blob | 204 | 400/401/403/404 |
 
 - `dicts:read` 授予 admin + member；`dicts:write` 仅 admin。消费侧只返回启用组/项，管理侧可见停用数据。
 - `files:read`/`files:write` 授予 admin + member；成员级归属（只能读写自己的）在 service 校验，`public` 文件仅放开读。
 - `StoredFileDTO.inline_allowed` 由 `storage.inline_mime` 计算（默认 image/pdf/text/video），后台据此决定「内联预览」还是「只能下载」。
+- 私有文件**不能**生成公开外链（`PublicURL`/`Share` 返回 409）：外链绕过认证，只有 `visibility=public` 才允许；改回私有时自动撤销已有外链。私有文件用短签名 URL 临时分享。
   下载 URL 是能力 URL：签名错误一律 404（不确认 id 是否存在），`inline` 仅限 `storage.inline_mime`。
 - `messages:read` 授予 admin + member（只能读自己的收件箱）；`messages:send` / `messages:manage` 仅 admin。邮件/短信/Webhook 写入 `message_deliveries` outbox，由 `cmd/server` 启动的 worker 异步发送并重试。
 - `ItemDTO.value` 是**存储原值**（空字符串表示未显式设置）；`dict.Store.GetInto` 解码时才回落 `item_key`，避免前端表单回写时把 key 误固化成 value。

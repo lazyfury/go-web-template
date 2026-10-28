@@ -37,9 +37,12 @@ type routeFixture struct {
 	templateID uint64
 	messageID  uint64
 	deliveryID uint64
-	// fileID is an admin-uploaded file: member probes on it must answer 403
-	// (cross-owner denial), which is the contract this matrix exists to pin.
+	// fileID is an admin-uploaded **private** file: member probes on it must
+	// answer 403 (cross-owner denial), which is the contract this matrix pins.
 	fileID uint64
+	// publicFileID is a second admin file with visibility=1. Member reads are
+	// allowed there, but share/revoke must still fail on ownership.
+	publicFileID uint64
 }
 
 func newRouteFixture(t *testing.T) *routeFixture {
@@ -104,6 +107,8 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	// signed-URL endpoint. A member must get 403 on all of them.
 	upload := doMultipartUpload(t, h, "/api/v1/files", "matrix.txt", []byte("matrix file content"), admin.accessToken, map[string]string{"biz_type": "attachment"})
 	f.fileID = idFromResponse(t, upload)
+	publicUpload := doMultipartUpload(t, h, "/api/v1/files", "matrix-public.txt", []byte("matrix public content"), admin.accessToken, map[string]string{"biz_type": "attachment", "visibility": "1"})
+	f.publicFileID = idFromResponse(t, publicUpload)
 
 	// Retry only accepts failed/dead rows; park one delivery there so the
 	// success path is exercised instead of only the 409 branch.
@@ -191,11 +196,11 @@ func routeMatrix() []routeCase {
 			body:   bodyOf(map[string]any{"visibility": 1}),
 			member: http.StatusForbidden, admin: http.StatusOK},
 		{name: "share file", spec: "/api/v1/files/{id}/share", method: http.MethodPost,
-			path:   filePath("/share"),
+			path:   publicFilePath("/share"),
 			body:   bodyOf(map[string]any{"purpose": "matrix"}),
 			member: http.StatusForbidden, admin: http.StatusOK},
 		{name: "revoke file share", spec: "/api/v1/files/{id}/share", method: http.MethodDelete,
-			path:   filePath("/share"),
+			path:   publicFilePath("/share"),
 			member: http.StatusForbidden, admin: http.StatusNoContent},
 		// Public asset route: token is the credential; a bad token is 404 for
 		// every caller (never 401/403, never an id oracle).
@@ -355,10 +360,17 @@ func routeMatrix() []routeCase {
 	}
 }
 
-// filePath builds /api/v1/files/{fixture file id}[suffix].
+// filePath builds /api/v1/files/{private fixture file id}[suffix].
 func filePath(suffix string) func(*routeFixture) string {
 	return func(f *routeFixture) string {
 		return fmt.Sprintf("/api/v1/files/%d%s", f.fileID, suffix)
+	}
+}
+
+// publicFilePath builds the same path for the public fixture file.
+func publicFilePath(suffix string) func(*routeFixture) string {
+	return func(f *routeFixture) string {
+		return fmt.Sprintf("/api/v1/files/%d%s", f.publicFileID, suffix)
 	}
 }
 

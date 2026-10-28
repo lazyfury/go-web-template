@@ -158,3 +158,4 @@
 | 外链域名是 localhost | 设 `APP_STORAGE_ASSETS_BASE_URL`（CDN/反代 origin）；为空时回落到 `storage.local.base_url`。 |
 | 打开链接直接下载而不是预览 | 该类型不在 `storage.inline_mime`（默认 image/*、pdf、text/plain、video/mp4|webm）。`zip`/`docx`/`xlsx` 按设计强制 attachment；要内联就把 MIME 加进白名单（只加浏览器不会执行脚本的类型）。 |
 | 后台预览 PDF 显示不了 | 本地驱动响应带 `X-Frame-Options: DENY`，iframe 会被浏览器拦截；预览页改为「新标签打开」。S3/CDN 直链没有该限制。 |
+| 生成公开链接返回 409 | 文件是私有的。先 `PATCH /files/:id {"visibility":1}`；私有文件只能用临时签名链接。从公开改回私有会撤销已发出的外链。 |

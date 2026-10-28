@@ -108,6 +108,8 @@ userService := user.NewService(..., fileBinder)
   未知/过期/撤销统一 404；`inline` 仍受 `inline_mime` 白名单约束，其余强制 attachment。
 - 幂等：同一 `(file_id, purpose)` 复用有效 token（部分唯一索引），已缓存的 HTML 不会失效；
   不同 `purpose`（`article-cover` / `og-image`）各自独立撤销。
+- **前置条件**：文件必须是 `visibility=public`（否则 409）。外链绕过认证，允许私有文件建外链等于让
+  「私有」名不副实；私有分享走短签名 URL。`PATCH visibility=0` 会自动撤销全部外链。
 - 删除文件会先撤销全部外链；`ON DELETE CASCADE` 兜底。
 - 缓存是主要防线：`Cache-Control: public, max-age=storage.assets.cache_ttl` + 强 ETag（sha256 前缀），
   CDN/浏览器命中不经过应用；`file_asset_requests_total` 只统计回源请求。

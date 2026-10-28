@@ -121,16 +121,38 @@ const download = async (row: FileItem, disposition: 'inline' | 'attachment') => 
 }
 
 /**
- * 长期公开链接（文章封面/头像用）：后端 file_shares 生成随机 token，
- * 同 (file, purpose) 幂等、可撤销；链接本身可被 CDN/浏览器缓存。
+ * 两种链接不是重复功能，语义正好互补：
+ * - 公开链接：长期（可永久）、可撤销、**匿名可读**（文章封面/头像），
+ *   因此只对 visibility=public 的文件开放；缓存 TTL 内撤销可能仍有旧响应。
+ * - 临时链接：短签名（默认 10 分钟，上限 1h）、不可撤销、只给拿到 URL 的人，
+ *   适合私有附件临时分享。
  */
 const copyPublicLink = async (row: FileItem) => {
+  if (row.visibility !== 1) {
+    ElMessage.warning('私有文件不能生成公开链接，请先设为公开')
+    return
+  }
   try {
     const link = await fileApi.share(row.id, { purpose: 'asset' })
     await navigator.clipboard.writeText(link.url)
-    ElMessage.success('已复制长期外链（可撤销，缓存生效期间仍可能被命中）')
+    ElMessage.success('已复制公开链接（长期有效、可撤销）')
   } catch (error) {
-    notifyError(error, '生成外链失败')
+    notifyError(error, '生成公开链接失败')
+  }
+}
+
+/** 分享下拉的统一入口；禁用项在模板里已经拦过，这里再兜底。 */
+const handleShareCommand = async (command: string | number | object, row: FileItem) => {
+  switch (command) {
+    case 'public':
+      await copyPublicLink(row)
+      break
+    case 'temporary':
+      await copyLink(row)
+      break
+    case 'revoke':
+      await revokePublicLink(row)
+      break
   }
 }
 
@@ -166,7 +188,9 @@ const toggleVisibility = async (row: FileItem) => {
   const next: FileVisibility = row.visibility === 1 ? 0 : 1
   try {
     await fileApi.updateVisibility(row.id, next)
-    ElMessage.success(next === 1 ? '已设为公开（所有登录用户可读）' : '已设为私有')
+    ElMessage.success(
+      next === 1 ? '已设为公开（登录用户可读，可生成公开链接）' : '已设为私有（公开链接已自动撤销）',
+    )
     await load()
   } catch (error) {
     notifyError(error, '修改可见性失败')
@@ -262,7 +286,8 @@ onMounted(load)
         <div>
           <h2 class="text-base font-semibold">文件管理</h2>
           <p class="mt-1 text-xs text-[var(--text-secondary)]">
-            上传后按 id 引用；下载通过短期签名 URL，删除后由后台任务清理存储对象。
+            私有文件只能生成临时链接（10 分钟）；公开链接长期有效、可撤销、匿名可读，需先设为公开。
+            回收站语义：删除后由后台任务清理存储对象。
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -286,6 +311,13 @@ onMounted(load)
 
       <el-table v-loading="loading" :data="items" class="px-2">
         <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column label="可见性" width="90">
+          <template #default="{ row }">
+            <el-tag :type="FileVisibilityMeta[(row as FileItem).visibility].tagType" size="small" effect="light">
+              {{ FileVisibilityMeta[(row as FileItem).visibility].label }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="文件名" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <button
@@ -307,23 +339,38 @@ onMounted(load)
             <span class="text-xs">{{ (row as FileItem).biz_type || '—' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="可见性" width="100">
-          <template #default="{ row }">
-            <el-tag :type="FileVisibilityMeta[(row as FileItem).visibility].tagType" size="small" effect="light">
-              {{ FileVisibilityMeta[(row as FileItem).visibility].label }}
-            </el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="上传时间" width="170">
           <template #default="{ row }">{{ formatTime((row as FileItem).created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="480" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openPreview(row as FileItem)">预览</el-button>
             <el-button link type="primary" @click="download(row as FileItem, 'attachment')">下载</el-button>
-            <el-button link type="primary" @click="copyPublicLink(row as FileItem)">复制外链</el-button>
-            <el-button link type="primary" @click="copyLink(row as FileItem)">临时链接</el-button>
-            <el-button link type="warning" @click="revokePublicLink(row as FileItem)">撤销外链</el-button>
+            <el-dropdown trigger="click" @command="(command: string | number | object) => handleShareCommand(command, row as FileItem)">
+              <el-button link type="primary">
+                分享<span class="i-ep-arrow-down ml-1" />
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    command="public"
+                    :disabled="(row as FileItem).visibility === 0"
+                    title="长期有效、可撤销、匿名可读；私有文件需先设为公开"
+                  >
+                    复制公开链接（长期，可撤销）
+                  </el-dropdown-item>
+                  <el-dropdown-item command="temporary">复制临时链接（10 分钟）</el-dropdown-item>
+                  <el-dropdown-item
+                    command="revoke"
+                    divided
+                    :disabled="(row as FileItem).visibility === 0"
+                    title="撤销后已缓存的页面最多在缓存过期后才失效"
+                  >
+                    撤销公开链接
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button v-if="canWrite" link type="primary" @click="toggleVisibility(row as FileItem)">
               {{ (row as FileItem).visibility === 1 ? '设为私有' : '设为公开' }}
             </el-button>

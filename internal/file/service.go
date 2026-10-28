@@ -255,6 +255,13 @@ func (s *Service) UpdateVisibility(ctx context.Context, actor authkit.Principal,
 	if err := s.repo.UpdateVisibility(ctx, id, visibility); err != nil {
 		return nil, err
 	}
+	// Switching back to private must also kill the anonymous links, otherwise
+	// "private" would still be readable through an already-issued asset URL.
+	if visibility == VisibilityPrivate {
+		if err := s.repo.RevokeShares(ctx, id, "", s.opts.Now()); err != nil {
+			return nil, err
+		}
+	}
 	record.Visibility = visibility
 	return record, nil
 }

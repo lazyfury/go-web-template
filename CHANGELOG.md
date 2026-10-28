@@ -18,6 +18,8 @@
   `StoredFileDTO.inline_allowed`；前端预览弹窗支持图片/视频内嵌、文本（含截断提示）、PDF 新标签打开。
   `storage.inline_mime` 默认加入 `text/plain`、`video/mp4`、`video/webm`（图片/PDF/文本/视频可直接在浏览器打开，
   zip/docx/xlsx 仍强制下载）；「临时链接」改为申请 `inline`，由后端按白名单降级。
+- **私有/公开语义收紧**：公开外链只允许 `visibility=public` 的文件（否则 409），`PATCH` 改回私有会自动撤销全部外链；
+  文件管理页把操作收进「分享」下拉（公开链接 / 临时链接 / 撤销公开链接），可见性列移到 ID 之后。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
@@ -100,6 +102,8 @@
   `StoredFileDTO.inline_allowed`；前端预览弹窗支持图片/视频内嵌、文本（含截断提示）、PDF 新标签打开。
   `storage.inline_mime` 默认加入 `text/plain`、`video/mp4`、`video/webm`（图片/PDF/文本/视频可直接在浏览器打开，
   zip/docx/xlsx 仍强制下载）；「临时链接」改为申请 `inline`，由后端按白名单降级。
+- **私有/公开语义收紧**：公开外链只允许 `visibility=public` 的文件（否则 409），`PATCH` 改回私有会自动撤销全部外链；
+  文件管理页把操作收进「分享」下拉（公开链接 / 临时链接 / 撤销公开链接），可见性列移到 ID 之后。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。
@@ -175,6 +179,8 @@
   `StoredFileDTO.inline_allowed`；前端预览弹窗支持图片/视频内嵌、文本（含截断提示）、PDF 新标签打开。
   `storage.inline_mime` 默认加入 `text/plain`、`video/mp4`、`video/webm`（图片/PDF/文本/视频可直接在浏览器打开，
   zip/docx/xlsx 仍强制下载）；「临时链接」改为申请 `inline`，由后端按白名单降级。
+- **私有/公开语义收紧**：公开外链只允许 `visibility=public` 的文件（否则 409），`PATCH` 改回私有会自动撤销全部外链；
+  文件管理页把操作收进「分享」下拉（公开链接 / 临时链接 / 撤销公开链接），可见性列移到 ID 之后。
 - **文件管理模块**（`internal/file` + `internal/platform/blobx`）：
   - 上传 `POST /api/v1/files`（multipart，服务端嗅探真实 MIME、类型/大小白名单、流式写入 + sha256），
     元数据列表/详情/可见性/软删；`files` + `file_links` 迁移 `000010`。

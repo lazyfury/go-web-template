@@ -27,6 +27,10 @@ type AssetLink struct {
 // PublicURL returns (creating it if needed) the long-lived asset URL for a file.
 // It is the trusted internal API used by other domains when rendering their own
 // resources; it performs no actor check because there is no HTTP caller.
+//
+// A long-lived asset link is anonymous-readable by design, so the file must be
+// public: otherwise "private" would silently mean "private except for whoever
+// has the link". Private sharing uses the short-lived signed URL instead.
 func (s *Service) PublicURL(ctx context.Context, fileID uint64, purpose string) (AssetLink, error) {
 	record, err := s.repo.FindByID(ctx, fileID)
 	if err != nil {
@@ -34,6 +38,9 @@ func (s *Service) PublicURL(ctx context.Context, fileID uint64, purpose string) 
 	}
 	if record.Status != StatusReady {
 		return AssetLink{}, apperr.New(apperr.CodeNotFound, "file not found")
+	}
+	if err := requirePublic(record); err != nil {
+		return AssetLink{}, err
 	}
 	return s.ensureShare(ctx, record, purpose, nil)
 }
@@ -54,12 +61,25 @@ func (s *Service) Share(ctx context.Context, actor authkit.Principal, fileID uin
 	if record.Status != StatusReady {
 		return AssetLink{}, apperr.New(apperr.CodeConflict, "file is not ready")
 	}
+	if err := requirePublic(record); err != nil {
+		return AssetLink{}, err
+	}
 	var expiresAt *time.Time
 	if expiresIn > 0 {
 		at := s.opts.Now().Add(expiresIn)
 		expiresAt = &at
 	}
 	return s.ensureShare(ctx, record, purpose, expiresAt)
+}
+
+// requirePublic rejects long-lived links for private files: the link bypasses
+// authentication, so it may only exist for files the owner already declared
+// public. The UI mirrors this rule (the share button is disabled).
+func requirePublic(record *File) error {
+	if record.Visibility != VisibilityPublic {
+		return apperr.New(apperr.CodeConflict, "file must be public before it can be shared publicly (set visibility=1 first)")
+	}
+	return nil
 }
 
 // RevokeShares is the HTTP-facing revoke: ownership required. An empty purpose

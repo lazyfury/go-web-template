@@ -765,9 +765,43 @@ func TestCleanFilename(t *testing.T) {
 
 // ---- public asset links (file_shares) ------------------------------------
 
+func uploadPublicPNG(t *testing.T, svc *Service) *File {
+	t.Helper()
+	record := uploadPNG(t, svc, memberActor)
+	if _, err := svc.UpdateVisibility(context.Background(), memberActor, record.ID, VisibilityPublic); err != nil {
+		t.Fatalf("make file public: %v", err)
+	}
+	return record
+}
+
+func TestPublicURLRequiresPublicVisibility(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	record := uploadPNG(t, svc, memberActor)
+	ctx := context.Background()
+
+	if _, err := svc.PublicURL(ctx, record.ID, ""); !codeIs(err, apperr.CodeConflict) {
+		t.Errorf("PublicURL(private) = %v, want conflict", err)
+	}
+	if _, err := svc.Share(ctx, memberActor, record.ID, "", 0); !codeIs(err, apperr.CodeConflict) {
+		t.Errorf("Share(private) = %v, want conflict", err)
+	}
+	// Switching to private revokes every link issued while it was public.
+	public := uploadPublicPNG(t, svc)
+	link, err := svc.PublicURL(ctx, public.ID, "")
+	if err != nil {
+		t.Fatalf("PublicURL(public): %v", err)
+	}
+	if _, err := svc.UpdateVisibility(ctx, memberActor, public.ID, VisibilityPrivate); err != nil {
+		t.Fatalf("set private: %v", err)
+	}
+	if _, err := svc.Asset(ctx, tokenOf(t, link.URL)); err == nil {
+		t.Error("asset link survived switching back to private")
+	}
+}
+
 func TestPublicURLIsIdempotentAndRevocable(t *testing.T) {
 	svc, repo, _ := newTestService(t)
-	record := uploadPNG(t, svc, memberActor)
+	record := uploadPublicPNG(t, svc)
 	ctx := context.Background()
 
 	first, err := svc.PublicURL(ctx, record.ID, "")
@@ -820,7 +854,7 @@ func TestPublicURLIsIdempotentAndRevocable(t *testing.T) {
 
 func TestShareRequiresOwnershipAndExpiry(t *testing.T) {
 	svc, _, _ := newTestService(t)
-	record := uploadPNG(t, svc, memberActor)
+	record := uploadPublicPNG(t, svc)
 	ctx := context.Background()
 
 	if _, err := svc.Share(ctx, otherActor, record.ID, "", 0); !codeIs(err, apperr.CodeForbidden) {
@@ -849,7 +883,7 @@ func TestShareRequiresOwnershipAndExpiry(t *testing.T) {
 
 func TestAssetRejectsBadTokens(t *testing.T) {
 	svc, repo, _ := newTestService(t)
-	record := uploadPNG(t, svc, memberActor)
+	record := uploadPublicPNG(t, svc)
 	link, err := svc.PublicURL(context.Background(), record.ID, "")
 	if err != nil {
 		t.Fatalf("PublicURL: %v", err)
@@ -874,7 +908,7 @@ func TestAssetRejectsBadTokens(t *testing.T) {
 
 func TestDeleteRevokesShares(t *testing.T) {
 	svc, repo, _ := newTestService(t)
-	record := uploadPNG(t, svc, memberActor)
+	record := uploadPublicPNG(t, svc)
 	ctx := context.Background()
 	link, err := svc.PublicURL(ctx, record.ID, "")
 	if err != nil {

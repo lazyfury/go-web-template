@@ -2011,7 +2011,7 @@ func TestFileShareAssetLifecycle(t *testing.T) {
 	env := newTestEnv(t, false)
 	admin := env.loginAdmin(t)
 	payload := pngPayload(64)
-	dto := uploadOK(t, env.handler, admin.accessToken, "cover.png", payload, map[string]string{"biz_type": "image"})
+	dto := uploadOK(t, env.handler, admin.accessToken, "cover.png", payload, map[string]string{"biz_type": "image", "visibility": "1"})
 	path := "/api/v1/files/" + strconv.FormatUint(dto.ID, 10)
 
 	share := doJSONAuth(t, env.handler, http.MethodPost, path+"/share", map[string]any{"purpose": "article-cover"}, admin.accessToken)
@@ -2105,6 +2105,18 @@ func TestFileShareAssetLifecycle(t *testing.T) {
 	}
 	if w := doJSON(t, env.handler, http.MethodGet, "/a/short/x.png", nil); w.Code != http.StatusNotFound {
 		t.Errorf("bogus token = %d, want 404", w.Code)
+	}
+
+	// Private files cannot have long-lived links: the API rejects the request and
+	// the UI disables the button (a link would bypass authentication).
+	if w := doJSONAuth(t, env.handler, http.MethodPatch, path, map[string]any{"visibility": 0}, admin.accessToken); w.Code != http.StatusOK {
+		t.Fatalf("set private = %d", w.Code)
+	}
+	if w := doJSONAuth(t, env.handler, http.MethodPost, path+"/share", nil, admin.accessToken); w.Code != http.StatusConflict {
+		t.Errorf("share private file = %d, want 409", w.Code)
+	}
+	if w := doJSONAuth(t, env.handler, http.MethodPatch, path, map[string]any{"visibility": 1}, admin.accessToken); w.Code != http.StatusOK {
+		t.Fatalf("set public again = %d", w.Code)
 	}
 
 	// Deleting the file revokes its shares as well.
