@@ -7,6 +7,17 @@
 
 ### Added
 
+- （下一次发版前在这里累积）
+
+## [0.2.0] - 2026-10-28
+
+### Added
+
+- `make ci`：把 `check` + `web-check` + `audit` 收敛成一个全量入口，本地提交前与接入 CI 都只调它；
+  顺带 `make web-install`（frozen lockfile）与 `make web-check` 的前置依赖检查（缺依赖时给可执行提示）。
+- 配置三方一致性测试（`internal/platform/config/parity_test.go`）：`Config` 结构体 tag ↔
+  `setDefaults` ↔ `configs/config.example.yaml` 双向比对，并对示例配置跑一遍 `Validate`。
+- `LICENSE`（MIT）：README 早就声明 MIT，但仓库里没有授权文件。
 - 路由矩阵测试：每个已注册路由都声明「匿名 401 / member / admin / 非法 JSON 400」，
   新路由未分类即失败（`internal/app/route_matrix_test.go`）。
 - `make cover-check`（覆盖率下限 `COVER_MIN`，默认 74）并入 `make check`。
@@ -22,6 +33,12 @@
 
 ### Fixed
 
+- CORS 配置校验：`cors.allow_credentials=true` 时拒绝 `*`（含空列表回落到 `*`）、拒绝
+  `https://*.example.com` 通配模式、要求每项是 `scheme://host[:port]` 形式的 origin；逗号分隔的
+  环境变量会被 trim。此前这些组合都能启动成功，然后在浏览器里静默失效（refresh cookie 流程中断），
+  或让 `cors.New` 在装配期 panic。
+- `configs/config.example.yaml` 补上缺失的 13 个键（`ratelimit.backend`、`redis.*`、`retention.*`）；
+  `.env.example` 一直把该文件当“完整键列表”，但保留期清理与多副本限流在那里是查不到的。
 - 退出登录不再「看起来没反应」：原来 `authApi.logout()` 是 fire-and-forget，导航到 `/login` 时
   store 里还留着 access token，守卫又把它弹回 `/dashboard`，直到下一次请求 401 才被动重定向。
   现在 `useLogout` 先等后端吊销 + 本地清态，再带 `redirect` 跳登录页（并发点击只执行一次，
