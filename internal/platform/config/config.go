@@ -72,6 +72,10 @@ type Database struct {
 	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
 	LogLevel        string        `mapstructure:"log_level"` // silent | error | warn | info
+	// SlowThreshold is when gorm logs a statement at warn level. Keep it well
+	// below the request timeout: a query that is slow but still succeeds is
+	// invisible to the access log's status codes.
+	SlowThreshold time.Duration `mapstructure:"slow_threshold"`
 }
 
 // Log holds the zap logger settings.

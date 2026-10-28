@@ -34,6 +34,8 @@ database:
   max_idle_conns: 10
   conn_max_lifetime: 1h
   log_level: warn          # silent | error | warn | info
+  # 慢查询阈值：超过它就按 warn 落日志（SQL 语句仍用占位符，不含参数值）
+  slow_threshold: 1s
 
 log:
   level: info              # debug | info | warn | error

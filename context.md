@@ -74,7 +74,7 @@
 ```yaml
 app:      {name, env, debug, port: 8080}
 http:     {read_timeout, read_header_timeout, write_timeout, idle_timeout, shutdown_timeout, request_timeout, max_body_bytes, max_header_bytes}
-database: {driver: postgres, host, port, user, password, dbname, sslmode, max_open_conns, max_idle_conns, conn_max_lifetime, log_level}
+database: {driver: postgres, host, port, user, password, dbname, sslmode, max_open_conns, max_idle_conns, conn_max_lifetime, log_level, slow_threshold: 1s}
 log:      {level: info|debug|warn|error, format: json|console}
 cors:     {allowed_origins, allowed_methods, allowed_headers, exposed_headers, allow_credentials, max_age}
 ratelimit:{enabled, rps, burst, backend: memory|redis}   # backend=redis 时桶在 Redis 共享

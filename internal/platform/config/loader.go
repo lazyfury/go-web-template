@@ -52,6 +52,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.max_idle_conns", 10)
 	v.SetDefault("database.conn_max_lifetime", "1h")
 	v.SetDefault("database.log_level", "warn")
+	v.SetDefault("database.slow_threshold", "1s")
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
@@ -291,6 +292,9 @@ func (c *Config) Validate() error {
 		}
 	default:
 		return fmt.Errorf("invalid ratelimit.backend %q (memory|redis)", c.RateLimit.Backend)
+	}
+	if c.Database.SlowThreshold <= 0 {
+		return fmt.Errorf("database.slow_threshold must be positive")
 	}
 	if c.HTTPServer.ReadTimeout <= 0 || c.HTTPServer.WriteTimeout <= 0 {
 		return fmt.Errorf("http read/write timeouts must be positive")
