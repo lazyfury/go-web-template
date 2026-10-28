@@ -1216,7 +1216,7 @@
                       "format": "int32"
                     },
                     "data": {
-                      "$ref": "#/components/schemas/FileListResponse"
+                      "$ref": "#/components/schemas/FilePage"
                     },
                     "message": {
                       "type": "string"
@@ -3397,7 +3397,7 @@
           "page_size"
         ]
       },
-      "FileListResponse": {
+      "FilePage": {
         "type": "object",
         "properties": {
           "items": {

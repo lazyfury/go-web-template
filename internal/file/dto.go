@@ -35,8 +35,8 @@ type StoredFileDTO struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
-// FileListResponse is one page of files.
-type FileListResponse struct {
+// FilePage is one page of files.
+type FilePage struct {
 	Items    []StoredFileDTO `json:"items"`
 	Total    int64           `json:"total"`
 	Page     int             `json:"page"`

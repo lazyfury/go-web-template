@@ -570,7 +570,7 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
-        FileListResponse: {
+        FilePage: {
             items: components["schemas"]["StoredFileDTO"][];
             /** Format: int32 */
             page: number;
@@ -1615,7 +1615,7 @@ export interface operations {
                     "application/json": {
                         /** Format: int32 */
                         code: number;
-                        data?: components["schemas"]["FileListResponse"];
+                        data?: components["schemas"]["FilePage"];
                         message: string;
                         request_id?: string;
                     };

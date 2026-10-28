@@ -30,7 +30,7 @@ func RegisterRoutes(rg *routekit.Group, h *Handler) {
 			routekit.Query[string]("biz_type", "Filter by business type", false),
 			routekit.Query[string]("keyword", "Keyword matched against the original file name", false),
 		},
-		Responses: []routekit.Response{routekit.OK[FileListResponse]("file page")},
+		Responses: []routekit.Response{routekit.OK[FilePage]("file page")},
 		Errors:    []apperr.Code{apperr.CodeInvalidArgument, apperr.CodeForbidden},
 	}, h.List)
 
