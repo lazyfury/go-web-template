@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "gen:api": "openapi-typescript ../../docs/openapi.json -o src/types/openapi.ts",
-    "api:check": "pnpm gen:api && git diff --exit-code -- src/types/openapi.ts"
+    "api:check": "pnpm gen:api && git diff --exit-code -- src/types/openapi.ts",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -30,6 +31,7 @@
     "@types/node": "^22.13.0",
     "@unocss/reset": "^66.0.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vitest/coverage-v8": "^5.0.5",
     "eslint": "^10.13.0",
     "eslint-plugin-vue": "^10.11.1",
     "jsdom": "^30.1.3",

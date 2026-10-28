@@ -37,6 +37,18 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.ts'],
     restoreMocks: true,
+    // 覆盖率门槛只覆盖「有单测的价值」的逻辑层（store/composable/api/router/utils/config）。
+    // views/components 目前没有单测，把它们计入总量只会把门槛稀释到毫无意义；
+    // 它们的行为由 Playwright 冒烟与后端集成测试兜（见 web/admin/README）。
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'html'],
+      include: ['src/**/*.{ts,vue}'],
+      exclude: ['src/types/**', 'src/views/**', 'src/components/**', 'src/App.vue', 'src/main.ts', 'src/**/*.test.ts'],
+      // 门槛贴着当前水位（43.4/38.6/27.3/41.9）留一点余量：防回退，不假装成质量目标。
+      // 提升测试覆盖率后按实际值往上抬，不要下调。
+      thresholds: { statements: 40, branches: 35, functions: 25, lines: 40 },
+    },
   },
   server: {
     port: 5173,

@@ -14,6 +14,7 @@ pnpm install
 pnpm dev        # http://localhost:5173，/api 代理到 http://localhost:8080（Go 后端）
 pnpm build      # 类型检查 + 生产构建到 dist/
 pnpm gen:api    # docs/openapi.json → src/types/openapi.ts
+pnpm test:coverage  # 单测 + 覆盖率门槛（v8；门槛见 vite.config.ts）
 ```
 
 `src/components.d.ts` 与 `src/auto-imports.d.ts` 由 `unplugin-vue-components` / `unplugin-auto-import`
