@@ -37,7 +37,7 @@ MIGRATE_VERSION       ?= v4.20.1
         build run dev test test-race coverage coverage-func cover-check vet lint fmt fmt-check tidy \
         check gate openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up \
         ci web-install web-deps \
-        migrate-up migrate-down migrate-create \
+        migrate-up migrate-down migrate-create migrate-roundtrip \
         web-check docker-build image-scan jwt-secret docker-up docker-down docker-logs clean
 
 help: ## 显示所有命令
@@ -206,6 +206,9 @@ migrate-up: ## 应用全部迁移
 	else \
 		echo "需要 docker 或本地 migrate 二进制；无 docker 时运行 make migrate-tool"; exit 1; \
 	fi
+
+migrate-roundtrip: ## 迁移可逆性：scratch 库 up → down 全部 → up（先 make db-up；不碰开发库）
+	@./scripts/migrate-roundtrip.sh
 
 migrate-down: ## 回滚最近 1 个迁移（破坏性，先确认）
 	@if command -v docker >/dev/null 2>&1; then \

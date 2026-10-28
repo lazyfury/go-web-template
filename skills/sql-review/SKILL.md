@@ -49,7 +49,8 @@ make test        # SQLite 上跑真实查询，可移植性的最终判据
 ```bash
 make db-up
 make migrate-up                          # 期望：应用到新版本，重复跑输出 "no change"
-make migrate-down && make migrate-up     # 验证 down 真的能回滚（本地库，绝不在共享库跑）
+make migrate-roundtrip                   # scratch 库上 up → down -all → up（不碰开发库，优先用它）
+make migrate-down && make migrate-up     # 只回滚最近 1 个（本地库，绝不在共享库跑）
 make test                                # SQLite：可移植性 + 仓储 CRUD/软删
 make smoke                               # 真实进程 + 真实 PG：CRUD 全链路
 ```

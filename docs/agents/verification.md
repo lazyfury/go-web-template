@@ -8,6 +8,7 @@
 |---|---|---|
 | `make check` | **每次提交前（必跑）** | golangci-lint、gofmt 校验、go vet、race 测试、覆盖率门（`scripts/cover-check.sh`：总量 `COVER_MIN` + 每包 `COVER_PKG_MIN` + 关键文件零覆盖函数）、build、OpenAPI 黄金文件、`go mod tidy` 同步 |
 | `make audit` | auth/JWT/鉴权/迁移 SQL 改动、发布前 | 密钥泄露、日志卫生、可移植 SQL、迁移 up/down 配对、鉴权 401/403 矩阵回归、govulncheck |
+| `make migrate-roundtrip` | 改迁移 SQL、发布前 | 真实 PG 的 scratch 库上跑 `up → down -all → up`（先 `make db-up`） |
 | `make smoke` / `make verify-auth` | 有 postgres 时；改认证/会话后必跑 `verify-auth` | 真实进程 + 真实 PG 的端到端行为；`smoke` 覆盖探针/登录/权限/CRUD/refresh/OpenAPI |
 
 ## 常用闭环
@@ -19,6 +20,7 @@ make ci            # 全量门 = check + web-check + audit（本地提交前 / �
 make audit         # auth/鉴权/迁移/发布前
 make smoke         # 有 PG 时；脚本自起自停
 make verify-auth   # 改登录/refresh/会话后必跑
+make migrate-roundtrip  # 改迁移 SQL 后必跑（真实 PG，scratch 库，不碰开发库）
 ```
 
 - 前端改动：`make web-check`（eslint + vue-tsc + vitest + `pnpm api:check` + build）；首次在新机器上先 `make web-install`。
@@ -43,7 +45,7 @@ make verify-auth   # 改登录/refresh/会话后必跑
 | 纯 Go 业务逻辑 | `make test`，提交前仍跑 `make check` |
 | 改路由/DTO/OpenAPI | `make openapi` + `make check` + `pnpm api:check` |
 | 改 auth/会话 | `make check` + `make audit` + `make verify-auth` |
-| 改迁移 SQL | `make check` + `make audit` + 真实 PG up/down |
+| 改迁移 SQL | `make check` + `make audit` + `make migrate-roundtrip`（真实 PG） |
 | 改前端 | `pnpm typecheck` + `pnpm build` + `pnpm api:check` |
 
 ## 常见失败

@@ -221,6 +221,7 @@ make db-up          # 起本地 postgres（docker compose 优先）
 make openapi        # 重新生成 docs/openapi.json（改了路由元数据后）
 make migrate-up     # 执行迁移（有 docker 用镜像，否则用本地 migrate）
 make migrate-create NAME=add_posts_table   # 新建迁移
+make migrate-roundtrip  # 迁移可逆性：scratch 库 up → down 全部 → up（先 make db-up）
 make docker-up      # 一键：postgres + migrate + app
 make docker-down    # 停止
 ```

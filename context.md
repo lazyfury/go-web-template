@@ -177,7 +177,7 @@ retention:{enabled: true, interval: 1h, timeout: 1m,
 - `000008` 的 `idx_message_deliveries_lease` 是 `(locked_until) WHERE status = 1` 部分索引：没有它，「租约过期的在途行」这条腿只能全表扫 `status=1`（真实 PG 16、25 万行 / 5 万在途：Parallel Seq Scan 7.6ms、扫 25 万行；有索引后 Bitmap Index Scan 1.2ms）。改 `ClaimDeliveries` 的谓词时同步复核这个索引。
 - 详细状态机、worker 生命周期与 API 计划见 `docs/design-message.md`。
 
-- 迁移工具：golang-migrate（SQL 文件），`make migrate-up/down/create`。
+- 迁移工具：golang-migrate（SQL 文件），`make migrate-up/down/create`；`make migrate-roundtrip` 在 scratch 库上跑 `up → down -all → up`，用来证明 down SQL 真的可回滚（`audit` 只检查文件成对/非空）。
 - **GORM model 与迁移 SQL 是两套事实来源**，改表必须两处同步；测试库用 `AutoMigrate`（`internal/testutil.NewSQLiteDB(t, &user.User{})`）自动建表。
 - 新表记住：唯一索引要考虑软删除场景；查询保持 `LOWER()` 可移植写法。
 - HTTP 响应使用 `internal/user/dto.go` 的 `UserDTO`/`ListResponse`，GORM entity 不直接作为 API 模型；暴露新字段必须改 DTO，避免 DB 字段意外泄漏。

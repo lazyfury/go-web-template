@@ -53,6 +53,7 @@ make migrate-up
 docker compose -f deploy/docker-compose.yml exec postgres psql -U postgres -d go_web_template -c '\d posts'
 # 无 docker（本机 psql 且连 127.0.0.1）：
 psql 'postgres://postgres:postgres@127.0.0.1:5432/go_web_template?sslmode=disable' -c '\d posts'
+make migrate-roundtrip  # 真实 PG scratch 库：up → down -all → up（先 make db-up；证明 down 可回滚）
 make smoke      # 有 DB 时覆盖真实进程的 CRUD 全链路
 ```
 

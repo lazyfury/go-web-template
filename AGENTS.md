@@ -77,6 +77,7 @@ Go Web 单体模板：**Gin + GORM + PostgreSQL + zap**，分层 `handler → se
 | `make check` | **每次提交前（必跑）** | lint、gofmt、vet、race、覆盖率门（总量 + 每包 + 关键文件零覆盖）、build、OpenAPI 黄金文件、tidy |
 | `make ci` | 提交前 / 接入 CI | `check` + `web-check` + `audit` 一次跑完（不含需要真实 PG 的 smoke/verify-auth） |
 | `make audit` | auth/JWT/鉴权/迁移 SQL、发布前 | 密钥/日志卫生、可移植 SQL、迁移配对、401/403 回归、govulncheck |
+| `make migrate-roundtrip` | 改迁移 SQL、发布前 | scratch 库 `up → down -all → up`，down SQL 真的被执行 |
 | `make smoke` / `make verify-auth` | 有 postgres 时；auth 改动必跑 `verify-auth` | 真实进程 + 真实 PG 端到端 |
 
 - **禁止未运行就声称通过**：贴真实输出最后几行。
