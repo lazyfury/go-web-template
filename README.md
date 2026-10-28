@@ -213,6 +213,7 @@ make bench          # 基准测试（JWT 签发/校验、限流中间件）
 make fuzz FUZZTIME=30s  # 模糊测试（JWT 校验：任意输入不得 panic/误放行）
 make deps-outdated  # 列出 Go/前端可升级依赖（月度节奏，见 docs/agents/verification.md）
 make db-backup      # 备份数据库到 backups/（恢复见 docs/ops-runbook.md）
+make observability-up  # 起编排 + Prometheus + Grafana（自动打开 /metrics；看板自动装载）
 make test-race      # 竞态检测
 make coverage-func  # 覆盖率文本摘要
 make check          # 提交前唯一门槛：lint + gofmt + vet + race 测试 + build + OpenAPI 黄金文件/依赖 同步
@@ -286,6 +287,10 @@ docker compose -f deploy/docker-compose.yml up -d --build
   `no-new-privileges` + `cap_drop: ALL` + 非 root（镜像内 UID 10001）+ 512MB/1CPU 上限 +
   `stop_grace_period: 30s`（覆盖 `http.shutdown_timeout`）。基础镜像按 digest 固定
   （`golang:1.27.3-alpine@sha256:…`、`alpine:3.21@sha256:…`），升级时同步改 digest。
+- **可观测性（可选）**：`make observability-up` 在编排里额外拉起 Prometheus + Grafana
+  （compose profile，自动打开 `/metrics`，告警规则与看板自动装载）：
+  Prometheus `:9090`、Grafana `:3000/d/go-web-template`；生产抓取方式见 `deploy/observability/README.md`。
+  ![看板预览](deploy/observability/preview.png)
 - **SBOM**：`make sbom` 用 trivy 生成 CycloneDX 到 `dist/sbom.cdx.json`（不入库）；
   `make image-scan` 扫描 HIGH/CRITICAL，发布前必跑。
 - **多架构镜像**（需要 buildx + registry）：

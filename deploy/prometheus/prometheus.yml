@@ -1,0 +1,18 @@
+# 本地可观测性编排（make observability-up）用的抓取配置。
+# 生产请按 deploy/observability/README.md 替换为真实服务发现 / 反代 ACL 抓取。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: go-web-template
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8080"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

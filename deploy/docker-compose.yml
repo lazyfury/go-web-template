@@ -133,5 +133,52 @@ services:
       retries: 5
       start_period: 5s
 
+  # ---- 可观测性（可选，compose profile） -------------------------------------
+  # `make observability-up` 会带 --profile observability 并打开 APP_METRICS_ENABLED，
+  # 告警规则与看板由 deploy/ 下的文件自动装载（不是三选一：/metrics → Prometheus →
+  # Grafana 是一条链，任一层都可以单独用）。
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.15.1
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    security_opt:
+      - no-new-privileges:true
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:13.3.0
+    depends_on:
+      - prometheus
+    environment:
+      # 本地演示：匿名只读，免登录看板。生产请关掉匿名并用 SSO/强密码。
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/go-web-template.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/go-web-template.json:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   pgdata:
+  promdata:
+  grafanadata:

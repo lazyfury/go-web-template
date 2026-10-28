@@ -23,6 +23,10 @@
 - `make db-backup` / `make db-restore`（后者要求 `FILE=` + `CONFIRM=1`）与 `docs/ops-runbook.md`：
   备份/恢复演练、JWT 与数据库口令轮换、告警 → 处置 playbook、SLO/错误预算、发布 checklist。
 - `make sbom`：trivy 生成 CycloneDX 到 `dist/sbom.cdx.json`（163 个组件）。
+- 可观测性一键编排：`make observability-up`（compose profile）在当前编排上额外拉起
+  Prometheus `:9090` 与 Grafana `:3000`，自动打开 `APP_METRICS_ENABLED`、装载抓取配置/13 条告警规则/
+  看板（数据源与 dashboard 均 provision）；本地匿名只读，生产需关掉。附看板实拍
+  `deploy/observability/preview.png`。
 
 ### Changed
 

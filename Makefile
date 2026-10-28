@@ -38,7 +38,8 @@ MIGRATE_VERSION       ?= v4.20.1
         check gate test-cover openapi tidy-check vuln audit smoke verify-auth seed-admin seed-demo db-up bench fuzz deps-outdated \
         ci web-install web-deps e2e \
         migrate-up migrate-down migrate-create migrate-roundtrip \
-        web-check docker-build image-scan sbom db-backup db-restore jwt-secret docker-up docker-down docker-logs clean
+        web-check docker-build image-scan sbom db-backup db-restore jwt-secret docker-up docker-down \
+        observability-up observability-down docker-logs clean
 
 help: ## 显示所有命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -308,6 +309,16 @@ TRIVY_ENV := -e HTTP_PROXY -e HTTPS_PROXY -e NO_PROXY
 image-scan: docker-build ## 扫描镜像 HIGH/CRITICAL 漏洞（trivy，需要网络）
 	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(TRIVY_ENV) $(TRIVY_IMAGE) \
 		image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(APP_NAME):$(VERSION)
+
+observability-up: jwt-secret ## 起编排 + Prometheus + Grafana（自动打开 /metrics；本地匿名看板）
+	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
+	# APP_METRICS_ENABLED=true 只在这条路径打开：生产式默认关闭（见 security-review F7）。
+	APP_AUTH_JWT_SECRET="$$(cat $(JWT_SECRET_FILE))" APP_AUTH_COOKIE_SECURE=false APP_METRICS_ENABLED=true \
+		docker compose -f deploy/docker-compose.yml --profile observability up -d --build
+	@echo "Prometheus: http://127.0.0.1:9090  Grafana: http://127.0.0.1:3000/d/go-web-template"
+
+observability-down: ## 停止 observability 编排（保留数据卷）
+	docker compose -f deploy/docker-compose.yml --profile observability down
 
 docker-up: jwt-secret ## 一键启动 postgres + redis + migrate + app（自动注入 JWT 密钥）
 	# 本地是 http：compose 默认 Secure=true 会让浏览器不回传 refresh cookie，这里显式关掉。
