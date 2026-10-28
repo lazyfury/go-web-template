@@ -17,6 +17,12 @@
 - 配置：`database.slow_threshold`（慢查询阈值，默认 1s）、`message.mail.require_tls`
   （默认 true，production 不允许 false）。
 - 前端覆盖率门槛（v8，仅统计 store/composable/api/router/utils：stmts 40 / branches 35 / funcs 25 / lines 40）。
+- `make bench`（JWT 签发/校验、限流中间件，`-benchmem`）与 `make fuzz`（`FuzzTokenParse`：任意输入不得
+  panic，且只有本 issuer 签发的 token 能通过校验；15s 65 万次执行无发现）。
+- `make deps-outdated`：只读列出 Go 直连依赖与前端可升级项；`docs/agents/verification.md` 写明月度升级节奏。
+- `make db-backup` / `make db-restore`（后者要求 `FILE=` + `CONFIRM=1`）与 `docs/ops-runbook.md`：
+  备份/恢复演练、JWT 与数据库口令轮换、告警 → 处置 playbook、SLO/错误预算、发布 checklist。
+- `make sbom`：trivy 生成 CycloneDX 到 `dist/sbom.cdx.json`（163 个组件）。
 
 ### Changed
 
@@ -27,6 +33,11 @@
 - 前端 Element Plus 按需自动引入（`unplugin-vue-components` / `unplugin-auto-import`），
   `manualChunks` 改为函数式只归类稳定大依赖：JS 1674KB → 1136KB（gzip 565 → 386KB）。
 - `dbx.New` 用 5s 超时的 `PingContext` 做启动检查（黑洞地址不再挂住启动）。
+- 容器加固：app 容器 `read_only` + `tmpfs /tmp` + `no-new-privileges` + `cap_drop: ALL` +
+  512MB/1CPU + `stop_grace_period: 30s`；基础镜像按 digest 固定；BuildKit 缓存挂载；
+  Dockerfile 自带 `HEALTHCHECK` 与 `STOPSIGNAL SIGTERM`。
+- `make check` 只跑一遍全量测试：`test-cover` 同时带 `-race` 与 `-coverprofile`，覆盖率门复用该 profile。
+- `gorm` 慢查询阈值可配（`database.slow_threshold`），README 增加「容器与发布」章节。
 
 ### Fixed
 
@@ -35,6 +46,9 @@
 - 终态投递清理缺索引：新增 `000009` 部分索引 `(updated_at) WHERE status IN (2,4,5)`，
   真实 PG（20 万行 / 47MB、每小时清理约 1800 行）实测 31.1ms → 0.5ms（Seq Scan → Index Scan）。
 - UnoCSS 每次构建刷 `failed to load icon "-"`：`blocklist` 屏蔽 `-` / `i--` 这两个非图标 token。
+- 访问日志不再原样记录 query（`keyword` 等自由文本可能是 PII）：只保留白名单键、单值截断 32 字符，
+  无法解析的 query 直接丢弃。
+- `Retry-After` 按桶速率计算（`ceil(1/rps)` 秒，上限 60），不再是常数 1 秒。
 
 ## [0.2.0] - 2026-10-28
 
